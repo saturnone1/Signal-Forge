@@ -8,20 +8,24 @@ namespace GrpcWorkbench.Controllers;
 [Route("api/[controller]")]
 public class StreamingController : ControllerBase
 {
-    private readonly IStreamingGrpcService _streamingGrpcService;
+    private readonly IGrpcStreamingService _streamingService;
     private readonly ISessionService _sessionService;
     private readonly ILogger<StreamingController> _logger;
 
     public StreamingController(
-        IStreamingGrpcService streamingGrpcService,
+        IGrpcStreamingService streamingService,
         ISessionService sessionService,
         ILogger<StreamingController> logger)
     {
-        _streamingGrpcService = streamingGrpcService;
+        _streamingService = streamingService;
         _sessionService = sessionService;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Server Streaming RPC를 실행합니다. 서버로부터 수신된 모든 메시지를 모아 반환합니다.
+    /// Client/Bidirectional Streaming은 SignalR Hub(GrpcWorkbenchHub)을 통해 처리됩니다.
+    /// </summary>
     [HttpPost("server-streaming")]
     public async Task<IActionResult> ServerStreaming([FromBody] GrpcRequestPayload payload)
     {
@@ -37,30 +41,20 @@ public class StreamingController : ControllerBase
             var messages = new List<string>();
             var tcs = new TaskCompletionSource<bool>();
 
-            await _streamingGrpcService.ExecuteServerStreamingAsync(
+            await _streamingService.ExecuteServerStreamingAsync(
                 payload,
                 session,
-                async msg =>
+                msg => { messages.Add(msg); return Task.CompletedTask; },
+                error =>
                 {
-                    messages.Add(msg);
-                    await Task.CompletedTask;
-                },
-                async error =>
-                {
-                    if (error != null)
-                        tcs.SetException(error);
-                    else
-                        tcs.SetResult(true);
-                    await Task.CompletedTask;
+                    if (error != null) tcs.SetException(error);
+                    else tcs.SetResult(true);
+                    return Task.CompletedTask;
                 });
 
             await tcs.Task;
 
-            return Ok(new
-            {
-                isSuccess = true,
-                messages = messages
-            });
+            return Ok(new { isSuccess = true, messages });
         }
         catch (Exception ex)
         {
@@ -68,109 +62,4 @@ public class StreamingController : ControllerBase
             return StatusCode(500, new { error = ex.Message });
         }
     }
-
-    [HttpPost("client-streaming")]
-    public async Task<IActionResult> ClientStreaming([FromBody] ClientStreamingRequest request)
-    {
-        try
-        {
-            var session = _sessionService.GetSession(request.Payload.SessionId);
-            if (session == null)
-                return NotFound(new { error = "Session not found" });
-
-            if (session.ProtoContent == null || session.ProtoContent.Length == 0)
-                return BadRequest(new { error = "Proto file not uploaded" });
-
-            var response = string.Empty;
-            var tcs = new TaskCompletionSource<bool>();
-
-            await _streamingGrpcService.ExecuteClientStreamingAsync(
-                request.Payload,
-                session,
-                request.Messages,
-                request.IntervalMs,
-                async msg =>
-                {
-                    response = msg;
-                    await Task.CompletedTask;
-                },
-                async error =>
-                {
-                    if (error != null)
-                        tcs.SetException(error);
-                    else
-                        tcs.SetResult(true);
-                    await Task.CompletedTask;
-                });
-
-            await tcs.Task;
-
-            return Ok(new
-            {
-                isSuccess = true,
-                response = response
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Client streaming failed");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    [HttpPost("bidirectional-streaming")]
-    public async Task<IActionResult> BidirectionalStreaming([FromBody] ClientStreamingRequest request)
-    {
-        try
-        {
-            var session = _sessionService.GetSession(request.Payload.SessionId);
-            if (session == null)
-                return NotFound(new { error = "Session not found" });
-
-            if (session.ProtoContent == null || session.ProtoContent.Length == 0)
-                return BadRequest(new { error = "Proto file not uploaded" });
-
-            var messages = new List<string>();
-            var tcs = new TaskCompletionSource<bool>();
-
-            await _streamingGrpcService.ExecuteBidirectionalStreamingAsync(
-                request.Payload,
-                session,
-                request.Messages,
-                request.IntervalMs,
-                async msg =>
-                {
-                    messages.Add(msg);
-                    await Task.CompletedTask;
-                },
-                async error =>
-                {
-                    if (error != null)
-                        tcs.SetException(error);
-                    else
-                        tcs.SetResult(true);
-                    await Task.CompletedTask;
-                });
-
-            await tcs.Task;
-
-            return Ok(new
-            {
-                isSuccess = true,
-                messages = messages
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Bidirectional streaming failed");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-}
-
-public class ClientStreamingRequest
-{
-    public GrpcRequestPayload Payload { get; set; } = new();
-    public List<string> Messages { get; set; } = [];
-    public int IntervalMs { get; set; } = 500;
 }

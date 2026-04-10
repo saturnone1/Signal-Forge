@@ -14,14 +14,3 @@ public class GrpcSession
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastAccessedAt { get; set; } = DateTime.UtcNow;
 }
-
-public class StreamingSessionState
-{
-    public string SessionId { get; set; } = string.Empty;
-    public string StreamId { get; set; } = string.Empty;
-    public string ServiceName { get; set; } = string.Empty;
-    public string MethodName { get; set; } = string.Empty;
-    public List<string> ReceivedMessages { get; set; } = [];
-    public bool IsActive { get; set; }
-    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
-}

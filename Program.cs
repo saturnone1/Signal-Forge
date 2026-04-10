@@ -27,8 +27,7 @@ builder.Services.AddSingleton<IJsonMessageConverter, JsonMessageConverter>();
 builder.Services.AddSingleton<IGrpcServiceClientFinder, GrpcServiceClientFinder>();
 builder.Services.AddSingleton<IDynamicProtoCompiler, DynamicProtoCompiler>();
 builder.Services.AddScoped<IUnaryGrpcService, UnaryGrpcService>();
-builder.Services.AddScoped<IStreamingGrpcService, StreamingGrpcService>();
-builder.Services.AddSingleton<IActiveStreamManager, ActiveStreamManager>();
+builder.Services.AddSingleton<IGrpcStreamingService, GrpcStreamingService>();
 
 // Add Cors
 builder.Services.AddCors(options =>

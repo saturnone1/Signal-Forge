@@ -5,12 +5,12 @@ using GrpcWorkbench.Models.Api;
 using GrpcWorkbench.Models.Session;
 using System.Diagnostics;
 using System.Reflection;
-using System.Text;
 
 namespace GrpcWorkbench.Services;
 
 public interface IUnaryGrpcService
 {
+    /// <summary>Unary RPC를 실행하고 결과를 반환합니다.</summary>
     Task<GrpcResponseData> ExecuteUnaryCallAsync(GrpcRequestPayload payload, GrpcSession session);
 }
 
@@ -36,6 +36,9 @@ public class UnaryGrpcService : IUnaryGrpcService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Proto를 동적으로 컴파일하여 Unary RPC를 실행합니다.
+    /// </summary>
     public async Task<GrpcResponseData> ExecuteUnaryCallAsync(GrpcRequestPayload payload, GrpcSession session)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -43,18 +46,12 @@ public class UnaryGrpcService : IUnaryGrpcService
 
         try
         {
-            // Proto 파일을 동적으로 컴파일하여 어셈블리 로드
             var assembly = await _protoCompiler.CompileProtoToAssemblyAsync(session.ProtoContent ?? []);
 
-            // 동적으로 클라이언트 타입 찾기
             var clientType = _clientFinder.FindServiceClientType(assembly, payload.ServiceName);
             if (clientType == null)
-            {
-                var allTypes = string.Join(", ", assembly.GetTypes().Select(t => t.FullName).Take(20));
-                throw new InvalidOperationException($"Service client for '{payload.ServiceName}' not found. Assembly types: {allTypes}");
-            }
+                throw new InvalidOperationException($"Service client for '{payload.ServiceName}' not found");
 
-            // 메서드 찾기 (CallOptions를 받는 오버로드 선택)
             var methodInfo = clientType.GetMethods()
                 .Where(m => m.Name == payload.MethodName)
                 .FirstOrDefault(m =>
@@ -67,42 +64,26 @@ public class UnaryGrpcService : IUnaryGrpcService
             if (methodInfo == null)
                 throw new InvalidOperationException($"Method '{payload.MethodName}' not found on {clientType.FullName}");
 
-            // 요청 메시지 타입을 메서드 파라미터에서 추출
-            var methodParams = methodInfo.GetParameters();
-            var requestMessageType = methodParams.FirstOrDefault()?.ParameterType;
+            var requestMessageType = methodInfo.GetParameters().FirstOrDefault()?.ParameterType;
             if (requestMessageType == null || !typeof(IMessage).IsAssignableFrom(requestMessageType))
-                throw new InvalidOperationException($"Could not determine request message type for method {payload.MethodName}");
+                throw new InvalidOperationException($"Could not determine request message type for '{payload.MethodName}'");
 
-            _logger.LogInformation($"Request message type: {requestMessageType.FullName}");
-
-            // JSON을 Protobuf 메시지로 변환
             var requestMessage = await _jsonConverter.JsonToMessageAsync(payload.RequestJson, requestMessageType);
-
-            // gRPC 채널 획득
             var channel = await _channelProvider.GetChannelAsync(session);
 
-            // 메타데이터 작성
             var metadata = new Metadata();
             if (payload.Metadata != null)
             {
                 foreach (var kvp in payload.Metadata)
-                {
                     metadata.Add(kvp.Key, kvp.Value);
-                }
             }
 
-            // CallOptions 구성
-            var callOptions = new CallOptions(
-                metadata,
-                DateTime.UtcNow.AddSeconds(payload.TimeoutSeconds)
-            );
-
-            // 클라이언트 인스턴스 생성
+            var callOptions = new CallOptions(metadata, DateTime.UtcNow.AddSeconds(payload.TimeoutSeconds));
             var clientInstance = Activator.CreateInstance(clientType, channel);
 
-            dynamic? result = null;
-
-            if (methodInfo.ReturnType.IsGenericType && methodInfo.ReturnType.GetGenericTypeDefinition() == typeof(Task<>))
+            dynamic? result;
+            if (methodInfo.ReturnType.IsGenericType &&
+                methodInfo.ReturnType.GetGenericTypeDefinition() == typeof(Task<>))
             {
                 var task = (Task)methodInfo.Invoke(clientInstance, [requestMessage, callOptions])!;
                 await task;
@@ -113,21 +94,18 @@ public class UnaryGrpcService : IUnaryGrpcService
                 result = methodInfo.Invoke(clientInstance, [requestMessage, callOptions]);
             }
 
-            // 응답을 JSON으로 변환
             if (result is IMessage message)
-            {
                 response.ResponseJson = _jsonConverter.MessageToJson(message);
-            }
 
             response.IsSuccess = true;
-            _logger.LogInformation("Unary call succeeded: {ServiceName}.{MethodName}", 
+            _logger.LogInformation("Unary call succeeded: {ServiceName}.{MethodName}",
                 payload.ServiceName, payload.MethodName);
         }
         catch (Exception ex)
         {
             response.IsSuccess = false;
             response.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "Unary call failed: {ServiceName}.{MethodName}", 
+            _logger.LogError(ex, "Unary call failed: {ServiceName}.{MethodName}",
                 payload.ServiceName, payload.MethodName);
         }
         finally

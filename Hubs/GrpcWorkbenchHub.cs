@@ -1,5 +1,4 @@
 using GrpcWorkbench.Models.Api;
-using GrpcWorkbench.Controllers;
 using GrpcWorkbench.Models.Api;
 using GrpcWorkbench.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -9,21 +8,18 @@ namespace GrpcWorkbench.Hubs;
 public class GrpcWorkbenchHub : Hub
 {
     private readonly IUnaryGrpcService _unaryGrpcService;
-    private readonly IStreamingGrpcService _streamingGrpcService;
-    private readonly IActiveStreamManager _activeStreamManager;
+    private readonly IGrpcStreamingService _streamingService;
     private readonly ISessionService _sessionService;
     private readonly ILogger<GrpcWorkbenchHub> _logger;
 
     public GrpcWorkbenchHub(
         IUnaryGrpcService unaryGrpcService,
-        IStreamingGrpcService streamingGrpcService,
-        IActiveStreamManager activeStreamManager,
+        IGrpcStreamingService streamingService,
         ISessionService sessionService,
         ILogger<GrpcWorkbenchHub> logger)
     {
         _unaryGrpcService = unaryGrpcService;
-        _streamingGrpcService = streamingGrpcService;
-        _activeStreamManager = activeStreamManager;
+        _streamingService = streamingService;
         _sessionService = sessionService;
         _logger = logger;
     }
@@ -74,7 +70,7 @@ public class GrpcWorkbenchHub : Hub
 
             var streamId = Guid.NewGuid().ToString();
 
-            await _streamingGrpcService.ExecuteServerStreamingAsync(
+            await _streamingService.ExecuteServerStreamingAsync(
                 payload,
                 session,
                 async msg => await Clients.Caller.SendAsync("StreamingMessage", new { streamId, message = msg }),
@@ -94,7 +90,7 @@ public class GrpcWorkbenchHub : Hub
         }
     }
 
-    /// <summary>Client/Bidirectional 스트림을 열고 streamId를 반환</summary>
+    /// <summary>Client/Bidirectional 스트림을 열고 streamId를 반환합니다.</summary>
     public async Task OpenStream(GrpcRequestPayload payload)
     {
         try
@@ -106,7 +102,7 @@ public class GrpcWorkbenchHub : Hub
                 return;
             }
 
-            var streamId = await _activeStreamManager.OpenStreamAsync(payload, session);
+            var streamId = await _streamingService.OpenStreamAsync(payload, session);
             await Clients.Caller.SendAsync("StreamOpened", streamId);
         }
         catch (Exception ex)
@@ -116,12 +112,12 @@ public class GrpcWorkbenchHub : Hub
         }
     }
 
-    /// <summary>열린 스트림에 메시지 1건 전송</summary>
+    /// <summary>열린 스트림에 메시지 1건을 전송합니다.</summary>
     public async Task SendStreamMessage(string streamId, string messageJson)
     {
         try
         {
-            await _activeStreamManager.WriteMessageAsync(streamId, messageJson);
+            await _streamingService.WriteMessageAsync(streamId, messageJson);
             await Clients.Caller.SendAsync("StreamMessageSent", streamId);
         }
         catch (Exception ex)
@@ -131,12 +127,12 @@ public class GrpcWorkbenchHub : Hub
         }
     }
 
-    /// <summary>스트림을 닫고 응답을 반환</summary>
+    /// <summary>스트림을 닫고 서버 응답을 반환합니다.</summary>
     public async Task CloseStream(string streamId)
     {
         try
         {
-            var result = await _activeStreamManager.CloseStreamAsync(streamId);
+            var result = await _streamingService.CloseStreamAsync(streamId);
 
             if (result.IsSuccess)
             {
