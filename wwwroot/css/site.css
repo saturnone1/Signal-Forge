@@ -1,0 +1,202 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #f5f5f5;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+main {
+    min-height: calc(100vh - 60px - 100px);
+    padding: 20px 0;
+}
+
+.card {
+    border: 1px solid #dee2e6;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    padding: 1rem;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+.card-footer {
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}
+
+footer {
+    background-color: #f8f9fa;
+}
+
+pre {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.25rem;
+    border: 1px solid #dee2e6;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+textarea {
+    font-family: "Monaco", "Courier New", monospace;
+    font-size: 0.875rem;
+}
+
+.badge {
+    font-size: 0.75rem;
+    padding: 0.35em 0.65em;
+}
+
+.table-sm td {
+    padding: 0.5rem;
+}
+
+/* ============ 폼 스타일 ============ */
+.form-control-sm,
+.form-select-sm {
+    height: calc(1.5em + 0.5rem + 2px);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.form-label {
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+/* ============ 버튼 스타일 ============ */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.btn-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.btn-link:hover {
+    text-decoration: none;
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* ============ 아코디언 스타일 ============ */
+#step1-icon, #step2-icon, #step3-icon {
+    transition: transform 0.3s ease-in-out;
+    display: inline-block;
+}
+
+/* ============ 헤더 여백 ============ */
+h1, h2, h3, h4, h5, h6 {
+    letter-spacing: 0.3px;
+    margin-bottom: 0.5rem;
+}
+
+h1 {
+    margin-bottom: 0.5rem;
+}
+
+h5 {
+    font-size: 0.95rem;
+}
+
+h6 {
+    font-size: 0.9rem;
+}
+
+/* ============ 알림 메시지 ============ */
+.alert {
+    border-radius: 0.35rem;
+    margin-bottom: 1rem;
+}
+
+.alert.mb-0 {
+    margin-bottom: 0;
+}
+
+/* ============ 카드 간격 ============ */
+.card {
+    margin-bottom: 1rem;
+}
+
+.col-lg-3 .card {
+    margin-bottom: 1rem;
+}
+
+/* ============ 반응형 디자인 ============ */
+@media (max-width: 1200px) {
+    .container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .col-lg-3,
+    .col-lg-6,
+    .col-lg-9 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+}
+
+/* ============ 로그 스타일 ============ */
+.font-monospace {
+    font-family: "Monaco", "Courier New", monospace;
+}
+
+.font-monospace.small {
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.alert {
+    border-radius: 0.25rem;
+}
+
+.btn {
+    border-radius: 0.25rem;
+}
+
+.nav-tabs {
+    border-bottom: 2px solid #dee2e6;
+}
+
+.nav-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: #dee2e6;
+}
+
+.nav-tabs .nav-link.active {
+    color: #0d6efd;
+    background-color: transparent;
+    border-color: #0d6efd;
+}
