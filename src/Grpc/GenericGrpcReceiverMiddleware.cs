@@ -101,6 +101,33 @@ public class GenericGrpcReceiverMiddleware
 
         var frameCount = 0;
         var totalBytes = 0;
+        var notifiedCount = 0;
+        long lastNotifyMs = -1000;
+        const int NotifyMinIntervalMs = 33; // ≈30 notify/s/call — 폭주 시 디코드·통지 CPU 상한
+        byte[]? pendingPayload = null;
+        var pendingLen = 0;
+        var pendingIndex = 0;
+
+        // protobuf → JSON (실패 시 hex 폴백)
+        string Decode(byte[] p, int len)
+        {
+            try
+            {
+                var t = notify.GetOrResolveRequestType(methodName, FindRequestMessageType);
+                if (t?.GetProperty("Parser")?.GetValue(null) is MessageParser parser)
+                    return JsonFormatter.Default.Format(parser.ParseFrom(p));
+            }
+            catch { /* fallthrough */ }
+            return FallbackHex(p, len);
+        }
+
+        void Emit(byte[] p, int len, int idx)
+        {
+            notify.NotifyStreamMessage(new IncomingStreamMessageEvent(
+                CallId: callId, FrameIndex: idx, Data: Decode(p, len)));
+            notifiedCount++;
+            lastNotifyMs = sw.ElapsedMilliseconds;
+        }
 
         try
         {
@@ -120,42 +147,24 @@ public class GenericGrpcReceiverMiddleware
                 frameCount++;
                 totalBytes += length;
 
-                // protobuf 바이트를 JSON으로 디코딩 시도
-                string frameSummary;
-                try
+                // 시간 스로틀: 간격 충족 시에만 디코드+통지, 아니면 최신 프레임만 보관
+                if (sw.ElapsedMilliseconds - lastNotifyMs >= NotifyMinIntervalMs)
                 {
-                    var msgType = notify.GetOrResolveRequestType(methodName, FindRequestMessageType);
-                    if (msgType != null)
-                    {
-                        var parserProp = msgType.GetProperty("Parser");
-                        if (parserProp?.GetValue(null) is MessageParser parser)
-                        {
-                            var msg = parser.ParseFrom(payload);
-                            frameSummary = JsonFormatter.Default.Format(msg);
-                        }
-                        else
-                        {
-                            frameSummary = FallbackHex(payload, length);
-                        }
-                    }
-                    else
-                    {
-                        frameSummary = FallbackHex(payload, length);
-                    }
+                    Emit(payload, length, frameCount);
+                    pendingPayload = null;
                 }
-                catch
+                else
                 {
-                    frameSummary = FallbackHex(payload, length);
+                    pendingPayload = payload;
+                    pendingLen = length;
+                    pendingIndex = frameCount;
                 }
-
-                // Broadcast each received frame via notification service.
-                notify.NotifyStreamMessage(new IncomingStreamMessageEvent(
-                    CallId: callId,
-                    FrameIndex: frameCount,
-                    Data: frameSummary));
             }
         }
         catch { /* ignore stream read/write errors */ }
+
+        // 스로틀로 누락된 마지막 프레임은 항상 한 번 표시 → 최신 상태 보장
+        if (pendingPayload != null) Emit(pendingPayload, pendingLen, pendingIndex);
 
         // Unary / ClientStreaming: caller expects exactly 1 response message.
         // Send a 5-byte gRPC frame with empty body (valid for any proto3 message
@@ -181,9 +190,10 @@ public class GenericGrpcReceiverMiddleware
         sw.Stop();
 
         // ── Broadcast call ended ──────────────────────────────────────────────
+        var sampledNote = frameCount > notifiedCount ? $", {frameCount - notifiedCount} sampled-out" : "";
         notify.NotifyCallEnded(new IncomingCallEndedEvent(
             CallId: callId,
-            Res: $"OK ({frameCount} frame(s), {totalBytes} bytes, {sw.ElapsedMilliseconds} ms)"));
+            Res: $"OK ({frameCount} frame(s){sampledNote}, {totalBytes} bytes, {sw.ElapsedMilliseconds} ms)"));
     }
 
     private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, int count)

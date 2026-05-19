@@ -9,12 +9,31 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnv
 @inject IConfiguration Configuration
 @inject WorkbenchNotificationService Notify
+@inject WorkbenchStateService State
 @inject UiStateService Ui
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>gRPC Workbench</PageTitle>
+
+@if (_evicted)
+{
+    <MudOverlay Visible="true" DarkBackground="true" ZIndex="9999">
+        <div class="wb-panel pa-4" style="text-align:center;max-width:480px;">
+            <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Warning"
+                     Style="font-size:48px;" Class="mb-2" />
+            <MudText Typo="Typo.h6" Class="mb-2">다른 탭에서 사용 중</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3" Style="color:var(--mud-palette-text-secondary);">
+                새 탭/브라우저가 열려 이 탭의 활성 권한이 해제되었습니다.<br />
+                이 탭에서 이어보려면 새로고침하세요. (백그라운드 작업은 계속 진행 중)
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="ReclaimActive">이 탭에서 이어보기</MudButton>
+        </div>
+    </MudOverlay>
+}
 
 <div class="pa-3">
     <MudGrid Spacing="3">
@@ -244,18 +263,19 @@
                             </div>
                         }
 
-                        @if (_streamRecv.Count > 0)
+                        @if (State.StreamRecvCount > 0)
                         {
+                            var streamRecv = State.SnapshotStreamRecv();
                             <div class="d-flex align-center mb-1" style="gap:8px;">
                                 <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small"
                                          Color="Color.Secondary" />
                                 <span class="wb-panel-title">Stream ← 수신</span>
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                                    @_streamRecv.Count
+                                    @streamRecv.Count
                                 </MudChip>
                             </div>
                             <div class="wb-scroll mb-2" style="max-height:28vh;overflow-y:auto;">
-                                @foreach (var m in ((IEnumerable<string>)_streamRecv).Reverse().Take(50))
+                                @foreach (var m in streamRecv.AsEnumerable().Reverse().Take(50))
                                 {
                                     <pre class="wb-code wb-scroll wb-code--accent mb-1" style="max-height:140px;">@m</pre>
                                 }
@@ -295,14 +315,20 @@
                     <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small" Color="Color.Secondary" />
                     <span class="wb-panel-title">Incoming</span>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                        @_incomingCalls.Count
+                        @State.IncomingCount
                     </MudChip>
                     <MudSpacer />
+                    <MudTooltip Text="@(State.IncomingPaused ? "수신 표시 재개 (백그라운드 누적은 계속됨)" : "수신 표시 일시정지")">
+                        <MudIconButton Size="Size.Small"
+                                       Color="@(State.IncomingPaused ? Color.Warning : Color.Default)"
+                                       Icon="@(State.IncomingPaused ? Icons.Material.Filled.PlayArrow : Icons.Material.Filled.Pause)"
+                                       OnClick="@(() => State.SetPaused(!State.IncomingPaused))" />
+                    </MudTooltip>
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
-                                   title="수신 목록 비우기" OnClick="@(() => _incomingCalls.Clear())" />
+                                   title="수신 목록 비우기" OnClick="@(() => State.ClearIncoming())" />
                 </div>
 
-                @if (_incomingCalls.Count == 0)
+                @if (State.IncomingCount == 0)
                 {
                     <div class="wb-empty">
                         <MudIcon Icon="@Icons.Material.Outlined.Sensors" Class="mb-2" />
@@ -312,8 +338,9 @@
                 else
                 {
                     <div class="wb-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto;">
-                        @foreach (var call in _incomingCalls.AsEnumerable().Reverse())
+                        @foreach (var call in State.SnapshotIncoming().AsEnumerable().Reverse())
                         {
+                            var frames = State.SnapshotFrames(call);
                             <div class="wb-panel wb-rpc-accent @RpcCss(call.Type) pa-2 mb-2">
                                 <div class="d-flex align-center mb-1" style="gap:8px;">
                                     <span class="wb-mono" style="font-size:.68rem;color:var(--mud-palette-text-disabled);">
@@ -330,7 +357,7 @@
                                                      Size="Size.Small" Color="Color.Success" />
                                         </MudTooltip>
                                         <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
-                                            @call.Frames.Count f
+                                            @frames.Count f
                                         </span>
                                     }
                                     else
@@ -339,24 +366,43 @@
                                     }
                                 </div>
 
-                                @if (call.Frames.Count > 0)
+                                @if (frames.Count > 0)
                                 {
-                                    @if (call.Frames.Count > 1)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
-                                                   Class="pa-0" Style="min-height:0;font-size:.7rem;"
-                                                   OnClick="@(() => call.ShowAllFrames = !call.ShowAllFrames)">
-                                            @(call.ShowAllFrames ? "최근만 ▲" : $"이전 {call.Frames.Count - 1}건 ▼")
-                                        </MudButton>
-                                    }
+                                    <div class="d-flex align-center" style="gap:4px;">
+                                        @if (frames.Count > 1)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                                                       Class="pa-0" Style="min-height:0;font-size:.7rem;"
+                                                       OnClick="@(() => call.ShowAllFrames = !call.ShowAllFrames)">
+                                                @(call.ShowAllFrames ? "최근만 ▲" : $"이전 {frames.Count - 1}건 ▼")
+                                            </MudButton>
+                                        }
+                                        <MudSpacer />
+                                        <MudTooltip Text="@(call.Expanded ? "본문 접기(요약만)" : "본문 펼치기")">
+                                            <MudIconButton Size="Size.Small" Class="pa-0"
+                                                           Icon="@(call.Expanded ? Icons.Material.Filled.UnfoldLess : Icons.Material.Filled.UnfoldMore)"
+                                                           OnClick="@(() => call.Expanded = !call.Expanded)" />
+                                        </MudTooltip>
+                                        @if (call.Expanded)
+                                        {
+                                            <MudTooltip Text="@(call.Pretty ? "원문(raw)" : "들여쓰기")">
+                                                <MudIconButton Size="Size.Small" Class="pa-0"
+                                                               Icon="@(call.Pretty ? Icons.Material.Filled.Notes : Icons.Material.Filled.FormatAlignLeft)"
+                                                               OnClick="@(() => call.Pretty = !call.Pretty)" />
+                                            </MudTooltip>
+                                        }
+                                    </div>
+
                                     @if (call.ShowAllFrames)
                                     {
-                                        @for (int fi = 0; fi < call.Frames.Count - 1; fi++)
+                                        @for (int fi = 0; fi < frames.Count - 1; fi++)
                                         {
-                                            <pre class="wb-code wb-scroll mt-1" style="max-height:90px;font-size:.68rem;opacity:.6;">@call.Frames[fi]</pre>
+                                            var f = frames[fi];
+                                            <pre class="wb-code wb-scroll mt-1" style="max-height:90px;font-size:.68rem;opacity:.6;">[@f.Index] @(call.Expanded ? Fmt(f.Data, call.Pretty) : Summary(f.Data))</pre>
                                         }
                                     }
-                                    <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:180px;">@call.Frames.Last()</pre>
+                                    var latest = frames[^1];
+                                    <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:180px;">[@latest.Index] @(call.Expanded ? Fmt(latest.Data, call.Pretty) : Summary(latest.Data))</pre>
                                 }
                                 else
                                 {
@@ -377,21 +423,22 @@
                                    Size="Size.Small" OnClick="@(() => _logsExpanded = !_logsExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
                     <span class="wb-panel-title">Logs</span>
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_logs.Count</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.LogCount</MudChip>
                     <MudSpacer />
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
-                                   title="로그 비우기" OnClick="@(() => _logs.Clear())" />
+                                   title="로그 비우기" OnClick="@(() => State.ClearLogs())" />
                 </div>
                 @if (_logsExpanded)
                 {
+                    var logs = State.SnapshotLogs();
                     <div class="wb-code wb-scroll" style="max-height:200px;">
-                        @if (_logs.Count == 0)
+                        @if (logs.Count == 0)
                         {
                             <span style="color:var(--mud-palette-text-disabled);">로그 없음</span>
                         }
                         else
                         {
-                            @foreach (var log in _logs.AsEnumerable().Reverse())
+                            @foreach (var log in logs.AsEnumerable().Reverse())
                             {
                                 <div class="d-flex" style="gap:8px;align-items:flex-start;line-height:1.7;">
                                     <MudIcon Icon="@LogIcon(log.Level)" Size="Size.Small"
@@ -410,52 +457,46 @@
 </div>
 
 @code {
-    // ── 상태 ──────────────────────────────────────────────────────────────────
+    // ── 회로 로컬 상태 (폼/일회성 UI만; 누적 상태는 WorkbenchStateService) ──
     private string _mySocketPath = "로딩 중...";
     private string _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
     private int _timeoutSeconds = 30;
     private bool _connecting;
     private bool _requesting;
 
-    private GrpcSession? _session;
-    private List<ServiceMetadata> _services = [];
-    private ServiceMetadata? _selectedService;
-    private MethodMetadata? _selectedMethod;
-
     private string _requestJson = "{}";
     private string _responseText = string.Empty;
 
-    // 스트리밍
-    private bool _streamOpen;
-    private string? _streamId;
-    private int _sentCount;
-    private List<string> _streamRecv = []; // bidi 서버→클라 실시간 수신
-    private const int MaxStreamRecv = 500;
-
-    // 스키마 폼
     private List<SchemaField> _schemaFields = [];
     private bool _rawJsonMode = false;
-
-    // 수신 패널
-    private List<IncomingCallVm> _incomingCalls = [];
-
-    // 로그
-    private List<LogEntry> _logs = [];
     private bool _logsExpanded = true;
 
-    // ── UI 배치 업데이트 (고주파 수신 대응) ──────────────────────────────────
-    // 200Hz+ 메시지가 와도 StateHasChanged는 20Hz(50ms)로만 호출됨
-    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _pendingUiActions = new();
+    // ── 1-탭 정책 + 변경 감지 펌프 ──────────────────────────────────────────
+    private Guid _clientId;
+    private bool _evicted;
+    private bool _disposed;
+    private volatile bool _dirty;
     private PeriodicTimer? _uiTimer;
     private readonly CancellationTokenSource _cts = new();
-    private const int MaxIncomingCalls = 100;
-    private const int MaxFramesPerCall  = 1000;
+
+    // ── State 래퍼 (마크업을 그대로 두기 위한 alias) ────────────────────────
+    private GrpcSession? _session => State.Session;
+    private List<ServiceMetadata> _services => State.Services;
+    private bool _streamOpen => State.IsStreamOpen;
+    private string? _streamId => State.StreamId;
+    private int _sentCount => State.SentCount;
+
+    private ServiceMetadata? _selectedService
+    {
+        get => State.Services.FirstOrDefault(s => s.ServiceName == State.SelectedServiceName);
+        set => State.SetSelected(value?.ServiceName, null);
+    }
+    private MethodMetadata? _selectedMethod
+        => _selectedService?.Methods.FirstOrDefault(m => m.MethodName == State.SelectedMethodName);
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────────
     private bool IsBidi => _selectedMethod?.RpcType == "BidirectionalStreaming";
     private bool IsClientStream => _selectedMethod?.RpcType == "ClientStreaming";
-
-    private enum LogLevel { Info, Success, Warn, Error, Send }
 
     private Color RpcTypeColor(string? type) => type switch
     {
@@ -466,7 +507,6 @@
         _ => Color.Default
     };
 
-    // CSS 클래스로 RPC 색 액센트 (--wb-rpc 변수 + 좌측 보더). 하드코딩 hex 제거.
     private static string RpcCss(string? type) => type switch
     {
         "Unary" => "wb-rpc-unary",
@@ -495,7 +535,7 @@
     };
 
     private void Log(string text, LogLevel level = LogLevel.Info) =>
-        _logs.Add(new LogEntry(DateTime.Now, text, level));
+        State.AddLog(text, level);
 
     private void OnRawModeChanged(bool raw)
     {
@@ -511,11 +551,12 @@
             ?? Configuration["GrpcWorkbench:UdsSocketPath"]
             ?? "(설정 없음)";
 
-        Notify.CallStarted += OnCallStarted;
-        Notify.StreamMessageReceived += OnStreamMessageReceived;
-        Notify.CallEnded += OnCallEnded;
+        // 1-탭 정책: 이 회로가 활성 클라이언트가 됨. 이전 클라이언트(있으면) Evicted.
+        _clientId = State.ClaimActive();
+        State.Changed += OnStateChanged;
+        State.Evicted += OnEvicted;
 
-        // 20Hz UI 갱신 타이머 시작 — 고주파 메시지 배치 처리
+        // 미들웨어 알림은 State가 직접 구독함. 여기선 _dirty만 보고 20Hz로 render.
         _uiTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
         _ = Task.Run(async () =>
         {
@@ -523,18 +564,35 @@
             {
                 while (await _uiTimer.WaitForNextTickAsync(_cts.Token))
                 {
-                    if (!_pendingUiActions.IsEmpty)
-                        await InvokeAsync(() =>
-                        {
-                            while (_pendingUiActions.TryDequeue(out var act)) act();
-                            StateHasChanged();
-                        });
+                    if (_dirty && !State.IncomingPaused)
+                    {
+                        _dirty = false;
+                        await InvokeAsync(StateHasChanged);
+                    }
                 }
             }
             catch (OperationCanceledException) { }
         });
 
-        await TryLoadDefaultProtoServices();
+        // 기본 proto는 이전 회로/시작 시 이미 로드됐을 수 있으므로 비어있을 때만.
+        if (State.Services.Count == 0) await TryLoadDefaultProtoServices();
+    }
+
+    private void OnStateChanged() => _dirty = true;
+
+    private void OnEvicted()
+    {
+        if (_disposed) return;
+        if (State.IsActive(_clientId)) return; // 새 활성이 나면 이 핸들러는 무시
+        _evicted = true;
+        State.Changed -= OnStateChanged;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ReclaimActive()
+    {
+        // 새 회로 진입 → ClaimActive 재실행 → 현재(다른 탭) 클라이언트 evict.
+        await JS.InvokeVoidAsync("location.reload");
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -560,11 +618,15 @@
             var mtdName = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_method");
             if (!string.IsNullOrEmpty(svcName))
             {
-                _selectedService = _services.FirstOrDefault(s => s.ServiceName == svcName);
-                if (_selectedService != null && !string.IsNullOrEmpty(mtdName))
+                var svc = _services.FirstOrDefault(s => s.ServiceName == svcName);
+                if (svc != null)
                 {
-                    var method = _selectedService.Methods.FirstOrDefault(m => m.MethodName == mtdName);
-                    if (method != null) OnMethodSelected(method);
+                    _selectedService = svc;
+                    if (!string.IsNullOrEmpty(mtdName))
+                    {
+                        var method = svc.Methods.FirstOrDefault(m => m.MethodName == mtdName);
+                        if (method != null) OnMethodSelected(method);
+                    }
                 }
             }
 
@@ -591,11 +653,11 @@
         try
         {
             var protoBytes = await ReadDefaultProtoBytesAsync();
-            _services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
-            Notify.RegisterServices(_services);
-            // 송신 시 동적 컴파일을 미리 warm-up → 첫 스트림 open이 빠르다
+            var services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
+            State.SetServices(services);
+            Notify.RegisterServices(services);
             _ = Task.Run(() => ProtoCompiler.CompileProtoToAssemblyAsync(protoBytes));
-            Log($"DDSSim.proto 파싱 완료: {_services.Count}개 서비스", LogLevel.Success);
+            Log($"DDSSim.proto 파싱 완료: {services.Count}개 서비스", LogLevel.Success);
         }
         catch (Exception ex)
         {
@@ -603,8 +665,6 @@
         }
     }
 
-    // wwwroot/proto/DDSSim.proto를 디스크에서 직접 읽는다.
-    // (이전엔 자기 자신에게 HTTP 루프백 요청 + ASPNETCORE_URLS 포트 파싱에 의존했음)
     private async Task<byte[]> ReadDefaultProtoBytesAsync()
     {
         var path = Path.Combine(WebHostEnv.WebRootPath, "proto", "DDSSim.proto");
@@ -613,50 +673,24 @@
 
     public void Dispose()
     {
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
         _uiTimer?.Dispose();
-        Notify.CallStarted -= OnCallStarted;
-        Notify.StreamMessageReceived -= OnStreamMessageReceived;
-        Notify.CallEnded -= OnCallEnded;
+        State.Changed -= OnStateChanged;
+        State.Evicted -= OnEvicted;
+        State.Release(_clientId);
     }
-
-    // ── 알림 핸들러 (미들웨어 → UI) ──────────────────────────────────────────
-    // 이벤트 핸들러: 큐에만 적재, StateHasChanged는 타이머가 일괄 처리
-    private void OnCallStarted(IncomingCallStartedEvent e) =>
-        _pendingUiActions.Enqueue(() =>
-        {
-            if (_incomingCalls.Count >= MaxIncomingCalls) _incomingCalls.RemoveAt(0);
-            _incomingCalls.Add(new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type));
-        });
-
-    private void OnStreamMessageReceived(IncomingStreamMessageEvent e) =>
-        _pendingUiActions.Enqueue(() =>
-        {
-            var call = _incomingCalls.FirstOrDefault(c => c.CallId == e.CallId);
-            if (call == null) return;
-            if (call.Frames.Count >= MaxFramesPerCall) call.Frames.RemoveAt(0);
-            call.Frames.Add($"[{e.FrameIndex}] {e.Data}");
-        });
-
-    private void OnCallEnded(IncomingCallEndedEvent e) =>
-        _pendingUiActions.Enqueue(() =>
-        {
-            var call = _incomingCalls.FirstOrDefault(c => c.CallId == e.CallId);
-            if (call != null) call.Result = e.Res;
-        });
 
     // ── 세션 연결 ─────────────────────────────────────────────────────────────
     private void DisconnectSession()
     {
         if (_session == null) return;
-        ChannelProvider.ReleaseChannel(_session);
-        SessionService.DeleteSession(_session.SessionId);
+        var session = _session;
+        ChannelProvider.ReleaseChannel(session);
+        SessionService.DeleteSession(session.SessionId);
         Ui.SetConnection(false, null);
-        _session = null;
-        _streamOpen = false;
-        _streamId = null;
-        _sentCount = 0;
+        State.SetSession(null); // StreamId/SentCount/StreamRecv 동시 초기화
         Log("세션 연결 해제", LogLevel.Warn);
     }
 
@@ -674,9 +708,10 @@
         _connecting = true;
         try
         {
-            _session = SessionService.CreateSession(_socketPath);
+            var session = SessionService.CreateSession(_socketPath);
+            State.SetSession(session);
             Ui.SetConnection(true, _socketPath);
-            Log($"세션 연결: {_session.SessionId[..8]} / {_socketPath}", LogLevel.Success);
+            Log($"세션 연결: {session.SessionId[..8]} / {_socketPath}", LogLevel.Success);
             await SaveToLocalStorage();
             await UploadDefaultProto();
         }
@@ -696,12 +731,13 @@
         try
         {
             var protoBytes = await ReadDefaultProtoBytesAsync();
-            _services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
-            Notify.RegisterServices(_services);
+            var services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
+            State.SetServices(services);
+            Notify.RegisterServices(services);
             await SessionService.UpdateSessionProtoAsync(_session!.SessionId, protoBytes, "DDSSim.proto");
-            _session.Services = _services;
+            _session.Services = services;
             _ = Task.Run(() => ProtoCompiler.CompileProtoToAssemblyAsync(protoBytes));
-            Log($"DDSSim.proto 로드: {_services.Count}개 서비스 (컴파일 warm-up)", LogLevel.Success);
+            Log($"DDSSim.proto 로드: {services.Count}개 서비스 (컴파일 warm-up)", LogLevel.Success);
         }
         catch (Exception ex)
         {
@@ -718,16 +754,14 @@
             using var ms = new MemoryStream();
             await file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024).CopyToAsync(ms);
             var bytes = ms.ToArray();
-            _services = await ProtoLoader.LoadProtoServicesAsync(bytes);
-            // 수신 패널의 RPC 타입 조회가 업로드된 proto 기준이 되도록 재등록
-            Notify.RegisterServices(_services);
+            var services = await ProtoLoader.LoadProtoServicesAsync(bytes);
+            State.SetServices(services);
+            Notify.RegisterServices(services);
             await SessionService.UpdateSessionProtoAsync(_session.SessionId, bytes, file.Name);
-            _session.Services = _services;
-            _selectedService = null;
-            _selectedMethod = null;
-            // 기본 proto 경로와 동일하게 동적 컴파일 warm-up (첫 송신 지연 제거)
+            _session.Services = services;
+            State.SetSelected(null, null);
             _ = Task.Run(() => ProtoCompiler.CompileProtoToAssemblyAsync(bytes));
-            Log($"{file.Name} 로드: {_services.Count}개 서비스", LogLevel.Success);
+            Log($"{file.Name} 로드: {services.Count}개 서비스", LogLevel.Success);
             Snackbar.Add($"{file.Name} 로드 완료", Severity.Success);
         }
         catch (Exception ex)
@@ -784,23 +818,17 @@
     private async Task StartStream()
     {
         if (_session == null || _selectedMethod == null) return;
-        _sentCount = 0;
-        _streamRecv = [];
+        State.ResetStream();
         try
         {
-            // bidi: 서버→클라 메시지를 닫기 전 실시간 표시 (고주파 배치 큐 경유)
-            _streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session,
+            var streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session,
                 json =>
                 {
-                    _pendingUiActions.Enqueue(() =>
-                    {
-                        if (_streamRecv.Count >= MaxStreamRecv) _streamRecv.RemoveAt(0);
-                        _streamRecv.Add(json);
-                    });
+                    State.AddStreamRecv(json);
                     return Task.CompletedTask;
                 });
-            _streamOpen = true;
-            Log($"스트림 시작: {_streamId![..8]}", LogLevel.Send);
+            State.SetStreamId(streamId);
+            Log($"스트림 시작: {streamId[..8]}", LogLevel.Send);
         }
         catch (Exception ex)
         {
@@ -814,8 +842,8 @@
         try
         {
             await StreamingService.WriteMessageAsync(_streamId, _requestJson);
-            _sentCount++;
-            Log($"전송 #{_sentCount}", LogLevel.Send);
+            State.IncrementSent();
+            Log($"전송 #{State.SentCount}", LogLevel.Send);
         }
         catch (Exception ex)
         {
@@ -829,7 +857,7 @@
         try
         {
             var result = await StreamingService.CloseStreamAsync(_streamId);
-            _streamOpen = false;
+            State.SetStreamId(null);
             Log(result.IsSuccess
                 ? $"스트림 종료 (수신 {result.Messages?.Count ?? 0}건)"
                 : $"스트림 오류: {result.Error}",
@@ -853,7 +881,7 @@
     // ── 스키마 폼 ──────────────────────────────────────────────────────────────
     private void OnMethodSelected(MethodMetadata? method)
     {
-        _selectedMethod = method;
+        State.SetSelected(_selectedService?.ServiceName, method?.MethodName);
         _schemaFields = ParseSchemaFields(method?.InputSchema);
         _rawJsonMode = _schemaFields.Count == 0;
         if (_schemaFields.Count > 0)
@@ -961,17 +989,23 @@
         catch { return value; }
     }
 
-    // ── 내부 VM 타입 ──────────────────────────────────────────────────────────
-    private record LogEntry(DateTime Time, string Text, LogLevel Level);
-
-    private sealed class IncomingCallVm(string callId, string service, string method, string type)
+    // 렌더되는 프레임만 지연 포맷 (스로틀+접힘 기본이라 비용 제한적)
+    private static string Pretty(string json)
     {
-        public string CallId { get; } = callId;
-        public string Service { get; } = service;
-        public string Method { get; } = method;
-        public string Type { get; } = type;
-        public List<string> Frames { get; } = [];
-        public string? Result { get; set; }
-        public bool ShowAllFrames { get; set; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { return json; }
+    }
+
+    private static string Fmt(string data, bool pretty) => pretty ? Pretty(data) : data;
+
+    private static string Summary(string data)
+    {
+        var s = data.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return s.Length > 90 ? s[..90] + "…" : s;
     }
 }
