@@ -1,0 +1,878 @@
+@page "/"
+@rendermode InteractiveServer
+@inject ISessionService SessionService
+@inject IProtoLoader ProtoLoader
+@inject IDynamicProtoCompiler ProtoCompiler
+@inject IGrpcStreamingService StreamingService
+@inject IUnaryGrpcService UnaryGrpcService
+@inject IConfiguration Configuration
+@inject WorkbenchNotificationService Notify
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>gRPC Workbench</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pa-2">
+    <MudGrid Spacing="2">
+
+        @* ══ 좌측: 설정 패널 ══ *@
+        <MudItem xs="12" md="3">
+            <MudExpansionPanels MultiExpansion="true" Class="mb-2">
+
+                @* 1. 세션 *@
+                <MudExpansionPanel Text="① 세션" IsInitiallyExpanded="true">
+                    <MudPaper Class="pa-3" Elevation="0">
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2" Icon="@Icons.Material.Filled.Router">
+                            <MudText Typo="Typo.caption"><b>내 gRPC 소켓:</b> @_mySocketPath</MudText><br/>
+                            <MudText Typo="Typo.caption" Style="opacity:.7">상대방은 <b>/var/run/dds-ambassador-peer/grpc.sock</b> 으로 접근합니다.</MudText>
+                        </MudAlert>
+
+                        <MudTextField @bind-Value="_socketPath"
+                                      Label="연결할 소켓 경로"
+                                      Placeholder="/var/run/dds-ambassador-peer/grpc.sock"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mb-2"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@Icons.Material.Filled.Shortcut"
+                                      AdornmentAriaLabel="기본 피어 소켓 경로 입력"
+                                      OnAdornmentClick="FillPeerSocketPath" />
+
+                        <MudNumericField @bind-Value="_timeoutSeconds"
+                                         Label="타임아웃 (초)"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Min="1" Max="300"
+                                         Class="mb-2" />
+
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   FullWidth="true"
+                                   OnClick="ConnectSession"
+                                   Disabled="_connecting"
+                                   StartIcon="@Icons.Material.Filled.Link">
+                            @(_connecting ? "연결 중..." : "세션 연결 시도")
+                        </MudButton>
+
+                        @if (_session != null)
+                        {
+                            <MudAlert Severity="Severity.Success" Dense="true" Class="mt-2" Icon="@Icons.Material.Filled.CheckCircle">
+                                <MudText Typo="Typo.caption">세션: @_session.SessionId[..8]...</MudText><br/>
+                                <MudText Typo="Typo.caption">@_session.UnixSocketPath</MudText>
+                            </MudAlert>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                       FullWidth="true" Class="mt-1"
+                                       StartIcon="@Icons.Material.Filled.LinkOff"
+                                       OnClick="DisconnectSession">
+                                연결 해제
+                            </MudButton>
+                        }
+                    </MudPaper>
+                </MudExpansionPanel>
+
+                @* 2. Proto *@
+                <MudExpansionPanel Text="② Proto 정의" IsInitiallyExpanded="true">
+                    <MudPaper Class="pa-3" Elevation="0">
+                        @if (_services.Count > 0)
+                        {
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small" Class="mb-2">
+                                DDSSim.proto 로드됨 (@(_services.Count)개 서비스)
+                            </MudChip>
+                        }
+
+                        <MudFileUpload T="IBrowserFile" FilesChanged="OnProtoFileSelected" Accept=".proto">
+                            <ActivatorContent>
+                                <MudButton Variant="Variant.Outlined"
+                                           StartIcon="@Icons.Material.Filled.UploadFile"
+                                           FullWidth="true"
+                                           Disabled="_session == null">
+                                    다른 Proto 파일 업로드
+                                </MudButton>
+                            </ActivatorContent>
+                        </MudFileUpload>
+                    </MudPaper>
+                </MudExpansionPanel>
+
+                @* 3. 메서드 선택 *@
+                <MudExpansionPanel Text="③ 메서드 선택" IsInitiallyExpanded="true">
+                    <MudPaper Class="pa-3" Elevation="0">
+                        <MudSelect T="ServiceMetadata"
+                                   Label="서비스"
+                                   @bind-Value="_selectedService"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Class="mb-2"
+                                   Disabled="_services.Count == 0"
+                                   ToStringFunc="@(s => s?.ServiceName ?? string.Empty)">
+                            @foreach (var svc in _services)
+                            {
+                                <MudSelectItem T="ServiceMetadata" Value="svc">@svc.ServiceName</MudSelectItem>
+                            }
+                        </MudSelect>
+
+                        <MudSelect T="MethodMetadata"
+                                   Label="메서드"
+                                   Value="_selectedMethod"
+                                   ValueChanged="@((MethodMetadata? m) => OnMethodSelected(m))"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Disabled="_selectedService == null"
+                                   ToStringFunc="@(m => m?.MethodName ?? string.Empty)">
+                            @foreach (var method in _selectedService?.Methods ?? [])
+                            {
+                                <MudSelectItem T="MethodMetadata" Value="method">
+                                    @method.MethodName (@method.RpcType)
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+
+                        @if (_selectedMethod != null)
+                        {
+                            <MudPaper Class="pa-2 mt-2" Elevation="0" Style="background:#f5f5f5;border-radius:4px;">
+                                <MudChip T="string" Color="@RpcTypeColor(_selectedMethod.RpcType)" Size="Size.Small" Class="mb-1" Style="height:22px;">@_selectedMethod.RpcType</MudChip>
+                                <MudText Typo="Typo.caption"><b>입력:</b> @_selectedMethod.InputType</MudText><br/>
+                                <MudText Typo="Typo.caption"><b>출력:</b> @_selectedMethod.OutputType</MudText>
+                                @if (!string.IsNullOrEmpty(_selectedMethod.InputSchema))
+                                {
+                                    <MudExpansionPanels Class="mt-1">
+                                        <MudExpansionPanel Text="스키마 보기" Dense="true">
+                                            <pre style="font-size:0.72rem;overflow:auto;max-height:150px;">@_selectedMethod.InputSchema</pre>
+                                        </MudExpansionPanel>
+                                    </MudExpansionPanels>
+                                }
+                            </MudPaper>
+                        }
+                    </MudPaper>
+                </MudExpansionPanel>
+
+            </MudExpansionPanels>
+        </MudItem>
+
+        @* ══ 중앙: 송신 패널 ══ *@
+        <MudItem xs="12" md="5">
+            <MudPaper Class="pa-3" Elevation="2">
+                <MudText Typo="Typo.h6" Class="mb-2">📤 송신</MudText>
+
+                @* 폼 / JSON 토글 헤더 *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.subtitle2">요청 데이터</MudText>
+                    <MudSpacer />
+                    @if (_schemaFields.Count > 0)
+                    {
+                        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                            <MudButton Color="@(_rawJsonMode ? Color.Default : Color.Primary)"
+                                       OnClick="@(() => { _rawJsonMode = false; StateHasChanged(); })">폼</MudButton>
+                            <MudButton Color="@(_rawJsonMode ? Color.Primary : Color.Default)"
+                                       OnClick="@(() => { _rawJsonMode = true; BuildJsonFromForm(); StateHasChanged(); })">JSON</MudButton>
+                        </MudButtonGroup>
+                    }
+                </MudStack>
+
+                @if (!_rawJsonMode && _schemaFields.Count > 0)
+                {
+                    @* 스키마 기반 폼 필드 (재귀 렌더링) *@
+                    <div style="max-height:420px;overflow-y:auto;" class="mb-2">
+                        @foreach (var field in _schemaFields)
+                        {
+                            <div class="mb-2">
+                                <SchemaFormField Field="field" OnChanged="@BuildJsonFromForm" />
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <MudTextField @bind-Value="_requestJson"
+                                  Label="요청 JSON"
+                                  Variant="Variant.Outlined"
+                                  Lines="10"
+                                  FullWidth="true"
+                                  Class="mb-2"
+                                  Style="font-family:monospace;font-size:0.82rem;" />
+                }
+
+                @if (IsBidi || IsClientStream)
+                {
+                    @* 스트리밍 컨트롤 *@
+                    <MudStack Row="true" Spacing="1" Class="mb-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   Disabled="@(_session == null || _selectedMethod == null || _streamOpen)"
+                                   OnClick="StartStream">
+                            스트림 시작
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning"
+                                   StartIcon="@Icons.Material.Filled.Send"
+                                   Disabled="@(!_streamOpen)"
+                                   OnClick="SendStreamMessage">
+                            메시지 전송
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.Stop"
+                                   Disabled="@(!_streamOpen)"
+                                   OnClick="CloseStream">
+                            스트림 종료
+                        </MudButton>
+                    </MudStack>
+
+                    @if (_streamOpen && _streamId != null)
+                    {
+                        <MudPaper Class="pa-2 mb-2" Elevation="0" Style="background:#e3f2fd;border-radius:4px;border-left:3px solid #1976d2;">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                                <MudText Typo="Typo.caption" Style="color:#1565c0;">
+                                    <b>스트림 활성</b> · @_streamId![..8]... · 전송: @(_sentCount)건
+                                </MudText>
+                            </MudStack>
+                        </MudPaper>
+                    }
+
+
+                }
+                else
+                {
+                    @* Unary / Server Streaming 전송 *@
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Send"
+                               FullWidth="true"
+                               Disabled="@(_session == null || _selectedMethod == null || _requesting)"
+                               OnClick="SendRequest">
+                        @(_requesting ? "전송 중..." : "전송")
+                    </MudButton>
+                }
+
+                @if (!string.IsNullOrEmpty(_responseText))
+                {
+                    <MudDivider Class="my-2" />
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+                        <MudText Typo="Typo.subtitle2">← 응답</MudText>
+                        <MudSpacer />
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                       Title="클립보드에 복사" OnClick="CopyResponse" />
+                    </MudStack>
+                    <MudPaper Elevation="0" Style="background:#0d1117;border-radius:4px;max-height:250px;overflow-y:auto;" Class="pa-1">
+                        <pre style="font-family:monospace;font-size:0.71rem;color:#79c0ff;margin:0;white-space:pre-wrap;word-break:break-all;">@_responseText</pre>
+                    </MudPaper>
+                }
+
+                <MudDivider Class="my-2" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+                    <MudText Typo="Typo.subtitle2">📋 로그</MudText>
+                    <MudSpacer />
+                    <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small" OnClick="@(() => _logs.Clear())" />
+                </MudStack>
+                <MudPaper Elevation="0" Style="max-height:180px;overflow-y:auto;background:#1e1e1e;border-radius:4px;" Class="pa-2">
+                    @foreach (var log in _logs.AsEnumerable().Reverse())
+                    {
+                        <div style="font-family:monospace;font-size:0.72rem;color:@log.Color;">@log.Time.ToString("HH:mm:ss") @log.Text</div>
+                    }
+                </MudPaper>
+            </MudPaper>
+        </MudItem>
+
+        @* ══ 우측: 수신 패널 ══ *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3" Elevation="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.h6">📥 수신된 gRPC 요청</MudText>
+                    <MudBadge Content="@_incomingCalls.Count" Color="Color.Secondary" Overlap="true" Class="ml-1">
+                        <span />
+                    </MudBadge>
+                    <MudSpacer />
+                    <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small" OnClick="@(() => _incomingCalls.Clear())" />
+                </MudStack>
+
+                @if (_incomingCalls.Count == 0)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        이 인스턴스의 UDS 서버로 수신된 gRPC 요청이 실시간으로 표시됩니다...
+                    </MudText>
+                }
+                else
+                {
+                    <div style="max-height:calc(100vh - 160px);overflow-y:auto;">
+                        @foreach (var call in _incomingCalls.AsEnumerable().Reverse())
+                        {
+                            <MudPaper Class="pa-2 mb-2" Elevation="1" Style="@($"border-left:3px solid {RpcTypeColorHex(call.Type)}")">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1">
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">[@call.CallId[..8]]</MudText>
+                                    <MudText Typo="Typo.body2" Style="@($"color:{RpcTypeColorHex(call.Type)};font-weight:600;")">
+                                        @($"{call.Service.Split('.').Last()}.{call.Method}")
+                                    </MudText>
+                                    <MudSpacer />
+                                    @if (!string.IsNullOrEmpty(call.Result))
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Success">✓ @(call.Frames.Count)프레임</MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Warning">⏳</MudText>
+                                    }
+                                </MudStack>
+                                @if (call.Frames.Count > 0)
+                                {
+                                    @if (call.Frames.Count > 1)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                                                   Style="font-size:0.70rem;min-height:0;padding:2px 4px;"
+                                                   OnClick="@(() => call.ShowAllFrames = !call.ShowAllFrames)">
+                                            @(call.ShowAllFrames ? "최근만 보기 ▲" : $"이전 {call.Frames.Count - 1}건 보기 ▼")
+                                        </MudButton>
+                                    }
+                                    @if (call.ShowAllFrames)
+                                    {
+                                        @for (int fi = 0; fi < call.Frames.Count - 1; fi++)
+                                        {
+                                            var frame = call.Frames[fi];
+                                            <MudPaper Elevation="0" Style="background:#111827;border-radius:4px;max-height:100px;overflow-y:auto;" Class="pa-1 mb-1">
+                                                <pre style="font-family:monospace;font-size:0.70rem;color:#6b7280;margin:0;white-space:pre-wrap;word-break:break-all;">@frame</pre>
+                                            </MudPaper>
+                                        }
+                                    }
+                                    <MudPaper Elevation="0" Style="background:#0d1117;border-radius:4px;max-height:200px;overflow-y:auto;" Class="pa-1 mt-1">
+                                        <pre style="font-family:monospace;font-size:0.71rem;color:#56d364;margin:0;white-space:pre-wrap;word-break:break-all;">@call.Frames.Last()</pre>
+                                    </MudPaper>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Style="color:#bbb;">수신 대기 중...</MudText>
+                                }
+                            </MudPaper>
+                        }
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+
+    </MudGrid>
+</MudContainer>
+
+@code {
+    // ── 상태 ──────────────────────────────────────────────────────────────────
+    private string _mySocketPath = "로딩 중...";
+    private string _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
+    private int _timeoutSeconds = 30;
+    private bool _connecting;
+    private bool _requesting;
+
+    private GrpcSession? _session;
+    private List<ServiceMetadata> _services = [];
+    private ServiceMetadata? _selectedService;
+    private MethodMetadata? _selectedMethod;
+
+    private string _requestJson = "{}";
+    private string _responseText = string.Empty;
+
+    // 스트리밍
+    private bool _streamOpen;
+    private string? _streamId;
+    private int _sentCount;
+
+    // 스키마 폼
+    private List<SchemaField> _schemaFields = [];
+    private bool _rawJsonMode = false;
+
+    // 수신 패널
+    private List<IncomingCallVm> _incomingCalls = [];
+
+    // 로그
+    private List<LogEntry> _logs = [];
+
+    // ── UI 배치 업데이트 (고주파 수신 대응) ──────────────────────────────────
+    // 200Hz+ 메시지가 와도 StateHasChanged는 20Hz(50ms)로만 호출됨
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _pendingUiActions = new();
+    private PeriodicTimer? _uiTimer;
+    private readonly CancellationTokenSource _cts = new();
+    private const int MaxIncomingCalls = 100;
+    private const int MaxFramesPerCall  = 1000;
+
+    // ── 헬퍼 ──────────────────────────────────────────────────────────────────
+    private bool IsBidi => _selectedMethod?.RpcType == "BidirectionalStreaming";
+    private bool IsClientStream => _selectedMethod?.RpcType == "ClientStreaming";
+
+    private Color RpcTypeColor(string? type) => type switch
+    {
+        "Unary" => Color.Success,
+        "ServerStreaming" => Color.Info,
+        "ClientStreaming" => Color.Warning,
+        "BidirectionalStreaming" => Color.Error,
+        _ => Color.Default
+    };
+
+    private string RpcTypeColorHex(string? type) => type switch
+    {
+        "Unary" => "#4caf50",
+        "ServerStreaming" => "#2196f3",
+        "ClientStreaming" => "#ff9800",
+        "BidirectionalStreaming" => "#e91e63",
+        _ => "#9e9e9e"
+    };
+
+    private void Log(string text, string color = "#a0a0a0") =>
+        _logs.Add(new LogEntry(DateTime.Now, text, color));
+
+    // ── 생명주기 ──────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        _mySocketPath = Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
+            ?? Configuration["GrpcWorkbench:UdsSocketPath"]
+            ?? "(설정 없음)";
+
+        Notify.CallStarted += OnCallStarted;
+        Notify.StreamMessageReceived += OnStreamMessageReceived;
+        Notify.CallEnded += OnCallEnded;
+
+        // 20Hz UI 갱신 타이머 시작 — 고주파 메시지 배치 처리
+        _uiTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (await _uiTimer.WaitForNextTickAsync(_cts.Token))
+                {
+                    if (!_pendingUiActions.IsEmpty)
+                        await InvokeAsync(() =>
+                        {
+                            while (_pendingUiActions.TryDequeue(out var act)) act();
+                            StateHasChanged();
+                        });
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+
+        await TryLoadDefaultProtoServices();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RestoreFromLocalStorage();
+    }
+
+    private async Task RestoreFromLocalStorage()
+    {
+        try
+        {
+            var sp = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_socketPath");
+            if (!string.IsNullOrEmpty(sp)) _socketPath = sp;
+
+            var to = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_timeout");
+            if (int.TryParse(to, out var t)) _timeoutSeconds = t;
+
+            var rj = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_requestJson");
+            if (!string.IsNullOrEmpty(rj)) _requestJson = rj;
+
+            var svcName = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_service");
+            var mtdName = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_method");
+            if (!string.IsNullOrEmpty(svcName))
+            {
+                _selectedService = _services.FirstOrDefault(s => s.ServiceName == svcName);
+                if (_selectedService != null && !string.IsNullOrEmpty(mtdName))
+                {
+                    var method = _selectedService.Methods.FirstOrDefault(m => m.MethodName == mtdName);
+                    if (method != null) OnMethodSelected(method);
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch { /* localStorage 접근 실패 시 무시 */ }
+    }
+
+    private async Task SaveToLocalStorage()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "wb_socketPath", _socketPath);
+            await JS.InvokeVoidAsync("localStorage.setItem", "wb_timeout", _timeoutSeconds.ToString());
+            await JS.InvokeVoidAsync("localStorage.setItem", "wb_requestJson", _requestJson);
+            await JS.InvokeVoidAsync("localStorage.setItem", "wb_service", _selectedService?.ServiceName ?? "");
+            await JS.InvokeVoidAsync("localStorage.setItem", "wb_method", _selectedMethod?.MethodName ?? "");
+        }
+        catch { }
+    }
+
+    private async Task TryLoadDefaultProtoServices()
+    {
+        try
+        {
+            using var http = new HttpClient();
+            var protoBytes = await http.GetByteArrayAsync($"http://localhost:{GetWebPort()}/proto/DDSSim.proto?t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+            _services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
+            Notify.RegisterServices(_services);
+            // 송신 시 동적 컴파일을 미리 warm-up → 첫 스트림 open이 빠르다
+            _ = Task.Run(() => ProtoCompiler.CompileProtoToAssemblyAsync(protoBytes));
+            Log($"✓ DDSSim.proto 파싱 완료: {_services.Count}개 서비스", "#81c784");
+        }
+        catch (Exception ex)
+        {
+            Log($"DDSSim.proto 파싱 실패: {ex.Message}", "#ef9a9a");
+        }
+    }
+
+    private int GetWebPort()
+    {
+        var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? string.Empty;
+        var m = System.Text.RegularExpressions.Regex.Match(urls, @":(\d+)");
+        return m.Success && int.TryParse(m.Groups[1].Value, out var p) ? p : 5226;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _uiTimer?.Dispose();
+        Notify.CallStarted -= OnCallStarted;
+        Notify.StreamMessageReceived -= OnStreamMessageReceived;
+        Notify.CallEnded -= OnCallEnded;
+    }
+
+    // ── 알림 핸들러 (미들웨어 → UI) ──────────────────────────────────────────
+    // 이벤트 핸들러: 큐에만 적재, StateHasChanged는 타이머가 일괄 처리
+    private void OnCallStarted(IncomingCallStartedEvent e) =>
+        _pendingUiActions.Enqueue(() =>
+        {
+            if (_incomingCalls.Count >= MaxIncomingCalls) _incomingCalls.RemoveAt(0);
+            _incomingCalls.Add(new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type));
+        });
+
+    private void OnStreamMessageReceived(IncomingStreamMessageEvent e) =>
+        _pendingUiActions.Enqueue(() =>
+        {
+            var call = _incomingCalls.FirstOrDefault(c => c.CallId == e.CallId);
+            if (call == null) return;
+            if (call.Frames.Count >= MaxFramesPerCall) call.Frames.RemoveAt(0);
+            call.Frames.Add($"[{e.FrameIndex}] {e.Data}");
+        });
+
+    private void OnCallEnded(IncomingCallEndedEvent e) =>
+        _pendingUiActions.Enqueue(() =>
+        {
+            var call = _incomingCalls.FirstOrDefault(c => c.CallId == e.CallId);
+            if (call != null) call.Result = e.Res;
+        });
+
+    // ── 세션 연결 ─────────────────────────────────────────────────────────────
+    private void DisconnectSession()
+    {
+        if (_session == null) return;
+        SessionService.DeleteSession(_session.SessionId);
+        _session = null;
+        _streamOpen = false;
+        _streamId = null;
+        _sentCount = 0;
+        Log("세션 연결 해제", "#ffb74d");
+    }
+
+    private void FillPeerSocketPath() =>
+        _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
+
+    private async Task CopyResponse()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _responseText);
+        Snackbar.Add("클립보드에 복사됨", Severity.Info);
+    }
+
+    private async Task ConnectSession()
+    {
+        if (string.IsNullOrWhiteSpace(_socketPath))
+        {
+            Snackbar.Add("소켓 경로를 입력하세요.", Severity.Warning);
+            return;
+        }
+
+        _connecting = true;
+        try
+        {
+            _session = SessionService.CreateSession(_socketPath);
+            Log($"✓ 세션 연결: {_session.SessionId[..8]}... / {_socketPath}", "#81c784");
+            await SaveToLocalStorage();
+            await UploadDefaultProto();
+        }
+        catch (Exception ex)
+        {
+            Log($"세션 연결 실패: {ex.Message}", "#ef9a9a");
+            Snackbar.Add($"연결 실패: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _connecting = false;
+        }
+    }
+
+    private async Task UploadDefaultProto()
+    {
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://localhost:{GetWebPort()}") };
+            var protoBytes = await http.GetByteArrayAsync($"/proto/DDSSim.proto?t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+            _services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
+            Notify.RegisterServices(_services);
+            await SessionService.UpdateSessionProtoAsync(_session!.SessionId, protoBytes, "DDSSim.proto");
+            _session.Services = _services;
+            _ = Task.Run(() => ProtoCompiler.CompileProtoToAssemblyAsync(protoBytes));
+            Log($"✓ DDSSim.proto 로드: {_services.Count}개 서비스 (컴파일 warm-up 시작)", "#81c784");
+        }
+        catch (Exception ex)
+        {
+            Log($"DDSSim.proto 로드 실패: {ex.Message}", "#ef9a9a");
+        }
+    }
+
+    // ── Proto 파일 업로드 ─────────────────────────────────────────────────────
+    private async Task OnProtoFileSelected(IBrowserFile file)
+    {
+        if (_session == null) return;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            _services = await ProtoLoader.LoadProtoServicesAsync(bytes);
+            await SessionService.UpdateSessionProtoAsync(_session.SessionId, bytes, file.Name);
+            _session.Services = _services;
+            _selectedService = null;
+            _selectedMethod = null;
+            Log($"✓ {file.Name} 로드: {_services.Count}개 서비스", "#81c784");
+            Snackbar.Add($"{file.Name} 로드 완료", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Log($"파일 로드 실패: {ex.Message}", "#ef9a9a");
+            Snackbar.Add($"파일 로드 실패: {ex.Message}", Severity.Error);
+        }
+    }
+
+    // ── Unary / Server Streaming 전송 ─────────────────────────────────────────
+    private async Task SendRequest()
+    {
+        if (_session == null || _selectedMethod == null) return;
+        _requesting = true;
+        _responseText = string.Empty;
+        try
+        {
+            var payload = BuildPayload();
+            if (_selectedMethod.RpcType == "ServerStreaming")
+            {
+                var msgs = new List<string>();
+                await StreamingService.ExecuteServerStreamingAsync(
+                    payload, _session,
+                    async msg =>
+                    {
+                        msgs.Add(msg);
+                        await InvokeAsync(StateHasChanged);
+                    },
+                    async _ => await InvokeAsync(StateHasChanged));
+                _responseText = string.Join("\n---\n", msgs);
+                Log($"✓ ServerStreaming 완료 ({msgs.Count}건)", "#81c784");
+            }
+            else
+            {
+                var result = await UnaryGrpcService.ExecuteUnaryCallAsync(payload, _session);
+                _responseText = result.IsSuccess ? result.ResponseJson : result.ErrorMessage ?? "오류";
+                Log(result.IsSuccess
+                    ? $"✓ 응답 수신 ({result.ElapsedMilliseconds}ms)"
+                    : $"✗ 실패: {result.ErrorMessage}",
+                    result.IsSuccess ? "#81c784" : "#ef9a9a");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"전송 실패: {ex.Message}", "#ef9a9a");
+        }
+        finally
+        {
+            _requesting = false;
+        }
+    }
+
+    // ── Bidi / Client Streaming ───────────────────────────────────────────────
+    private async Task StartStream()
+    {
+        if (_session == null || _selectedMethod == null) return;
+        _sentCount = 0;
+        try
+        {
+            _streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session);
+            _streamOpen = true;
+            Log($"▶ 스트림 시작: {_streamId![..8]}...", "#80cbc4");
+        }
+        catch (Exception ex)
+        {
+            Log($"스트림 시작 실패: {ex.Message}", "#ef9a9a");
+        }
+    }
+
+    private async Task SendStreamMessage()
+    {
+        if (!_streamOpen || _streamId == null) return;
+        try
+        {
+            await StreamingService.WriteMessageAsync(_streamId, _requestJson);
+            _sentCount++;
+            Log($"↑ 전송 #{_sentCount}", "#80deea");
+        }
+        catch (Exception ex)
+        {
+            Log($"전송 실패: {ex.Message}", "#ef9a9a");
+        }
+    }
+
+    private async Task CloseStream()
+    {
+        if (_streamId == null) return;
+        try
+        {
+            var result = await StreamingService.CloseStreamAsync(_streamId);
+            _streamOpen = false;
+            Log(result.IsSuccess
+                ? $"■ 스트림 종료 (수신 {result.Messages?.Count ?? 0}건)"
+                : $"■ 스트림 오류: {result.Error}",
+                "#ffd54f");
+        }
+        catch (Exception ex)
+        {
+            Log($"종료 실패: {ex.Message}", "#ef9a9a");
+        }
+    }
+
+    private GrpcRequestPayload BuildPayload() => new()
+    {
+        SessionId = _session!.SessionId,
+        ServiceName = _selectedService!.ServiceName,
+        MethodName = _selectedMethod!.MethodName,
+        RequestJson = _requestJson,
+        TimeoutSeconds = _timeoutSeconds
+    };
+
+    // ── 스키마 폼 ──────────────────────────────────────────────────────────────
+    private void OnMethodSelected(MethodMetadata? method)
+    {
+        _selectedMethod = method;
+        _schemaFields = ParseSchemaFields(method?.InputSchema);
+        _rawJsonMode = _schemaFields.Count == 0;
+        if (_schemaFields.Count > 0)
+            BuildJsonFromForm();
+        else
+            _requestJson = "{}";
+        _ = SaveToLocalStorage();
+    }
+
+    private List<SchemaField> ParseSchemaFields(string? schema)
+    {
+        if (string.IsNullOrEmpty(schema)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(schema);
+            return ParsePropertiesElement(doc.RootElement);
+        }
+        catch { return []; }
+    }
+
+    private static List<SchemaField> ParsePropertiesElement(JsonElement element)
+    {
+        if (!element.TryGetProperty("properties", out var props)) return [];
+        var fields = new List<SchemaField>();
+        foreach (var prop in props.EnumerateObject())
+            fields.Add(ParseFieldElement(prop.Name, prop.Value));
+        return fields;
+    }
+
+    private static SchemaField ParseFieldElement(string name, JsonElement schema)
+    {
+        var f = new SchemaField { Name = name };
+
+        if (schema.TryGetProperty("enum", out var enumProp))
+        {
+            f.Type = "enum";
+            f.EnumValues = enumProp.EnumerateArray().Select(e => e.GetString() ?? "").ToArray();
+            f.Value = f.EnumValues.FirstOrDefault() ?? "";
+        }
+        else if (schema.TryGetProperty("type", out var typeProp))
+        {
+            var t = typeProp.GetString() ?? "string";
+            f.Type = t;
+
+            if (t == "object")
+            {
+                f.Children = ParsePropertiesElement(schema);
+                f.Value = "{}";
+            }
+            else if (t == "array")
+            {
+                if (schema.TryGetProperty("items", out var itemsEl))
+                    f.ItemTemplate = ParseFieldElement("", itemsEl);
+                // ArrayItems는 비어있음 — 사용자가 UI에서 항목 추가
+            }
+            else
+            {
+                f.Value = t switch
+                {
+                    "integer" or "number" => "0",
+                    "boolean" => "",
+                    _ => ""
+                };
+            }
+        }
+        return f;
+    }
+
+    private void BuildJsonFromForm()
+    {
+        _requestJson = JsonSerializer.Serialize(
+            BuildJsonObject(_schemaFields),
+            new JsonSerializerOptions { WriteIndented = true });
+        _ = SaveToLocalStorage();
+    }
+
+    private static Dictionary<string, object?> BuildJsonObject(List<SchemaField> fields)
+    {
+        var obj = new Dictionary<string, object?>();
+        foreach (var f in fields)
+            obj[f.Name] = BuildFieldValue(f);
+        return obj;
+    }
+
+    private static object? BuildFieldValue(SchemaField f) => f.Type switch
+    {
+        "boolean" => f.BoolValue,
+        "integer" => long.TryParse(f.Value, out var l) ? l : 0L,
+        "number"  => double.TryParse(f.Value, System.Globalization.NumberStyles.Any,
+                         System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0.0,
+        "object" when f.Children.Count > 0 => BuildJsonObject(f.Children),
+        "object"  => TryParseRaw(f.Value),
+        "array" when f.ItemTemplate != null => f.ArrayItems.Select(BuildFieldValue).ToArray(),
+        "array"   => TryParseRaw(f.Value),
+        _         => (object?)f.Value
+    };
+
+    private static string GetFieldLabel(SchemaField f) => $"{f.Name} ({f.Type})";
+    private static string GetFieldStyle(SchemaField f) =>
+        f.Type is "object" or "array" ? "font-family:monospace;font-size:0.80rem;" : "";
+
+    private static object? TryParseRaw(string value)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            return doc.RootElement.Clone();
+        }
+        catch { return value; }
+    }
+
+    // ── 내부 VM 타입 ──────────────────────────────────────────────────────────
+    private record LogEntry(DateTime Time, string Text, string Color);
+
+    private sealed class IncomingCallVm(string callId, string service, string method, string type)
+    {
+        public string CallId { get; } = callId;
+        public string Service { get; } = service;
+        public string Method { get; } = method;
+        public string Type { get; } = type;
+        public List<string> Frames { get; } = [];
+        public string? Result { get; set; }
+        public bool ShowAllFrames { get; set; }
+    }
+}

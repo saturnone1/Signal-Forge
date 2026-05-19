@@ -1,0 +1,110 @@
+@using GrpcWorkbench.Models.Ui
+
+@if (Field.Type == "boolean")
+{
+    <MudSwitch T="bool"
+               Label="@Field.Name"
+               Value="Field.BoolValue"
+               ValueChanged="@((bool v) => { Field.BoolValue = v; OnChanged.InvokeAsync(); })"
+               Color="Color.Primary" />
+}
+else if (Field.Type == "enum" && Field.EnumValues.Length > 0)
+{
+    <MudSelect T="string"
+               Label="@Field.Name"
+               Value="Field.Value"
+               ValueChanged="@((string v) => { Field.Value = v; OnChanged.InvokeAsync(); })"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense">
+        @foreach (var ev in Field.EnumValues)
+        {
+            <MudSelectItem T="string" Value="ev">@ev</MudSelectItem>
+        }
+    </MudSelect>
+}
+else if (Field.Type == "object" && Field.Children.Count > 0)
+{
+    <MudText Typo="Typo.caption" Style="font-weight:600;color:#555;">@Field.Name</MudText>
+    <div style="margin-left:12px;border-left:2px solid #e0e0e0;padding-left:8px;margin-bottom:4px;">
+        @foreach (var child in Field.Children)
+        {
+            <div class="mb-2">
+                <SchemaFormField Field="child" OnChanged="OnChanged" />
+            </div>
+        }
+    </div>
+}
+else if (Field.Type == "array" && Field.ItemTemplate != null)
+{
+    <div class="mb-1">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+            <MudText Typo="Typo.caption" Style="font-weight:600;color:#555;">
+                @Field.Name <span style="color:#aaa;font-weight:400;">(@(Field.ArrayItems.Count)개)</span>
+            </MudText>
+            <MudSpacer />
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="AddItem">항목 추가</MudButton>
+        </MudStack>
+        @if (Field.ArrayItems.Count > 0)
+        {
+            <div style="margin-left:8px;border-left:3px solid #bbdefb;padding-left:8px;">
+                @for (int i = 0; i < Field.ArrayItems.Count; i++)
+                {
+                    var item = Field.ArrayItems[i];
+                    var idx = i;
+                    <div style="border:1px solid #e3f2fd;border-radius:4px;padding:6px 8px;margin-bottom:6px;background:#fafeff;">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+                            <MudText Typo="Typo.caption" Style="color:#888;font-weight:600;">[@idx]</MudText>
+                            <MudSpacer />
+                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                           Size="Size.Small" Color="Color.Error"
+                                           OnClick="@(() => RemoveItem(idx))" />
+                        </MudStack>
+                        <SchemaFormField Field="item" OnChanged="OnChanged" />
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Style="color:#bbb;margin-left:8px;font-style:italic;">(비어있음 — 항목 추가 버튼으로 추가)</MudText>
+        }
+    </div>
+}
+else
+{
+    <MudTextField T="string"
+                  Label="@GetLabel()"
+                  Value="Field.Value"
+                  ValueChanged="@((string v) => { Field.Value = v; OnChanged.InvokeAsync(); })"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  FullWidth="true"
+                  Lines="@(Field.Type is "object" or "array" ? 3 : 1)"
+                  Style="@(Field.Type is "object" or "array" ? "font-family:monospace;font-size:0.80rem;" : "")" />
+}
+
+@code {
+    [Parameter, EditorRequired] public SchemaField Field { get; set; } = null!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string GetLabel() => string.IsNullOrEmpty(Field.Name)
+        ? $"({Field.Type})"
+        : $"{Field.Name} ({Field.Type})";
+
+    private void AddItem()
+    {
+        var clone = Field.ItemTemplate!.DeepClone(Field.ArrayItems.Count.ToString());
+        Field.ArrayItems.Add(clone);
+        OnChanged.InvokeAsync();
+    }
+
+    private void RemoveItem(int index)
+    {
+        Field.ArrayItems.RemoveAt(index);
+        for (int i = 0; i < Field.ArrayItems.Count; i++)
+            Field.ArrayItems[i].Name = i.ToString();
+        OnChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,11 @@
+<Router AppAssembly="typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not found</PageTitle>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <MudText>페이지를 찾을 수 없습니다.</MudText>
+        </LayoutView>
+    </NotFound>
+</Router>
