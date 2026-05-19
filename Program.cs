@@ -45,6 +45,7 @@ builder.Services.AddSingleton<IDynamicProtoCompiler, DynamicProtoCompiler>();
 builder.Services.AddScoped<IUnaryGrpcService, UnaryGrpcService>();
 builder.Services.AddSingleton<IGrpcStreamingService, GrpcStreamingService>();
 builder.Services.AddSingleton<WorkbenchNotificationService>();
+builder.Services.AddScoped<UiStateService>();
 
 builder.Services.AddCors(options =>
 {

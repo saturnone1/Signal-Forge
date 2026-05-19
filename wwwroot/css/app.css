@@ -1,0 +1,88 @@
+/* gRPC Workbench — dark-first dev-tool design layer.
+   Built on MudBlazor CSS variables so everything follows the active theme. */
+
+:root {
+  --wb-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace,
+             SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --wb-radius: 8px;
+}
+
+html, body {
+  margin: 0;
+  background: var(--mud-palette-background);
+  color: var(--mud-palette-text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth dark/light transition for surfaces and text */
+.mud-paper, .mud-appbar, .mud-drawer, .mud-card,
+.wb-code, .wb-panel, body {
+  transition: background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+
+/* ── Code / monospace surface (theme-aware) ─────────────────────────────── */
+.wb-code {
+  font-family: var(--wb-mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  background: var(--mud-palette-background);
+  color: var(--mud-palette-text-primary);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: var(--wb-radius);
+  padding: 10px 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+.wb-code--accent { border-left: 3px solid var(--mud-palette-primary); }
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+.wb-panel {
+  background: var(--mud-palette-surface);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: var(--wb-radius);
+}
+.wb-panel-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--mud-palette-text-secondary);
+}
+
+/* ── Live status dot ────────────────────────────────────────────────────── */
+.wb-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex: none;
+}
+.wb-dot--on  { background: var(--mud-palette-success);
+               box-shadow: 0 0 0 3px color-mix(in srgb, var(--mud-palette-success) 25%, transparent); }
+.wb-dot--off { background: var(--mud-palette-text-disabled); }
+
+/* ── RPC-type accent (left border / text) ──────────────────────────────── */
+.wb-rpc-unary  { --wb-rpc: var(--mud-palette-success); }
+.wb-rpc-server { --wb-rpc: var(--mud-palette-info); }
+.wb-rpc-client { --wb-rpc: var(--mud-palette-warning); }
+.wb-rpc-bidi   { --wb-rpc: var(--mud-palette-secondary); }
+.wb-rpc-accent { border-left: 3px solid var(--wb-rpc, var(--mud-palette-lines-default)); }
+
+/* ── Thin, theme-aware scrollbars ──────────────────────────────────────── */
+.wb-scroll { scrollbar-width: thin;
+             scrollbar-color: var(--mud-palette-lines-default) transparent; }
+.wb-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.wb-scroll::-webkit-scrollbar-thumb {
+  background: var(--mud-palette-lines-default);
+  border-radius: 4px;
+}
+.wb-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Misc ───────────────────────────────────────────────────────────────── */
+.wb-mono { font-family: var(--wb-mono); }
+.wb-fill-height { height: calc(100vh - 96px); }
+.wb-empty {
+  color: var(--mud-palette-text-disabled);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 28px 12px;
+}

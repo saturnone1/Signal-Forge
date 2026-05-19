@@ -1,0 +1,46 @@
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+@* 테마 연동 모노스페이스 코드 표면 + 복사 버튼 (하드코딩 색상 <pre> 대체용) *@
+<div>
+    @if (!string.IsNullOrEmpty(Title) || ShowCopy)
+    {
+        <div class="d-flex align-center mb-1" style="gap:8px;">
+            @if (!string.IsNullOrEmpty(Title))
+            {
+                <span class="wb-panel-title">@Title</span>
+            }
+            <MudSpacer />
+            @if (ShowCopy && !string.IsNullOrEmpty(Text))
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                               Size="Size.Small" title="클립보드에 복사"
+                               OnClick="CopyAsync" />
+            }
+        </div>
+    }
+    <pre class="wb-code wb-scroll @(Accent ? "wb-code--accent" : null)"
+         style="@MaxStyle">@(string.IsNullOrEmpty(Text) ? Placeholder : Text)</pre>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public bool Accent { get; set; }
+    [Parameter] public bool ShowCopy { get; set; } = true;
+    [Parameter] public string? MaxHeight { get; set; }
+    [Parameter] public string Placeholder { get; set; } = string.Empty;
+
+    private string MaxStyle =>
+        string.IsNullOrEmpty(MaxHeight) ? string.Empty : $"max-height:{MaxHeight};";
+
+    private async Task CopyAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Text);
+            Snackbar.Add("클립보드에 복사됨", Severity.Info);
+        }
+        catch { /* clipboard 권한 없음 등 무시 */ }
+    }
+}
