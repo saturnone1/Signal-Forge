@@ -1,5 +1,6 @@
 using GrpcWorkbench.Models.Grpc;
 using GrpcWorkbench.Models.Session;
+using GrpcWorkbench.Models.Triggers;
 using GrpcWorkbench.Models.Ui;
 using LogLevel = GrpcWorkbench.Models.Ui.LogLevel;
 
@@ -35,6 +36,11 @@ public class WorkbenchStateService : IDisposable
     public string? SelectedMethodName { get; private set; }
 
     public bool IncomingPaused { get; private set; }
+
+    // ── Triggers ───────────────────────────────────────────────────────────
+    private readonly List<Trigger> _triggers = [];
+    public event Action? TriggersChanged;
+    public int TriggerCount { get { lock (_lock) return _triggers.Count; } }
 
     // 카운트 (lock 안에서)
     public int RpcCount { get { lock (_lock) return _aggregates.Count; } }
@@ -173,6 +179,39 @@ public class WorkbenchStateService : IDisposable
             _aggregates.Clear();
             _callIndex.Clear();
         }
+        Changed?.Invoke();
+    }
+
+    public IReadOnlyList<Trigger> SnapshotTriggers()
+    {
+        lock (_lock) return [.. _triggers];
+    }
+
+    public IncomingCallVm? FindCallById(string callId)
+    {
+        lock (_lock) return _callIndex.TryGetValue(callId, out var c) ? c : null;
+    }
+
+    public void AddTrigger(Trigger t)
+    {
+        lock (_lock) _triggers.Add(t);
+        TriggersChanged?.Invoke();
+        Changed?.Invoke();
+    }
+
+    public void RemoveTrigger(string id)
+    {
+        lock (_lock) _triggers.RemoveAll(x => x.Id == id);
+        TriggersChanged?.Invoke();
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Trigger 필드를 직접 수정한 뒤 호출 — Executor에 동기화 신호 + UI 갱신.
+    /// </summary>
+    public void NotifyTriggersChanged()
+    {
+        TriggersChanged?.Invoke();
         Changed?.Invoke();
     }
 

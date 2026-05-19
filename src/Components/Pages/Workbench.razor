@@ -10,6 +10,7 @@
 @inject IConfiguration Configuration
 @inject WorkbenchNotificationService Notify
 @inject WorkbenchStateService State
+@inject TriggerExecutor TriggerExec
 @inject UiStateService Ui
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
@@ -471,6 +472,219 @@
             </div>
         </MudItem>
 
+        @* ════════ 하단: Triggers (자동 송신 규칙) ════════ *@
+        <MudItem xs="12">
+            <div class="wb-panel pa-2">
+                <div class="d-flex align-center mb-2" style="gap:8px;">
+                    <MudIconButton Icon="@(_triggersExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                   Size="Size.Small" OnClick="@(() => _triggersExpanded = !_triggersExpanded)" />
+                    <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
+                    <span class="wb-panel-title">Triggers</span>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.TriggerCount</MudChip>
+                    @{
+                        var enabledCount = State.SnapshotTriggers().Count(x => x.Enabled);
+                    }
+                    @if (enabledCount > 0)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
+                            @enabledCount enabled
+                        </MudChip>
+                    }
+                    <MudSpacer />
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Add" OnClick="AddNewTrigger"
+                               Disabled="@(_session == null || _services.Count == 0)">
+                        Trigger 추가
+                    </MudButton>
+                </div>
+
+                @if (_triggersExpanded)
+                {
+                    @if (State.TriggerCount == 0)
+                    {
+                        <div class="wb-empty">
+                            <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
+                            <div>등록된 트리거가 없습니다 · Periodic / OnIncoming / Bulk 자동 송신 규칙</div>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var t in State.SnapshotTriggers())
+                        {
+                            <div @key="t.Id" class="wb-panel pa-2 mb-2">
+                                @if (t.Editing)
+                                {
+                                    <MudGrid Spacing="2">
+                                        <MudItem xs="12" sm="3">
+                                            <MudTextField @bind-Value="t.Name" Label="이름" Placeholder="@t.Id"
+                                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                        </MudItem>
+                                        <MudItem xs="6" sm="2">
+                                            <MudSelect T="TriggerType" Value="t.Type"
+                                                       ValueChanged="@((TriggerType v) => { t.Type = v; State.NotifyTriggersChanged(); })"
+                                                       Label="타입" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                                @foreach (var tt in Enum.GetValues<TriggerType>())
+                                                {
+                                                    <MudSelectItem T="TriggerType" Value="tt">@tt</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudItem>
+                                        <MudItem xs="12" sm="3">
+                                            <MudSelect T="string" Value="t.TargetService"
+                                                       ValueChanged="@((string v) => { t.TargetService = v; t.TargetMethod = ""; State.NotifyTriggersChanged(); })"
+                                                       Label="Target Service" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                                @foreach (var s in _services)
+                                                {
+                                                    <MudSelectItem T="string" Value="@s.ServiceName">@s.ServiceName</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudItem>
+                                        <MudItem xs="12" sm="4">
+                                            <MudSelect T="string" Value="t.TargetMethod"
+                                                       ValueChanged="@((string v) => { t.TargetMethod = v; State.NotifyTriggersChanged(); })"
+                                                       Label="Target Method" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                                       Disabled="@string.IsNullOrEmpty(t.TargetService)">
+                                                @{
+                                                    var svc = _services.FirstOrDefault(s => s.ServiceName == t.TargetService);
+                                                }
+                                                @foreach (var m in svc?.Methods ?? [])
+                                                {
+                                                    <MudSelectItem T="string" Value="@m.MethodName">
+                                                        @m.MethodName  ·  @m.RpcType
+                                                    </MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudItem>
+
+                                        @* 타입별 추가 설정 *@
+                                        @switch (t.Type)
+                                        {
+                                            case TriggerType.Periodic:
+                                                <MudItem xs="6" sm="3">
+                                                    <MudNumericField @bind-Value="t.IntervalMs" Label="Interval (ms)" Min="10" Max="3600000"
+                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                                </MudItem>
+                                                <MudItem xs="6" sm="3">
+                                                    <MudNumericField T="int?" @bind-Value="t.MaxFires" Label="Max fires (비우면 무한)"
+                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                                </MudItem>
+                                                break;
+                                            case TriggerType.Bulk:
+                                                <MudItem xs="6" sm="3">
+                                                    <MudNumericField @bind-Value="t.BulkCount" Label="Count" Min="1" Max="10000"
+                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                                </MudItem>
+                                                <MudItem xs="6" sm="3" Class="d-flex align-center">
+                                                    <MudCheckBox @bind-Value="t.BulkParallel" Label="병렬 발사" Color="Color.Primary" />
+                                                </MudItem>
+                                                break;
+                                            case TriggerType.OnIncoming:
+                                                <MudItem xs="6" sm="3">
+                                                    <MudTextField @bind-Value="t.MatchService" Label="Match Service"
+                                                                  Placeholder="비우면 전체"
+                                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                                </MudItem>
+                                                <MudItem xs="6" sm="3">
+                                                    <MudTextField @bind-Value="t.MatchMethod" Label="Match Method"
+                                                                  Placeholder="비우면 전체"
+                                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                                </MudItem>
+                                                break;
+                                        }
+
+                                        <MudItem xs="12">
+                                            <MudTextField @bind-Value="t.PayloadTemplate" Label="Payload Template (JSON)"
+                                                          HelperText="변수: {{counter}}, {{now}}, OnIncoming은 {{incoming.<dotted.path>}}"
+                                                          Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-mono" />
+                                        </MudItem>
+                                        <MudItem xs="12" Class="d-flex" Style="gap:8px;">
+                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                       OnClick="@(() => { t.Editing = false; State.NotifyTriggersChanged(); })">
+                                                저장
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                       OnClick="@(() => { t.Editing = false; State.NotifyTriggersChanged(); })">
+                                                닫기
+                                            </MudButton>
+                                            <MudSpacer />
+                                            <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Delete"
+                                                       OnClick="@(() => State.RemoveTrigger(t.Id))">
+                                                삭제
+                                            </MudButton>
+                                        </MudItem>
+                                    </MudGrid>
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                                        <MudSwitch T="bool" Value="t.Enabled"
+                                                   ValueChanged="@((bool v) => { t.Enabled = v; State.NotifyTriggersChanged(); })"
+                                                   Color="Color.Success" Size="Size.Small" />
+                                        <MudChip T="string" Size="Size.Small" Color="@TriggerTypeColor(t.Type)"
+                                                 Variant="Variant.Filled" Class="ma-0">@t.Type</MudChip>
+                                        <span style="font-weight:600;">
+                                            @(string.IsNullOrEmpty(t.Name) ? t.Id : t.Name)
+                                        </span>
+                                        <span class="wb-mono" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
+                                            → @(string.IsNullOrEmpty(t.TargetService) ? "(미설정)" : t.TargetService.Split('.').Last() + "." + t.TargetMethod)
+                                        </span>
+                                        @switch (t.Type)
+                                        {
+                                            case TriggerType.Periodic:
+                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
+                                                    every @t.IntervalMs ms
+                                                    @if (t.MaxFires.HasValue) { <text>· max @t.MaxFires</text> }
+                                                </span>
+                                                break;
+                                            case TriggerType.OnIncoming:
+                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
+                                                    on @(string.IsNullOrEmpty(t.MatchService) ? "*" : t.MatchService).@(string.IsNullOrEmpty(t.MatchMethod) ? "*" : t.MatchMethod)
+                                                </span>
+                                                break;
+                                            case TriggerType.Bulk:
+                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
+                                                    ×@t.BulkCount @(t.BulkParallel ? "parallel" : "seq")
+                                                </span>
+                                                break;
+                                        }
+                                        <MudSpacer />
+                                        <span style="font-size:.7rem;">fires @t.TotalFires</span>
+                                        @if (t.Errors > 0)
+                                        {
+                                            <MudTooltip Text="@(t.LastError ?? "")">
+                                                <span style="font-size:.7rem;color:var(--mud-palette-error);">err @t.Errors</span>
+                                            </MudTooltip>
+                                        }
+                                        @if (t.LastFiredAt.HasValue)
+                                        {
+                                            <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">
+                                                @AgoLabel(t.LastFiredAt.Value)
+                                            </span>
+                                        }
+                                        @if (t.Type == TriggerType.Bulk)
+                                        {
+                                            <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Size="Size.Small"
+                                                           Color="Color.Success"
+                                                           OnClick="@(() => FireBulk(t))"
+                                                           title="@($"Bulk 발사 ({t.BulkCount}건)")" />
+                                        }
+                                        else
+                                        {
+                                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                                           OnClick="@(() => FireManual(t))" title="1회 발사" />
+                                        }
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                       OnClick="@(() => { t.Editing = true; State.NotifyTriggersChanged(); })" />
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            </div>
+        </MudItem>
+
         @* ════════ 하단: 로그 ════════ *@
         <MudItem xs="12">
             <div class="wb-panel pa-2">
@@ -526,6 +740,7 @@
     private List<SchemaField> _schemaFields = [];
     private bool _rawJsonMode = false;
     private bool _logsExpanded = true;
+    private bool _triggersExpanded = true;
 
     // ── 1-탭 정책 + 변경 감지 펌프 ──────────────────────────────────────────
     private Guid _clientId;
@@ -1064,6 +1279,38 @@
         var s = data.Replace('\n', ' ').Replace('\r', ' ').Trim();
         return s.Length > 90 ? s[..90] + "…" : s;
     }
+
+    // ── Triggers ─────────────────────────────────────────────────────────
+    private void AddNewTrigger()
+    {
+        var t = new Trigger
+        {
+            Name = $"trigger-{State.TriggerCount + 1}",
+            Editing = true,
+            TargetService = _selectedService?.ServiceName ?? "",
+            TargetMethod = _selectedMethod?.MethodName ?? "",
+            PayloadTemplate = _requestJson
+        };
+        State.AddTrigger(t);
+    }
+
+    private async Task FireManual(Trigger t)
+    {
+        await TriggerExec.FireManualAsync(t);
+    }
+
+    private async Task FireBulk(Trigger t)
+    {
+        await TriggerExec.FireBulkAsync(t);
+    }
+
+    private static Color TriggerTypeColor(TriggerType t) => t switch
+    {
+        TriggerType.Periodic => Color.Info,
+        TriggerType.OnIncoming => Color.Warning,
+        TriggerType.Bulk => Color.Secondary,
+        _ => Color.Default
+    };
 
     private static string AgoLabel(DateTime at)
     {
