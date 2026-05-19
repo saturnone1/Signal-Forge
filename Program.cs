@@ -45,6 +45,7 @@ builder.Services.AddSingleton<IDynamicProtoCompiler, DynamicProtoCompiler>();
 builder.Services.AddScoped<IUnaryGrpcService, UnaryGrpcService>();
 builder.Services.AddSingleton<IGrpcStreamingService, GrpcStreamingService>();
 builder.Services.AddSingleton<WorkbenchNotificationService>();
+builder.Services.AddSingleton<WorkbenchStateService>();
 builder.Services.AddScoped<UiStateService>();
 
 builder.Services.AddCors(options =>
@@ -84,6 +85,9 @@ app.UseAntiforgery();
 app.MapGet("/health", () => Results.Ok(new { status = "connected" }));
 app.MapRazorComponents<GrpcWorkbench.Components.App>()
     .AddInteractiveServerRenderMode();
+
+// 회로 없이도 미들웨어 알림을 누적해야 하므로 시작 시 한 번 깨워서 구독 시작 보장.
+_ = app.Services.GetRequiredService<WorkbenchStateService>();
 
 app.Logger.LogInformation(
     "gRPC Workbench: web UI :{Port}, gRPC server on {UdsPath}", webPort, udsPath);
