@@ -17,7 +17,10 @@ public class WorkbenchStateService : IDisposable
     private readonly object _lock = new();
 
     // ── 누적 상태 ──────────────────────────────────────────────────────────
-    private readonly List<IncomingCallVm> _incoming = [];
+    // RPC(Service.Method)별 집계. 대규모 부하 대응으로 flat 콜 리스트 대신 사용.
+    private readonly Dictionary<string, RpcAggregate> _aggregates = new(StringComparer.Ordinal);
+    // 미들웨어가 CallId로 프레임을 보내므로 빠른 조회용 인덱스.
+    private readonly Dictionary<string, IncomingCallVm> _callIndex = new(StringComparer.Ordinal);
     private readonly List<LogEntry> _logs = [];
     private readonly List<string> _streamRecv = [];
 
@@ -33,13 +36,21 @@ public class WorkbenchStateService : IDisposable
 
     public bool IncomingPaused { get; private set; }
 
-    // 카운트 (lock 없이 빠른 헤더 표시)
-    public int IncomingCount { get { lock (_lock) return _incoming.Count; } }
+    // 카운트 (lock 안에서)
+    public int RpcCount { get { lock (_lock) return _aggregates.Count; } }
+    public int ActiveCallsTotal
+    {
+        get { lock (_lock) return _aggregates.Values.Sum(a => a.ActiveCalls); }
+    }
+    public double TotalRatePerSec
+    {
+        get { lock (_lock) return _aggregates.Values.Sum(a => a.RatePerSec); }
+    }
     public int LogCount { get { lock (_lock) return _logs.Count; } }
     public int StreamRecvCount { get { lock (_lock) return _streamRecv.Count; } }
 
-    private const int MaxIncomingCalls = 100;
-    private const int MaxFramesPerCall = 1000;
+    private const int MaxRecentCallsPerRpc = 10;
+    private const int MaxFramesBuffered = 200;
     private const int MaxLogs = 500;
     private const int MaxStreamRecv = 500;
 
@@ -66,9 +77,14 @@ public class WorkbenchStateService : IDisposable
 
     // ── 스냅샷 (렌더 측에서 호출) ──────────────────────────────────────────
     // 락 안에서 얕은 사본을 만들어 enumerator 동시 변경 예외를 막는다.
-    public IReadOnlyList<IncomingCallVm> SnapshotIncoming()
+    public IReadOnlyList<RpcAggregate> SnapshotAggregates()
     {
-        lock (_lock) return [.. _incoming];
+        lock (_lock) return [.. _aggregates.Values];
+    }
+
+    public IReadOnlyList<IncomingCallVm> SnapshotRecentCalls(RpcAggregate agg)
+    {
+        lock (_lock) return [.. agg.RecentCalls];
     }
 
     public IReadOnlyList<FrameVm> SnapshotFrames(IncomingCallVm call)
@@ -91,8 +107,24 @@ public class WorkbenchStateService : IDisposable
     {
         lock (_lock)
         {
-            if (_incoming.Count >= MaxIncomingCalls) _incoming.RemoveAt(0);
-            _incoming.Add(new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type));
+            var key = $"{e.Service}.{e.Method}";
+            if (!_aggregates.TryGetValue(key, out var agg))
+            {
+                agg = new RpcAggregate(e.Service, e.Method, e.Type);
+                _aggregates[key] = agg;
+            }
+            var call = new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type);
+            agg.RecentCalls.Add(call);
+            if (agg.RecentCalls.Count > MaxRecentCallsPerRpc)
+            {
+                var evicted = agg.RecentCalls[0];
+                agg.RecentCalls.RemoveAt(0);
+                _callIndex.Remove(evicted.CallId);
+            }
+            _callIndex[e.CallId] = call;
+            agg.ActiveCalls++;
+            agg.TotalCalls++;
+            agg.LastSeenAt = DateTime.UtcNow;
         }
         Changed?.Invoke();
     }
@@ -101,10 +133,18 @@ public class WorkbenchStateService : IDisposable
     {
         lock (_lock)
         {
-            var call = _incoming.FirstOrDefault(c => c.CallId == e.CallId);
-            if (call == null) return;
-            if (call.Frames.Count >= MaxFramesPerCall) call.Frames.RemoveAt(0);
+            if (!_callIndex.TryGetValue(e.CallId, out var call)) return;
+            var key = $"{call.Service}.{call.Method}";
+            if (!_aggregates.TryGetValue(key, out var agg)) return;
+
+            // BufferMode OFF: 최신 1건만 유지 (메모리 안전). ON: 최대 N건 히스토리.
+            var cap = agg.BufferMode ? MaxFramesBuffered : 1;
+            if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
             call.Frames.Add(new FrameVm(e.FrameIndex, e.Data));
+
+            agg.TotalFrames++;
+            agg.LastSeenAt = DateTime.UtcNow;
+            agg.RecordFrame(DateTime.UtcNow);
         }
         Changed?.Invoke();
     }
@@ -113,8 +153,14 @@ public class WorkbenchStateService : IDisposable
     {
         lock (_lock)
         {
-            var call = _incoming.FirstOrDefault(c => c.CallId == e.CallId);
-            if (call != null) call.Result = e.Res;
+            if (!_callIndex.TryGetValue(e.CallId, out var call)) return;
+            call.Result = e.Res;
+            var key = $"{call.Service}.{call.Method}";
+            if (_aggregates.TryGetValue(key, out var agg))
+            {
+                agg.ActiveCalls = Math.Max(0, agg.ActiveCalls - 1);
+                agg.LastSeenAt = DateTime.UtcNow;
+            }
         }
         Changed?.Invoke();
     }
@@ -122,7 +168,31 @@ public class WorkbenchStateService : IDisposable
     // ── UI 호출 ────────────────────────────────────────────────────────────
     public void ClearIncoming()
     {
-        lock (_lock) _incoming.Clear();
+        lock (_lock)
+        {
+            _aggregates.Clear();
+            _callIndex.Clear();
+        }
+        Changed?.Invoke();
+    }
+
+    public void SetBufferMode(string aggKey, bool on)
+    {
+        lock (_lock)
+        {
+            if (!_aggregates.TryGetValue(aggKey, out var agg)) return;
+            if (agg.BufferMode == on) return;
+            agg.BufferMode = on;
+            // OFF 전환 시 히스토리는 최신 1건만 남기고 트림 (메모리 회수).
+            if (!on)
+            {
+                foreach (var call in agg.RecentCalls)
+                {
+                    if (call.Frames.Count > 1)
+                        call.Frames.RemoveRange(0, call.Frames.Count - 1);
+                }
+            }
+        }
         Changed?.Invoke();
     }
 

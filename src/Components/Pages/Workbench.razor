@@ -311,12 +311,25 @@
         @* ════════ 우측: 수신 ════════ *@
         <MudItem xs="12" md="4">
             <div class="wb-panel pa-3">
-                <div class="d-flex align-center mb-3" style="gap:8px;">
+                <div class="d-flex align-center flex-wrap mb-3" style="gap:6px;">
                     <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small" Color="Color.Secondary" />
                     <span class="wb-panel-title">Incoming</span>
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                        @State.IncomingCount
-                    </MudChip>
+                    <MudTooltip Text="활성 RPC 종류 수">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                            @State.RpcCount rpcs
+                        </MudChip>
+                    </MudTooltip>
+                    <MudTooltip Text="진행 중인 호출 수">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                                 Color="@(State.ActiveCallsTotal > 0 ? Color.Info : Color.Default)">
+                            @State.ActiveCallsTotal active
+                        </MudChip>
+                    </MudTooltip>
+                    <MudTooltip Text="총 수신 rate (frames/sec)">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                            @($"{State.TotalRatePerSec:F1}/s")
+                        </MudChip>
+                    </MudTooltip>
                     <MudSpacer />
                     <MudTooltip Text="@(State.IncomingPaused ? "수신 표시 재개 (백그라운드 누적은 계속됨)" : "수신 표시 일시정지")">
                         <MudIconButton Size="Size.Small"
@@ -325,88 +338,131 @@
                                        OnClick="@(() => State.SetPaused(!State.IncomingPaused))" />
                     </MudTooltip>
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
-                                   title="수신 목록 비우기" OnClick="@(() => State.ClearIncoming())" />
+                                   title="수신 집계 비우기" OnClick="@(() => State.ClearIncoming())" />
                 </div>
 
-                @if (State.IncomingCount == 0)
+                @if (State.RpcCount == 0)
                 {
                     <div class="wb-empty">
                         <MudIcon Icon="@Icons.Material.Outlined.Sensors" Class="mb-2" />
-                        <div>이 인스턴스의 UDS 서버 수신 호출이<br />실시간으로 표시됩니다</div>
+                        <div>이 인스턴스의 UDS 서버 수신 호출이<br />Service.Method 단위로 집계됩니다</div>
                     </div>
                 }
                 else
                 {
                     <div class="wb-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto;">
-                        @foreach (var call in State.SnapshotIncoming().AsEnumerable().Reverse())
+                        @foreach (var agg in State.SnapshotAggregates()
+                                                  .OrderByDescending(a => a.LastSeenAt)
+                                                  .ThenBy(a => a.Key))
                         {
-                            var frames = State.SnapshotFrames(call);
-                            <div class="wb-panel wb-rpc-accent @RpcCss(call.Type) pa-2 mb-2">
-                                <div class="d-flex align-center mb-1" style="gap:8px;">
-                                    <span class="wb-mono" style="font-size:.68rem;color:var(--mud-palette-text-disabled);">
-                                        @call.CallId[..8]
-                                    </span>
+                            <div class="wb-panel wb-rpc-accent @RpcCss(agg.Type) pa-2 mb-2">
+                                @* ── RPC 헤더 행 ─────────────────────────────────────── *@
+                                <div class="d-flex align-center" style="gap:8px;cursor:pointer;"
+                                     @onclick="@(() => agg.Expanded = !agg.Expanded)">
+                                    <MudIcon Size="Size.Small"
+                                             Icon="@(agg.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" />
                                     <span class="wb-mono" style="font-size:.78rem;font-weight:600;color:var(--wb-rpc);">
-                                        @($"{call.Service.Split('.').Last()}.{call.Method}")
+                                        @($"{agg.Service.Split('.').Last()}.{agg.Method}")
                                     </span>
                                     <MudSpacer />
-                                    @if (!string.IsNullOrEmpty(call.Result))
+                                    <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
+                                        @($"{agg.RatePerSec:F1}/s")
+                                    </span>
+                                    <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
+                                    <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
+                                        @agg.TotalFrames recv
+                                    </span>
+                                    @if (agg.ActiveCalls > 0)
                                     {
-                                        <MudTooltip Text="@call.Result">
-                                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
-                                                     Size="Size.Small" Color="Color.Success" />
-                                        </MudTooltip>
-                                        <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
-                                            @frames.Count f
+                                        <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Style="width:12px;height:12px;" />
+                                        <span style="font-size:.7rem;color:var(--mud-palette-info);">
+                                            @agg.ActiveCalls active
                                         </span>
+                                    }
+                                    <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
+                                    <span style="font-size:.68rem;color:var(--mud-palette-text-disabled);">
+                                        @AgoLabel(agg.LastSeenAt)
+                                    </span>
+                                    <span @onclick:stopPropagation="true" @onclick="@(_ => {})">
+                                        <MudTooltip Text="@(agg.BufferMode ? "버퍼 모드 ON: 콜당 최근 200 프레임 보관" : "버퍼 모드 OFF: 콜당 최신 1 프레임만")">
+                                            <MudIconButton Size="Size.Small" Class="pa-0"
+                                                           Color="@(agg.BufferMode ? Color.Warning : Color.Default)"
+                                                           Icon="@(agg.BufferMode ? Icons.Material.Filled.PushPin : Icons.Material.Outlined.PushPin)"
+                                                           OnClick="@(() => State.SetBufferMode(agg.Key, !agg.BufferMode))" />
+                                        </MudTooltip>
+                                    </span>
+                                </div>
+
+                                @* ── 펼치면: 최근 콜 목록 ─────────────────────────────── *@
+                                @if (agg.Expanded)
+                                {
+                                    var recent = State.SnapshotRecentCalls(agg);
+                                    @if (recent.Count == 0)
+                                    {
+                                        <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">콜 없음</span>
                                     }
                                     else
                                     {
-                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                                    }
-                                </div>
+                                        <div class="mt-2" style="border-left:2px solid var(--mud-palette-divider);padding-left:6px;">
+                                            @foreach (var call in recent.AsEnumerable().Reverse())
+                                            {
+                                                var frames = State.SnapshotFrames(call);
+                                                <div class="mb-1">
+                                                    <div class="d-flex align-center" style="gap:6px;cursor:pointer;"
+                                                         @onclick="@(() => call.Expanded = !call.Expanded)">
+                                                        <MudIcon Size="Size.Small"
+                                                                 Icon="@(call.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" />
+                                                        <span class="wb-mono" style="font-size:.66rem;color:var(--mud-palette-text-disabled);">
+                                                            @call.CallId[..8]
+                                                        </span>
+                                                        <span style="font-size:.66rem;color:var(--mud-palette-text-secondary);">
+                                                            @frames.Count f
+                                                        </span>
+                                                        <MudSpacer />
+                                                        @if (!string.IsNullOrEmpty(call.Result))
+                                                        {
+                                                            <MudTooltip Text="@call.Result">
+                                                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                                                         Size="Size.Small" Color="Color.Success"
+                                                                         Style="font-size:14px;" />
+                                                            </MudTooltip>
+                                                        }
+                                                        else
+                                                        {
+                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                                                 Style="width:12px;height:12px;" />
+                                                        }
+                                                        @if (call.Expanded && frames.Count > 0)
+                                                        {
+                                                            <span @onclick:stopPropagation="true" @onclick="@(_ => {})">
+                                                                <MudTooltip Text="@(call.Pretty ? "원문(raw)" : "들여쓰기")">
+                                                                    <MudIconButton Size="Size.Small" Class="pa-0"
+                                                                                   Icon="@(call.Pretty ? Icons.Material.Filled.Notes : Icons.Material.Filled.FormatAlignLeft)"
+                                                                                   OnClick="@(() => call.Pretty = !call.Pretty)" />
+                                                                </MudTooltip>
+                                                            </span>
+                                                        }
+                                                    </div>
 
-                                @if (frames.Count > 0)
-                                {
-                                    <div class="d-flex align-center" style="gap:4px;">
-                                        @if (frames.Count > 1)
-                                        {
-                                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
-                                                       Class="pa-0" Style="min-height:0;font-size:.7rem;"
-                                                       OnClick="@(() => call.ShowAllFrames = !call.ShowAllFrames)">
-                                                @(call.ShowAllFrames ? "최근만 ▲" : $"이전 {frames.Count - 1}건 ▼")
-                                            </MudButton>
-                                        }
-                                        <MudSpacer />
-                                        <MudTooltip Text="@(call.Expanded ? "본문 접기(요약만)" : "본문 펼치기")">
-                                            <MudIconButton Size="Size.Small" Class="pa-0"
-                                                           Icon="@(call.Expanded ? Icons.Material.Filled.UnfoldLess : Icons.Material.Filled.UnfoldMore)"
-                                                           OnClick="@(() => call.Expanded = !call.Expanded)" />
-                                        </MudTooltip>
-                                        @if (call.Expanded)
-                                        {
-                                            <MudTooltip Text="@(call.Pretty ? "원문(raw)" : "들여쓰기")">
-                                                <MudIconButton Size="Size.Small" Class="pa-0"
-                                                               Icon="@(call.Pretty ? Icons.Material.Filled.Notes : Icons.Material.Filled.FormatAlignLeft)"
-                                                               OnClick="@(() => call.Pretty = !call.Pretty)" />
-                                            </MudTooltip>
-                                        }
-                                    </div>
-
-                                    @if (call.ShowAllFrames)
-                                    {
-                                        @for (int fi = 0; fi < frames.Count - 1; fi++)
-                                        {
-                                            var f = frames[fi];
-                                            <pre class="wb-code wb-scroll mt-1" style="max-height:90px;font-size:.68rem;opacity:.6;">[@f.Index] @(call.Expanded ? Fmt(f.Data, call.Pretty) : Summary(f.Data))</pre>
-                                        }
+                                                    @if (call.Expanded && frames.Count > 0)
+                                                    {
+                                                        @* 버퍼 모드: 과거 프레임 요약 + 최신 1건 전체 *@
+                                                        @if (frames.Count > 1)
+                                                        {
+                                                            @for (int fi = 0; fi < frames.Count - 1; fi++)
+                                                            {
+                                                                var f = frames[fi];
+                                                                <pre class="wb-code wb-scroll mt-1" style="max-height:60px;font-size:.66rem;opacity:.55;">[@f.Index] @Summary(f.Data)</pre>
+                                                            }
+                                                        }
+                                                        var latest = frames[^1];
+                                                        <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:220px;">[@latest.Index] @Fmt(latest.Data, call.Pretty)</pre>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                    var latest = frames[^1];
-                                    <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:180px;">[@latest.Index] @(call.Expanded ? Fmt(latest.Data, call.Pretty) : Summary(latest.Data))</pre>
-                                }
-                                else
-                                {
-                                    <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">수신 대기 중…</span>
                                 }
                             </div>
                         }
@@ -1007,5 +1063,15 @@
     {
         var s = data.Replace('\n', ' ').Replace('\r', ' ').Trim();
         return s.Length > 90 ? s[..90] + "…" : s;
+    }
+
+    private static string AgoLabel(DateTime at)
+    {
+        var d = DateTime.UtcNow - at;
+        if (d.TotalSeconds < 1) return "now";
+        if (d.TotalSeconds < 60) return $"{(int)d.TotalSeconds}s";
+        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m";
+        if (d.TotalHours < 24) return $"{(int)d.TotalHours}h";
+        return $"{(int)d.TotalDays}d";
     }
 }
