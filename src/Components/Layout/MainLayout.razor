@@ -82,6 +82,13 @@
             DefaultBorderRadius = "8px",
             AppbarHeight = "52px"
         },
+        // 폐쇄망: 외부 폰트 다운로드 없이 OS 기본 sans 스택 사용
+        // (타입명은 MudBlazor 버전마다 달라 중첩 초기자로 기존 Default 인스턴스만 수정)
+        Typography = new Typography
+        {
+            Default = { FontFamily = ["-apple-system", "BlinkMacSystemFont", "Segoe UI",
+                                      "Roboto", "Helvetica Neue", "Arial", "sans-serif"] }
+        },
         PaletteDark = new PaletteDark
         {
             Primary          = "#7C5CFF",

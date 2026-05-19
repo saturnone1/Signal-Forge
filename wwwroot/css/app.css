@@ -79,7 +79,6 @@ html, body {
 
 /* ── Misc ───────────────────────────────────────────────────────────────── */
 .wb-mono { font-family: var(--wb-mono); }
-.wb-fill-height { height: calc(100vh - 96px); }
 .wb-empty {
   color: var(--mud-palette-text-disabled);
   font-size: 0.8rem;
