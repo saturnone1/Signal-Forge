@@ -21,7 +21,7 @@
 
         @* ════════ 좌측: 가이드 설정 사이드바 ════════ *@
         <MudItem xs="12" md="3">
-            <div class="wb-panel pa-3 wb-scroll" style="overflow:auto;">
+            <div class="wb-panel pa-3">
 
                 @* ── 1. 세션 ── *@
                 <div class="d-flex align-center mb-2" style="gap:8px;">
@@ -243,6 +243,24 @@
                                 </MudText>
                             </div>
                         }
+
+                        @if (_streamRecv.Count > 0)
+                        {
+                            <div class="d-flex align-center mb-1" style="gap:8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small"
+                                         Color="Color.Secondary" />
+                                <span class="wb-panel-title">Stream ← 수신</span>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                                    @_streamRecv.Count
+                                </MudChip>
+                            </div>
+                            <div class="wb-scroll mb-2" style="max-height:28vh;overflow-y:auto;">
+                                @foreach (var m in ((IEnumerable<string>)_streamRecv).Reverse().Take(50))
+                                {
+                                    <pre class="wb-code wb-scroll wb-code--accent mb-1" style="max-height:140px;">@m</pre>
+                                }
+                            </div>
+                        }
                     }
                     else
                     {
@@ -411,6 +429,8 @@
     private bool _streamOpen;
     private string? _streamId;
     private int _sentCount;
+    private List<string> _streamRecv = []; // bidi 서버→클라 실시간 수신
+    private const int MaxStreamRecv = 500;
 
     // 스키마 폼
     private List<SchemaField> _schemaFields = [];
@@ -765,9 +785,20 @@
     {
         if (_session == null || _selectedMethod == null) return;
         _sentCount = 0;
+        _streamRecv = [];
         try
         {
-            _streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session);
+            // bidi: 서버→클라 메시지를 닫기 전 실시간 표시 (고주파 배치 큐 경유)
+            _streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session,
+                json =>
+                {
+                    _pendingUiActions.Enqueue(() =>
+                    {
+                        if (_streamRecv.Count >= MaxStreamRecv) _streamRecv.RemoveAt(0);
+                        _streamRecv.Add(json);
+                    });
+                    return Task.CompletedTask;
+                });
             _streamOpen = true;
             Log($"스트림 시작: {_streamId![..8]}", LogLevel.Send);
         }

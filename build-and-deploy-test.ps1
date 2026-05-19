@@ -1,4 +1,12 @@
-﻿param(
+﻿# Assumptions:
+#   - `docker` and `kubectl` are on PATH.
+#   - kubectl's *current context* points at a working cluster whose container
+#     runtime shares the image built here (imagePullPolicy: Never). Verify with
+#     `kubectl config current-context` / `kubectl get nodes` before running;
+#     switch with `kubectl config use-context <ctx>` if needed.
+#   - Image tag: grpc-workbench:test (built locally, not pulled).
+
+param(
     [switch]$SkipBuild,
     [switch]$Teardown
 )
