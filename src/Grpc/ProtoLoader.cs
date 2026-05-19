@@ -1,6 +1,7 @@
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using GrpcWorkbench.Models.Grpc;
@@ -348,7 +349,7 @@ public class ProtoLoader : IProtoLoader
             : baseSchema;
     }
 
-    private static bool TryResolveMessage(Dictionary<string, DescriptorProto> messages, string typeName, out DescriptorProto message)
+    private static bool TryResolveMessage(Dictionary<string, DescriptorProto> messages, string typeName, [NotNullWhen(true)] out DescriptorProto? message)
     {
         var normalized = NormalizeTypeName(typeName);
 
@@ -359,11 +360,11 @@ public class ProtoLoader : IProtoLoader
         if (!string.IsNullOrEmpty(shortName) && messages.TryGetValue(shortName, out message))
             return true;
 
-        message = null!;
+        message = null;
         return false;
     }
 
-    private static bool TryResolveEnum(Dictionary<string, EnumDescriptorProto> enums, string typeName, out EnumDescriptorProto enumDescriptor)
+    private static bool TryResolveEnum(Dictionary<string, EnumDescriptorProto> enums, string typeName, [NotNullWhen(true)] out EnumDescriptorProto? enumDescriptor)
     {
         var normalized = NormalizeTypeName(typeName);
 
@@ -374,7 +375,7 @@ public class ProtoLoader : IProtoLoader
         if (!string.IsNullOrEmpty(shortName) && enums.TryGetValue(shortName, out enumDescriptor))
             return true;
 
-        enumDescriptor = null!;
+        enumDescriptor = null;
         return false;
     }
 

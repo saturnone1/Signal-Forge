@@ -54,7 +54,8 @@ internal class ActiveStreamContext
     public PropertyInfo? CurrentProperty { get; init; }
     public PropertyInfo? ResponseAsyncProp { get; init; }
     public int MessagesSent { get; set; }
-    public List<string> ReceivedMessages { get; } = [];
+    // 백그라운드 수신 루프가 Enqueue, CloseStream이 읽으므로 스레드 안전 컬렉션 사용
+    public ConcurrentQueue<string> ReceivedMessages { get; } = new();
     public Task? ReceiveTask { get; set; }
 }
 
@@ -224,7 +225,7 @@ public class GrpcStreamingService : IGrpcStreamingService
 
                         var current = currentProperty.GetValue(responseStream);
                         var json = _jsonConverter.MessageToJson((IMessage)current!);
-                        ctx.ReceivedMessages.Add(json);
+                        ctx.ReceivedMessages.Enqueue(json);
                         if (onBidiMessageReceived != null)
                             await onBidiMessageReceived(json);
                     }
@@ -294,7 +295,7 @@ public class GrpcStreamingService : IGrpcStreamingService
             if (ctx.RpcType == "BidirectionalStreaming" && ctx.ReceiveTask != null)
             {
                 await ctx.ReceiveTask;
-                return new StreamCloseResult { IsSuccess = true, Messages = ctx.ReceivedMessages };
+                return new StreamCloseResult { IsSuccess = true, Messages = ctx.ReceivedMessages.ToList() };
             }
 
             return new StreamCloseResult { IsSuccess = true };

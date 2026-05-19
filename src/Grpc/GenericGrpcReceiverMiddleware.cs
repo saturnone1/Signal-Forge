@@ -15,7 +15,9 @@ public class GenericGrpcReceiverMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<GenericGrpcReceiverMiddleware> _logger;
 
-    // gRPC reflection — pass through to ASP.NET Core's built-in reflection service.
+    // gRPC reflection handshake paths — not visualized (skipped from interception so we
+    // don't protobuf-decode reflection traffic). No reflection service is registered, so
+    // these fall through routing and return UNIMPLEMENTED, which is expected/harmless.
     private static readonly HashSet<string> BuiltInServicePaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "grpc.reflection.v1alpha.ServerReflection",
@@ -46,7 +48,7 @@ public class GenericGrpcReceiverMiddleware
         var serviceName = path[..slash];
         var methodName  = path[(slash + 1)..];
 
-        // Pass built-in services through to the registered gRPC service implementations.
+        // Don't intercept reflection handshake traffic — let it fall through routing.
         if (BuiltInServicePaths.Contains(serviceName)) { await _next(context); return; }
 
         // Disable Kestrel's MinRequestBodyDataRate — gRPC streams can be idle
@@ -122,7 +124,7 @@ public class GenericGrpcReceiverMiddleware
                 string frameSummary;
                 try
                 {
-                    var msgType = FindRequestMessageType(methodName);
+                    var msgType = notify.GetOrResolveRequestType(methodName, FindRequestMessageType);
                     if (msgType != null)
                     {
                         var parserProp = msgType.GetProperty("Parser");
