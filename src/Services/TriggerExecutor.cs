@@ -191,18 +191,34 @@ public class TriggerExecutor : IHostedService, IDisposable
                     break;
                 case "ClientStreaming":
                 {
+                    // try/finally: Write 실패해도 stream leak 방지
                     var sid = await _streaming.OpenStreamAsync(payload, session);
-                    await _streaming.WriteMessageAsync(sid, json);
-                    await _streaming.CloseStreamAsync(sid);
+                    try
+                    {
+                        await _streaming.WriteMessageAsync(sid, json);
+                    }
+                    finally
+                    {
+                        if (_streaming.IsStreamOpen(sid))
+                            await _streaming.CloseStreamAsync(sid);
+                    }
                     break;
                 }
                 case "BidirectionalStreaming":
                 {
-                    // 트리거 발사마다 ad-hoc 양방향 스트림 — 1건 쓰고 즉시 닫음
+                    // 트리거 발사마다 ad-hoc 양방향 스트림 — 1건 쓰고 즉시 닫음.
+                    // try/finally: Write 실패해도 stream leak 방지 (active call 누적 방지)
                     var sid = await _streaming.OpenStreamAsync(payload, session);
-                    await _streaming.WriteMessageAsync(sid, json);
-                    await Task.Delay(50); // 서버가 응답 처리할 짧은 틈
-                    await _streaming.CloseStreamAsync(sid);
+                    try
+                    {
+                        await _streaming.WriteMessageAsync(sid, json);
+                        await Task.Delay(50); // 서버가 응답 처리할 짧은 틈
+                    }
+                    finally
+                    {
+                        if (_streaming.IsStreamOpen(sid))
+                            await _streaming.CloseStreamAsync(sid);
+                    }
                     break;
                 }
                 default:
@@ -216,8 +232,13 @@ public class TriggerExecutor : IHostedService, IDisposable
         catch (Exception ex)
         {
             Interlocked.Increment(ref t.Errors);
-            t.LastError = ex.Message;
-            _logger.LogError(ex, "Trigger fire failed: {Id} {Name}", t.Id, t.Name);
+            // Reflection 래핑(TargetInvocationException) 다단계 풀어서 root 표시
+            var root = ex;
+            while (root is System.Reflection.TargetInvocationException tie && tie.InnerException != null)
+                root = tie.InnerException;
+            t.LastError = $"{root.GetType().Name}: {root.Message}";
+            _logger.LogError(ex, "Trigger fire failed: {Id} {Name} target={Service}.{Method}",
+                t.Id, t.Name, t.TargetService, t.TargetMethod);
         }
         finally
         {

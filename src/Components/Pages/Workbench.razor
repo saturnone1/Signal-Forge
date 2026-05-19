@@ -352,9 +352,9 @@
                 else
                 {
                     <div class="wb-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto;">
-                        @foreach (var agg in State.SnapshotAggregates()
-                                                  .OrderByDescending(a => a.LastSeenAt)
-                                                  .ThenBy(a => a.Key))
+                        @* 안정 정렬 — 매 프레임 출렁이지 않게 알파벳 고정.
+                           활동/rate 정보는 행 우측에 그대로 표시. *@
+                        @foreach (var agg in State.SnapshotAggregates().OrderBy(a => a.Key))
                         {
                             <div class="wb-panel wb-rpc-accent @RpcCss(agg.Type) pa-2 mb-2">
                                 @* ── RPC 헤더 행 ─────────────────────────────────────── *@
@@ -541,7 +541,7 @@
                                         </MudItem>
                                         <MudItem xs="12" sm="4">
                                             <MudSelect T="string" Value="t.TargetMethod"
-                                                       ValueChanged="@((string v) => { t.TargetMethod = v; State.NotifyTriggersChanged(); })"
+                                                       ValueChanged="@((string v) => OnTriggerTargetMethodChanged(t, v))"
                                                        Label="Target Method" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                        Disabled="@string.IsNullOrEmpty(t.TargetService)">
                                                 @{
@@ -1283,6 +1283,8 @@
     // ── Triggers ─────────────────────────────────────────────────────────
     private void AddNewTrigger()
     {
+        // 동시에 여러 트리거가 편집 상태가 되는 혼동 방지 — 기존 편집 모두 닫기
+        foreach (var existing in State.SnapshotTriggers()) existing.Editing = false;
         var t = new Trigger
         {
             Name = $"trigger-{State.TriggerCount + 1}",
@@ -1292,6 +1294,15 @@
             PayloadTemplate = _requestJson
         };
         State.AddTrigger(t);
+    }
+
+    // 타겟 메서드 바뀌면 이전 메서드용 payload는 거의 확실히 호환 안 됨 → 기본 "{}"
+    // (Request↔Trigger 통합 전까지의 임시 가드)
+    private void OnTriggerTargetMethodChanged(Trigger t, string method)
+    {
+        t.TargetMethod = method;
+        t.PayloadTemplate = "{}";
+        State.NotifyTriggersChanged();
     }
 
     private async Task FireManual(Trigger t)
