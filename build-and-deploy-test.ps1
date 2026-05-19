@@ -80,11 +80,10 @@ if ($ready) {
     Write-Host "  A에서 B로 요청:  A UI에서 소켓경로 /var/run/dds-ambassador-peer/grpc.sock 로 세션 생성 → 요청 전송 → B UI에 수신 표시"
     Write-Host "  B에서 A로 요청:  B UI에서 소켓경로 /var/run/dds-ambassador-peer/grpc.sock 로 세션 생성 → 요청 전송 → A UI에 수신 표시"
     Write-Host ""
-    Write-Host "  Available gRPC services (each workbench has its own built-in server):"
-    Write-Host "    EchoService.Echo          (Unary)"
-    Write-Host "    CounterService.Countdown  (Server Streaming)"
-    Write-Host "    SumService.CalculateSum   (Client Streaming)"
-    Write-Host "    ChatService.Chat          (Bidirectional)"
+    Write-Host "  Built-in gRPC receiver: 들어오는 모든 호출을 디코딩해 UI에 표시하고 OK를 반환합니다."
+    Write-Host "  번들 proto: ddssim.DdsBridge — 16개 양방향 스트리밍 RPC"
+    Write-Host "    예) StreamAirThreatInformation, StreamMunitionInformation, StreamWeaponFire ..."
+    Write-Host "    (모두 BidirectionalStreaming: rpc StreamX(stream X) returns (stream X))"
     Write-Host "----------------------------------------"
 } else {
     Write-Host "Timeout: pod not ready yet." -ForegroundColor Yellow

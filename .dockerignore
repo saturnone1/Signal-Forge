@@ -1,0 +1,12 @@
+# Keep packages/ — required for offline (air-gapped) restore.
+**/bin
+**/obj
+**/.vs
+.git
+.gitignore
+.claude
+**/*.user
+Dockerfile
+.dockerignore
+TO_DOCKER_GUIDE.md
+build-and-deploy-test.ps1

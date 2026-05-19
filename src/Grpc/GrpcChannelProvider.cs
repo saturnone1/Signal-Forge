@@ -9,7 +9,9 @@ namespace GrpcWorkbench.Grpc;
 public interface IGrpcChannelProvider
 {
     Task<GrpcChannel> GetChannelAsync(GrpcSession session);
-    void ClearChannel(string sessionId);
+
+    /// <summary>해당 세션의 소켓 경로에 캐시된 채널을 해제(Dispose)합니다.</summary>
+    void ReleaseChannel(GrpcSession session);
 }
 
 public class GrpcChannelProvider : IGrpcChannelProvider
@@ -30,16 +32,25 @@ public class GrpcChannelProvider : IGrpcChannelProvider
         return GetUnixDomainSocketChannelAsync(session);
     }
 
-    private Task<GrpcChannel> GetUnixDomainSocketChannelAsync(GrpcSession session)
+    // UnixDomainSocketEndPoint은 순수 파일 경로만 받으므로 "unix:" 접두사를 제거하고
+    // 항상 절대경로 형태로 정규화한다. 채널 캐시 키도 이 값으로 통일한다.
+    private static string NormalizeSocketPath(string? rawPath)
     {
-        // UnixDomainSocketEndPoint은 순수 파일 경로만 받으므로 "unix:" 접두사를 제거한다.
-        var socketPath = session.UnixSocketPath!.TrimStart();
+        var socketPath = (rawPath ?? string.Empty).TrimStart();
         if (socketPath.StartsWith("unix:", StringComparison.OrdinalIgnoreCase))
             socketPath = socketPath["unix:".Length..].TrimStart('/');
         if (!socketPath.StartsWith('/'))
             socketPath = "/" + socketPath;
+        return socketPath;
+    }
 
-        var key = $"uds:{socketPath}";
+    private static string ChannelKey(string socketPath) => $"uds:{socketPath}";
+
+    private Task<GrpcChannel> GetUnixDomainSocketChannelAsync(GrpcSession session)
+    {
+        var socketPath = NormalizeSocketPath(session.UnixSocketPath);
+
+        var key = ChannelKey(socketPath);
         if (_channels.TryGetValue(key, out var existing))
             return Task.FromResult(existing);
 
@@ -77,16 +88,18 @@ public class GrpcChannelProvider : IGrpcChannelProvider
         return Task.FromResult(channel);
     }
 
-    public void ClearChannel(string sessionId)
+    public void ReleaseChannel(GrpcSession session)
     {
-        // sessionId 기반으로 채널 키를 특정할 수 없으므로(키는 주소 기반),
-        // 모든 채널을 정리한다. 필요하다면 세션별 키를 별도 관리할 수 있다.
-        foreach (var key in _channels.Keys.ToArray())
+        if (string.IsNullOrWhiteSpace(session.UnixSocketPath))
+            return;
+
+        var key = ChannelKey(NormalizeSocketPath(session.UnixSocketPath));
+        if (_channels.TryRemove(key, out var ch))
         {
-            if (_channels.TryRemove(key, out var ch))
-                ch.Dispose();
+            ch.Dispose();
+            _logger.LogInformation("Released gRPC channel for UDS: {SocketPath} (session: {SessionId})",
+                session.UnixSocketPath, session.SessionId);
         }
-        _logger.LogInformation("Cleared all gRPC channels (triggered by session: {SessionId})", sessionId);
     }
 }
 

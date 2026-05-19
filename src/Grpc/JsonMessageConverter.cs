@@ -26,9 +26,6 @@ public class JsonMessageConverter : IJsonMessageConverter
             if (!typeof(IMessage).IsAssignableFrom(messageType))
                 throw new ArgumentException($"Type {messageType.Name} does not implement IMessage");
 
-            var message = Activator.CreateInstance(messageType) as IMessage
-                ?? throw new InvalidOperationException($"Cannot create instance of {messageType.Name}");
-
             var parser = messageType.GetProperty("Parser")?.GetValue(null);
             if (parser == null)
                 throw new InvalidOperationException($"No Parser property found on {messageType.Name}");

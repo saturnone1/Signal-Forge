@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace GrpcWorkbench.Services;
 
 public record IncomingCallStartedEvent(
@@ -35,6 +37,10 @@ public class WorkbenchNotificationService
     // 미들웨어가 수신 시 정확한 RPC 타입을 조회하는 데 사용합니다.
     private readonly Dictionary<string, Dictionary<string, string>> _rpcTypeMap = new(StringComparer.OrdinalIgnoreCase);
 
+    // 수신 미들웨어가 프레임마다 호출하므로 methodName→메시지 Type을 캐시한다.
+    // (null도 캐시 = negative caching) proto 재등록 시 새 어셈블리 기준으로 재해석되도록 비운다.
+    private readonly ConcurrentDictionary<string, Type?> _msgTypeCache = new(StringComparer.OrdinalIgnoreCase);
+
     public void RegisterServices(IEnumerable<GrpcWorkbench.Models.Grpc.ServiceMetadata> services)
     {
         lock (_rpcTypeMap)
@@ -44,7 +50,15 @@ public class WorkbenchNotificationService
                 _rpcTypeMap[svc.ServiceName] = svc.Methods.ToDictionary(
                     m => m.MethodName, m => m.RpcType, StringComparer.OrdinalIgnoreCase);
         }
+        _msgTypeCache.Clear();
     }
+
+    /// <summary>
+    /// methodName에 대한 protobuf 메시지 Type을 캐시에서 반환하고,
+    /// 없으면 <paramref name="resolver"/>로 1회 해석 후 캐시합니다(미해결 null도 캐시).
+    /// </summary>
+    public Type? GetOrResolveRequestType(string methodName, Func<string, Type?> resolver)
+        => _msgTypeCache.GetOrAdd(methodName, resolver);
 
     /// <summary>
     /// proto 메타데이터에서 RPC 타입을 조회합니다.

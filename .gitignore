@@ -28,3 +28,7 @@ README.md
 !.git/config
 !.git/packed-refs
 !.git/refs/heads/**
+
+# This repo ships a hand-authored Dockerfile/.dockerignore (offline build) — keep tracked
+!/Dockerfile
+!/.dockerignore
