@@ -1,41 +1,129 @@
 @inherits LayoutComponentBase
+@inject UiStateService Ui
+@inject IJSRuntime JS
+@implements IDisposable
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="_theme" IsDarkMode="Ui.IsDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1" Dense="true">
-        <MudText Typo="Typo.h6" Class="ml-2">🚀 gRPC Workbench</MudText>
-        <MudSpacer />
-        <MudText Typo="Typo.caption" Class="mr-2" Style="opacity:0.7">
-            Bidirectional gRPC 테스트 도구
+    <MudAppBar Elevation="0" Dense="true" Color="Color.Surface"
+               Style="border-bottom:1px solid var(--mud-palette-lines-default);">
+        <MudIcon Icon="@Icons.Material.Filled.Hub" Color="Color.Primary" Class="mr-2" />
+        <MudText Typo="Typo.subtitle1" Style="font-weight:700;letter-spacing:.02em;">
+            gRPC Workbench
         </MudText>
+        <MudText Typo="Typo.caption" Class="ml-3 d-none d-sm-flex"
+                 Style="color:var(--mud-palette-text-disabled);">
+            bidirectional gRPC over UDS
+        </MudText>
+
+        <MudSpacer />
+
+        @* Live connection status *@
+        <div class="d-flex align-center mr-3" style="gap:8px;">
+            <span class="wb-dot @(Ui.IsConnected ? "wb-dot--on" : "wb-dot--off")"></span>
+            <MudText Typo="Typo.caption" Style="font-weight:600;">
+                @(Ui.IsConnected ? "Connected" : "Disconnected")
+            </MudText>
+            @if (Ui.IsConnected && !string.IsNullOrEmpty(Ui.SocketPath))
+            {
+                <MudText Typo="Typo.caption" Class="wb-mono d-none d-md-flex"
+                         Style="color:var(--mud-palette-text-secondary);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    @Ui.SocketPath
+                </MudText>
+            }
+        </div>
+
+        <MudTooltip Text="@(Ui.IsDarkMode ? "라이트 모드" : "다크 모드")">
+            <MudIconButton Icon="@(Ui.IsDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                           Color="Color.Inherit" Size="Size.Small"
+                           OnClick="ToggleDarkAsync" />
+        </MudTooltip>
     </MudAppBar>
-    <MudMainContent Style="padding-top: 48px;">
+
+    <MudMainContent Style="background:var(--mud-palette-background);min-height:100vh;">
         @Body
     </MudMainContent>
 </MudLayout>
 
 @code {
+    protected override void OnInitialized() => Ui.Changed += OnUiChanged;
+
+    private void OnUiChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_dark");
+            if (stored is "0" or "1")
+                Ui.SetDarkMode(stored == "1");
+        }
+        catch { /* localStorage 접근 실패 시 기본값(dark) 유지 */ }
+    }
+
+    private async Task ToggleDarkAsync()
+    {
+        Ui.SetDarkMode(!Ui.IsDarkMode);
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "wb_dark", Ui.IsDarkMode ? "1" : "0"); }
+        catch { }
+    }
+
+    public void Dispose() => Ui.Changed -= OnUiChanged;
+
     private readonly MudTheme _theme = new()
     {
-        PaletteLight = new PaletteLight
+        LayoutProperties = new LayoutProperties
         {
-            Primary = "#1976D2",
-            Secondary = "#455A64",
-            Background = "#F5F5F5",
-            Surface = "#FFFFFF",
-            AppbarBackground = "#1565C0",
-            AppbarText = "#FFFFFF",
+            DefaultBorderRadius = "8px",
+            AppbarHeight = "52px"
         },
         PaletteDark = new PaletteDark
         {
-            Primary = "#90CAF9",
-            Background = "#121212",
-            Surface = "#1E1E1E",
-            AppbarBackground = "#1A237E",
+            Primary          = "#7C5CFF",
+            Secondary        = "#22D3A6",
+            Info             = "#4FA8FF",
+            Success          = "#3FB950",
+            Warning          = "#E3A008",
+            Error            = "#F85149",
+            Background       = "#16181D",
+            Surface          = "#1E2128",
+            AppbarBackground = "#1A1C22",
+            AppbarText       = "rgba(255,255,255,0.88)",
+            DrawerBackground = "#1A1C22",
+            TextPrimary      = "rgba(255,255,255,0.88)",
+            TextSecondary    = "rgba(255,255,255,0.55)",
+            TextDisabled     = "rgba(255,255,255,0.32)",
+            ActionDefault    = "rgba(255,255,255,0.55)",
+            LinesDefault     = "#2D313A",
+            LinesInputs      = "#2D313A",
+            TableLines       = "#2D313A",
+            Divider          = "#2D313A",
+            DividerLight     = "#2D313A"
+        },
+        PaletteLight = new PaletteLight
+        {
+            Primary          = "#6B4DFF",
+            Secondary        = "#0EA5A0",
+            Info             = "#2563EB",
+            Success          = "#16A34A",
+            Warning          = "#B45309",
+            Error            = "#DC2626",
+            Background       = "#F5F6F8",
+            Surface          = "#FFFFFF",
+            AppbarBackground = "#FFFFFF",
+            AppbarText       = "rgba(0,0,0,0.87)",
+            TextPrimary      = "rgba(0,0,0,0.87)",
+            TextSecondary    = "rgba(0,0,0,0.60)",
+            TextDisabled     = "rgba(0,0,0,0.38)",
+            LinesDefault     = "#E2E4E9",
+            LinesInputs      = "#D2D5DC",
+            Divider          = "#E2E4E9",
+            DividerLight     = "#EDEEF1"
         }
     };
 }

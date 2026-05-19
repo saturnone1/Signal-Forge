@@ -24,8 +24,12 @@ else if (Field.Type == "enum" && Field.EnumValues.Length > 0)
 }
 else if (Field.Type == "object" && Field.Children.Count > 0)
 {
-    <MudText Typo="Typo.caption" Style="font-weight:600;color:#555;">@Field.Name</MudText>
-    <div style="margin-left:12px;border-left:2px solid #e0e0e0;padding-left:8px;margin-bottom:4px;">
+    <div class="d-flex align-center mb-1" style="gap:6px;">
+        <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="Size.Small"
+                 Style="font-size:14px;color:var(--mud-palette-text-secondary);" />
+        <span class="wb-panel-title">@Field.Name</span>
+    </div>
+    <div style="margin-left:10px;border-left:2px solid var(--mud-palette-lines-default);padding-left:10px;margin-bottom:6px;">
         @foreach (var child in Field.Children)
         {
             <div class="mb-2">
@@ -37,30 +41,33 @@ else if (Field.Type == "object" && Field.Children.Count > 0)
 else if (Field.Type == "array" && Field.ItemTemplate != null)
 {
     <div class="mb-1">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
-            <MudText Typo="Typo.caption" Style="font-weight:600;color:#555;">
-                @Field.Name <span style="color:#aaa;font-weight:400;">(@(Field.ArrayItems.Count)개)</span>
-            </MudText>
+        <div class="d-flex align-center mb-1" style="gap:6px;">
+            <MudIcon Icon="@Icons.Material.Filled.DataArray" Size="Size.Small"
+                     Style="font-size:14px;color:var(--mud-palette-text-secondary);" />
+            <span class="wb-panel-title">@Field.Name</span>
+            <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">
+                @(Field.ArrayItems.Count)개
+            </span>
             <MudSpacer />
-            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="AddItem">항목 추가</MudButton>
-        </MudStack>
+                       Style="min-height:0;" OnClick="AddItem">추가</MudButton>
+        </div>
         @if (Field.ArrayItems.Count > 0)
         {
-            <div style="margin-left:8px;border-left:3px solid #bbdefb;padding-left:8px;">
+            <div style="margin-left:8px;border-left:3px solid var(--mud-palette-primary);padding-left:10px;">
                 @for (int i = 0; i < Field.ArrayItems.Count; i++)
                 {
                     var item = Field.ArrayItems[i];
                     var idx = i;
-                    <div style="border:1px solid #e3f2fd;border-radius:4px;padding:6px 8px;margin-bottom:6px;background:#fafeff;">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
-                            <MudText Typo="Typo.caption" Style="color:#888;font-weight:600;">[@idx]</MudText>
+                    <div class="wb-panel pa-2 mb-2">
+                        <div class="d-flex align-center mb-1" style="gap:6px;">
+                            <span class="wb-mono" style="font-size:.7rem;color:var(--mud-palette-text-disabled);">[@idx]</span>
                             <MudSpacer />
                             <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
                                            Size="Size.Small" Color="Color.Error"
                                            OnClick="@(() => RemoveItem(idx))" />
-                        </MudStack>
+                        </div>
                         <SchemaFormField Field="item" OnChanged="OnChanged" />
                     </div>
                 }
@@ -68,7 +75,9 @@ else if (Field.Type == "array" && Field.ItemTemplate != null)
         }
         else
         {
-            <MudText Typo="Typo.caption" Style="color:#bbb;margin-left:8px;font-style:italic;">(비어있음 — 항목 추가 버튼으로 추가)</MudText>
+            <div style="margin-left:8px;font-size:.72rem;font-style:italic;color:var(--mud-palette-text-disabled);">
+                비어있음 — "추가" 버튼으로 항목 생성
+            </div>
         }
     </div>
 }
@@ -82,7 +91,7 @@ else
                   Margin="Margin.Dense"
                   FullWidth="true"
                   Lines="@(Field.Type is "object" or "array" ? 3 : 1)"
-                  Style="@(Field.Type is "object" or "array" ? "font-family:monospace;font-size:0.80rem;" : "")" />
+                  Class="@(Field.Type is "object" or "array" ? "wb-mono" : null)" />
 }
 
 @code {
