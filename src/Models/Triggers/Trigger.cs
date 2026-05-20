@@ -7,6 +7,13 @@ public enum TriggerType
     Bulk            // 수동 발사: N건 (순차/병렬)
 }
 
+public enum TriggerLocalStreamMode
+{
+    Auto,
+    RequireCompatibleOpen,
+    AlwaysOpenNew
+}
+
 public enum IncomingMatchOperator
 {
     Equals,
@@ -36,7 +43,7 @@ public sealed class Trigger
     // 발사 대상 (Service.Method 단위, 현재 활성 세션 사용)
     public string TargetService { get; set; } = "";
     public string TargetMethod { get; set; } = "";
-    public bool UseOpenStreamTarget { get; set; }
+    public TriggerLocalStreamMode LocalStreamMode { get; set; } = TriggerLocalStreamMode.Auto;
     public string InboundTargetCallId { get; set; } = "";
 
     // {{counter}} / {{now}} / OnIncoming은 {{incoming.<dotted-path>}} 치환

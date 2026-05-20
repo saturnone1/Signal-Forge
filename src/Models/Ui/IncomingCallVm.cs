@@ -2,9 +2,10 @@ namespace GrpcWorkbench.Models.Ui;
 
 public sealed record FrameVm(int Index, string Data);
 
-public sealed class IncomingCallVm(string callId, string service, string method, string type)
+public sealed class IncomingCallVm(string callId, string service, string method, string type, string? sessionId = null)
 {
     public string CallId { get; } = callId;
+    public string? SessionId { get; } = sessionId;
     public string Service { get; } = service;
     public string Method { get; } = method;
     public string Type { get; } = type;
@@ -85,6 +86,7 @@ public sealed record LogEntry(DateTime Time, string Text, LogLevel Level);
 public sealed class OutboundMessageEntry
 {
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    public string? SessionId { get; init; }
     public DateTime Time { get; init; }
     public string Service { get; init; } = "";
     public string Method { get; init; } = "";

@@ -8,6 +8,7 @@ namespace GrpcWorkbench.Services;
 
 public record IncomingCallStartedEvent(
     string CallId,
+    string? SessionId,
     string Service,
     string Method,
     string Type,

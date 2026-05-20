@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GrpcWorkbench.Models.Api;
+using GrpcWorkbench.Models.Session;
 using GrpcWorkbench.Models.Triggers;
 
 namespace GrpcWorkbench.Services;
@@ -152,30 +153,6 @@ public class TriggerExecutor : IHostedService, IDisposable
         {
             var json = ApplyTemplate(t.PayloadTemplate, t, incomingJson);
 
-            if (t.UseOpenStreamTarget)
-            {
-                if (!_state.IsStreamOpen || string.IsNullOrWhiteSpace(_state.StreamId))
-                {
-                    t.LastError = "No open local stream";
-                    Interlocked.Increment(ref t.Errors);
-                    _state.NotifyTriggersChanged();
-                    return;
-                }
-
-                await _streaming.WriteMessageAsync(_state.StreamId, json);
-                _state.IncrementSent();
-                _state.AddOutbound(
-                    _state.ActiveStreamServiceName ?? t.TargetService,
-                    _state.ActiveStreamMethodName ?? t.TargetMethod,
-                    json,
-                    $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}:open-stream");
-
-                Interlocked.Increment(ref t.TotalFires);
-                t.LastFiredAt = DateTime.UtcNow;
-                t.LastError = null;
-                return;
-            }
-
             if (!string.IsNullOrWhiteSpace(t.InboundTargetCallId))
             {
                 await _notify.SendInboundResponseAsync(t.InboundTargetCallId, json);
@@ -185,7 +162,8 @@ public class TriggerExecutor : IHostedService, IDisposable
                     inboundCall?.Service ?? t.TargetService,
                     inboundCall?.Method ?? t.TargetMethod,
                     json,
-                    $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}:stream");
+                    $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}:stream",
+                    _state.Session?.SessionId);
 
                 Interlocked.Increment(ref t.TotalFires);
                 t.LastFiredAt = DateTime.UtcNow;
@@ -232,42 +210,17 @@ public class TriggerExecutor : IHostedService, IDisposable
                         _ => Task.CompletedTask, _ => Task.CompletedTask);
                     break;
                 case "ClientStreaming":
-                {
-                    // try/finally: Write 실패해도 stream leak 방지
-                    var sid = await _streaming.OpenStreamAsync(payload, session);
-                    try
-                    {
-                        await _streaming.WriteMessageAsync(sid, json);
-                    }
-                    finally
-                    {
-                        if (_streaming.IsStreamOpen(sid))
-                            await _streaming.CloseStreamAsync(sid);
-                    }
+                    await FireStreamingTriggerAsync(t, session, payload, json, rpcType);
                     break;
-                }
                 case "BidirectionalStreaming":
-                {
-                    // 열린 로컬 스트림을 명시적으로 쓰지 않는 경우에만 ad-hoc 양방향 스트림 생성.
-                    // try/finally: Write 실패해도 stream leak 방지 (active call 누적 방지)
-                    var sid = await _streaming.OpenStreamAsync(payload, session);
-                    try
-                    {
-                        await _streaming.WriteMessageAsync(sid, json);
-                        await Task.Delay(50); // 서버가 응답 처리할 짧은 틈
-                    }
-                    finally
-                    {
-                        if (_streaming.IsStreamOpen(sid))
-                            await _streaming.CloseStreamAsync(sid);
-                    }
+                    await FireStreamingTriggerAsync(t, session, payload, json, rpcType);
                     break;
-                }
                 default:
                     throw new InvalidOperationException($"Unknown RPC type: {rpcType}");
             }
 
-            _state.AddOutbound(t.TargetService, t.TargetMethod, json, $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}");
+            if (rpcType is not ("ClientStreaming" or "BidirectionalStreaming"))
+                _state.AddOutbound(t.TargetService, t.TargetMethod, json, $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}", session.SessionId);
             Interlocked.Increment(ref t.TotalFires);
             t.LastFiredAt = DateTime.UtcNow;
             t.LastError = null;
@@ -286,6 +239,76 @@ public class TriggerExecutor : IHostedService, IDisposable
         finally
         {
             _state.NotifyTriggersChanged();
+        }
+    }
+
+    private async Task FireStreamingTriggerAsync(Trigger t, GrpcSession session, GrpcRequestPayload payload, string json, string rpcType)
+    {
+        var triggerName = string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name;
+        var hasCompatibleOpenStream = HasCompatibleOpenLocalStream(session.SessionId, t.TargetService, t.TargetMethod, rpcType);
+
+        switch (t.LocalStreamMode)
+        {
+            case TriggerLocalStreamMode.RequireCompatibleOpen:
+                if (!hasCompatibleOpenStream)
+                    throw new InvalidOperationException("No compatible open local stream");
+                await WriteToCurrentLocalStreamAsync(t, json, $"trigger:{triggerName}:open-stream");
+                return;
+
+            case TriggerLocalStreamMode.Auto:
+                if (hasCompatibleOpenStream)
+                {
+                    await WriteToCurrentLocalStreamAsync(t, json, $"trigger:{triggerName}:reuse-stream");
+                    return;
+                }
+                break;
+
+            case TriggerLocalStreamMode.AlwaysOpenNew:
+            default:
+                break;
+        }
+
+        await OpenWriteCloseStreamAsync(t, session, payload, json, rpcType, $"trigger:{triggerName}:ad-hoc-stream");
+    }
+
+    private bool HasCompatibleOpenLocalStream(string sessionId, string serviceName, string methodName, string rpcType)
+        => _state.IsStreamOpen
+           && !string.IsNullOrWhiteSpace(_state.StreamId)
+           && string.Equals(_state.ActiveStreamSessionId, sessionId, StringComparison.Ordinal)
+           && string.Equals(_state.ActiveStreamServiceName, serviceName, StringComparison.Ordinal)
+           && string.Equals(_state.ActiveStreamMethodName, methodName, StringComparison.Ordinal)
+           && string.Equals(_state.ActiveStreamRpcType, rpcType, StringComparison.Ordinal);
+
+    private async Task WriteToCurrentLocalStreamAsync(Trigger t, string json, string source)
+    {
+        if (string.IsNullOrWhiteSpace(_state.StreamId))
+            throw new InvalidOperationException("Open local stream id missing");
+
+        await _streaming.WriteMessageAsync(_state.StreamId, json);
+        _state.IncrementSent();
+        _state.AddOutbound(
+            _state.ActiveStreamServiceName ?? t.TargetService,
+            _state.ActiveStreamMethodName ?? t.TargetMethod,
+            json,
+            source,
+            _state.ActiveStreamSessionId);
+    }
+
+    private async Task OpenWriteCloseStreamAsync(Trigger t, GrpcSession session, GrpcRequestPayload payload, string json, string rpcType, string source)
+    {
+        var sid = await _streaming.OpenStreamAsync(payload, session);
+        try
+        {
+            await _streaming.WriteMessageAsync(sid, json);
+            if (rpcType == "BidirectionalStreaming")
+                await Task.Delay(50);
+
+            _state.AddOutbound(t.TargetService, t.TargetMethod, json, source, session.SessionId);
+        }
+        finally
+        {
+            if (_streaming.IsStreamOpen(sid))
+                await _streaming.CloseStreamAsync(sid);
         }
     }
 

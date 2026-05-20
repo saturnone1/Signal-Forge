@@ -72,6 +72,8 @@ public class UnaryGrpcService : IUnaryGrpcService
             var channel = await _channelProvider.GetChannelAsync(session);
 
             var metadata = new Metadata();
+            if (!string.IsNullOrWhiteSpace(payload.SessionId))
+                metadata.Add(GrpcRequestPayload.SessionIdMetadataKey, payload.SessionId);
             if (payload.Metadata != null)
             {
                 foreach (var kvp in payload.Metadata)

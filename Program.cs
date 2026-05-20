@@ -10,12 +10,14 @@ var udsPath = Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
               ?? builder.Configuration["GrpcWorkbench:UdsSocketPath"]
               ?? "/var/run/grpc-test/grpc.sock";
 
-// ── Parse web port from ASPNETCORE_URLS (default 5226) ──────────────────────
+// ── Parse web port from configured URLs (default 5226) ──────────────────────
 int webPort = 5226;
-var aspnetUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-if (!string.IsNullOrEmpty(aspnetUrls))
+var configuredUrls = builder.Configuration["urls"]
+                     ?? builder.Configuration["ASPNETCORE_URLS"]
+                     ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+if (!string.IsNullOrEmpty(configuredUrls))
 {
-    var m = System.Text.RegularExpressions.Regex.Match(aspnetUrls, @":(\d+)");
+    var m = System.Text.RegularExpressions.Regex.Match(configuredUrls, @":(\d+)");
     if (m.Success && int.TryParse(m.Groups[1].Value, out var p)) webPort = p;
 }
 
