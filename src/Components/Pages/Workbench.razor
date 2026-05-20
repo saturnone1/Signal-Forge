@@ -239,6 +239,8 @@
                                                 }
                                                 else
                                                 {
+                                                    var selectedIncomingMethod = Notify.GetMethodMetadata(selectedIncomingCall.Service, selectedIncomingCall.Method);
+                                                    var inboundReplyEnabled = Notify.CanWriteInboundResponse(selectedIncomingCall.CallId);
                                                     <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
                                                         <span class="wb-panel-title">Frames</span>
                                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@selectedFrames.Count</MudChip>
@@ -255,6 +257,36 @@
                                                     @if (!string.IsNullOrEmpty(selectedIncomingCall.Result))
                                                     {
                                                         <div class="wb-inline-note mb-2">@selectedIncomingCall.Result</div>
+                                                    }
+                                                    @if (selectedIncomingCall.Type == "BidirectionalStreaming")
+                                                    {
+                                                        <div class="wb-inline-note mb-2">이 call은 열린 동안 같은 stream으로 서버 응답을 보낼 수 있습니다.</div>
+                                                        <MudTextField @bind-Value="_incomingResponseJson" Label="스트림 응답 JSON" Variant="Variant.Outlined"
+                                                                      Lines="6" FullWidth="true" Class="mb-2 wb-mono"
+                                                                      Style="font-size:.8rem;"
+                                                                      Disabled="@(!inboundReplyEnabled || _incomingResponseBusy)" />
+                                                        <div class="d-flex align-center flex-wrap mb-3" style="gap:8px;">
+                                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                                       StartIcon="@Icons.Material.Filled.Send"
+                                                                       Disabled="@(!inboundReplyEnabled || _incomingResponseBusy)"
+                                                                       OnClick="@(() => SendIncomingResponseAsync(selectedIncomingCall))">
+                                                                Reply on stream
+                                                            </MudButton>
+                                                            <MudButton Variant="Variant.Text" Color="Color.Default" Size="Size.Small"
+                                                                       Disabled="@_incomingResponseBusy"
+                                                                       OnClick="@(() => ResetIncomingResponseDraft(selectedIncomingCall))">
+                                                                Reset
+                                                            </MudButton>
+                                                            <span class="wb-inline-note">@(selectedIncomingMethod?.OutputType ?? "응답 타입 미상")</span>
+                                                            @if (!inboundReplyEnabled)
+                                                            {
+                                                                <span class="wb-inline-note">stream closed</span>
+                                                            }
+                                                        </div>
+                                                        @if (!string.IsNullOrEmpty(_incomingResponseStatus))
+                                                        {
+                                                            <div class="wb-inline-note mb-2">@_incomingResponseStatus</div>
+                                                        }
                                                     }
                                                     @if (selectedFrames.Count == 0)
                                                     {
@@ -1142,6 +1174,10 @@
 
     private string _requestJson = "{}";
     private string _responseText = string.Empty;
+    private string _incomingResponseJson = "{}";
+    private string _incomingResponseStatus = string.Empty;
+    private string? _incomingResponseCallId;
+    private bool _incomingResponseBusy;
 
     private List<SchemaField> _schemaFields = [];
     private bool _rawJsonMode = false;
@@ -1904,11 +1940,14 @@
         if (calls.Count == 0)
         {
             _selectedIncomingCallId = null;
+            _incomingResponseCallId = null;
+            _incomingResponseStatus = string.Empty;
             return null;
         }
 
         var call = calls.FirstOrDefault(c => c.CallId == _selectedIncomingCallId) ?? calls[0];
         _selectedIncomingCallId = call.CallId;
+        EnsureIncomingResponseDraft(call);
         return call;
     }
 
@@ -1921,6 +1960,56 @@
     private void SelectIncomingCall(string callId)
     {
         _selectedIncomingCallId = callId;
+        _incomingResponseStatus = string.Empty;
+    }
+
+    private void EnsureIncomingResponseDraft(IncomingCallVm call)
+    {
+        if (_incomingResponseCallId == call.CallId) return;
+
+        _incomingResponseCallId = call.CallId;
+        _incomingResponseStatus = string.Empty;
+        ResetIncomingResponseDraft(call);
+    }
+
+    private void ResetIncomingResponseDraft(IncomingCallVm call)
+    {
+        var schema = Notify.GetMethodMetadata(call.Service, call.Method)?.OutputSchema;
+        _incomingResponseJson = SeedJsonFromSchema(schema);
+        _incomingResponseStatus = string.Empty;
+    }
+
+    private async Task SendIncomingResponseAsync(IncomingCallVm call)
+    {
+        if (_incomingResponseBusy) return;
+
+        _incomingResponseBusy = true;
+        _incomingResponseStatus = string.Empty;
+        try
+        {
+            await Notify.SendInboundResponseAsync(call.CallId, _incomingResponseJson);
+            _incomingResponseStatus = $"응답 전송 완료: {call.CallId[..8]}";
+            Log($"Inbound stream reply sent: {call.Service}.{call.Method} / {call.CallId[..8]}", LogLevel.Success);
+        }
+        catch (Exception ex)
+        {
+            _incomingResponseStatus = $"응답 전송 실패: {ex.Message}";
+            Log($"Inbound stream reply failed: {ex.Message}", LogLevel.Error);
+        }
+        finally
+        {
+            _incomingResponseBusy = false;
+        }
+    }
+
+    private string SeedJsonFromSchema(string? schema)
+    {
+        var fields = ParseSchemaFields(schema);
+        if (fields.Count == 0) return "{}";
+
+        return JsonSerializer.Serialize(
+            BuildJsonObject(fields),
+            new JsonSerializerOptions { WriteIndented = true });
     }
 
     private static Color TriggerTypeColor(TriggerType t) => t switch
