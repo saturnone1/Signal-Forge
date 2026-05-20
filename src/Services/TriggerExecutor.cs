@@ -152,6 +152,30 @@ public class TriggerExecutor : IHostedService, IDisposable
         {
             var json = ApplyTemplate(t.PayloadTemplate, t, incomingJson);
 
+            if (t.UseOpenStreamTarget)
+            {
+                if (!_state.IsStreamOpen || string.IsNullOrWhiteSpace(_state.StreamId))
+                {
+                    t.LastError = "No open local stream";
+                    Interlocked.Increment(ref t.Errors);
+                    _state.NotifyTriggersChanged();
+                    return;
+                }
+
+                await _streaming.WriteMessageAsync(_state.StreamId, json);
+                _state.IncrementSent();
+                _state.AddOutbound(
+                    _state.ActiveStreamServiceName ?? t.TargetService,
+                    _state.ActiveStreamMethodName ?? t.TargetMethod,
+                    json,
+                    $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}:open-stream");
+
+                Interlocked.Increment(ref t.TotalFires);
+                t.LastFiredAt = DateTime.UtcNow;
+                t.LastError = null;
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(t.InboundTargetCallId))
             {
                 await _notify.SendInboundResponseAsync(t.InboundTargetCallId, json);
@@ -224,7 +248,7 @@ public class TriggerExecutor : IHostedService, IDisposable
                 }
                 case "BidirectionalStreaming":
                 {
-                    // 트리거 발사마다 ad-hoc 양방향 스트림 — 1건 쓰고 즉시 닫음.
+                    // 열린 로컬 스트림을 명시적으로 쓰지 않는 경우에만 ad-hoc 양방향 스트림 생성.
                     // try/finally: Write 실패해도 stream leak 방지 (active call 누적 방지)
                     var sid = await _streaming.OpenStreamAsync(payload, session);
                     try

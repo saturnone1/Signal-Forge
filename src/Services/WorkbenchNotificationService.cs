@@ -93,9 +93,12 @@ public class WorkbenchNotificationService
     {
         lock (_rpcTypeMap)
         {
-            if (_methodMap.TryGetValue(serviceName, out var methods) &&
-                methods.TryGetValue(methodName, out var method))
-                return method;
+            foreach (var candidate in ExpandServiceNameCandidates(serviceName))
+            {
+                if (_methodMap.TryGetValue(candidate, out var methods) &&
+                    methods.TryGetValue(methodName, out var method))
+                    return method;
+            }
         }
 
         return null;
@@ -146,13 +149,32 @@ public class WorkbenchNotificationService
     {
         lock (_rpcTypeMap)
         {
-            if (_rpcTypeMap.TryGetValue(serviceName, out var methods) &&
-                methods.TryGetValue(methodName, out var rpcType))
-                return rpcType;
+            foreach (var candidate in ExpandServiceNameCandidates(serviceName))
+            {
+                if (_rpcTypeMap.TryGetValue(candidate, out var methods) &&
+                    methods.TryGetValue(methodName, out var rpcType))
+                    return rpcType;
+            }
         }
         // 폴백: proto 메타데이터 없을 때 이름 기반 heuristic
         return methodName.StartsWith("Stream", StringComparison.OrdinalIgnoreCase)
             ? "BidirectionalStreaming" : "Unary";
+    }
+
+    private static IEnumerable<string> ExpandServiceNameCandidates(string serviceName)
+    {
+        if (string.IsNullOrWhiteSpace(serviceName))
+            yield break;
+
+        yield return serviceName;
+
+        var trimmed = serviceName.Trim().TrimStart('.');
+        if (!string.Equals(trimmed, serviceName, StringComparison.OrdinalIgnoreCase))
+            yield return trimmed;
+
+        var shortName = trimmed.Split('.').Last();
+        if (!string.Equals(shortName, trimmed, StringComparison.OrdinalIgnoreCase))
+            yield return shortName;
     }
 
     private static Type? ResolveMessageType(string? protoTypeName)
