@@ -90,6 +90,18 @@
                     <MudSpacer />
                     @if (_incomingExpanded)
                     {
+                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Download"
+                                   Disabled="@(State.RpcCount == 0)"
+                                   OnClick="ExportIncomingSnapshot">
+                            Export
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.ContentCut"
+                                   Disabled="@(State.RpcCount == 0)"
+                                   OnClick="TrimIncomingSnapshot">
+                            Trim idle
+                        </MudButton>
                         <MudTooltip Text="@(State.IncomingPaused ? "수신 표시 재개 (백그라운드 누적은 계속됨)" : "수신 표시 일시정지")">
                             <MudIconButton Size="Size.Small"
                                            Color="@(State.IncomingPaused ? Color.Warning : Color.Default)"
@@ -123,7 +135,7 @@
                             </MudTooltip>
                         </div>
 
-                        <div class="wb-inline-note mb-3">수신 집계는 Service.Method 기준으로 정리되고, 펼쳤을 때만 프레임 상세를 보여줍니다.</div>
+                        <div class="wb-inline-note mb-3">수신 집계는 Service.Method 기준으로 정리되고, 펼쳤을 때만 프레임 상세를 보여줍니다. 오래된 idle RPC는 Trim으로 정리하고, 전체 스냅샷은 Export로 저장할 수 있습니다.</div>
 
                         @if (State.RpcCount == 0)
                         {
@@ -825,6 +837,18 @@
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.OutboundCount</MudChip>
                     <MudSpacer />
+                    <MudButton Variant="Variant.Text" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Download"
+                               Disabled="@(State.OutboundCount == 0)"
+                               OnClick="ExportOutboundSnapshot">
+                        Export
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.ContentCut"
+                               Disabled="@(State.OutboundCount == 0)"
+                               OnClick="TrimOutboundSnapshot">
+                        Trim 500
+                    </MudButton>
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
                                    title="송신 이력 비우기" OnClick="@(() => State.ClearOutbound())" />
                 </div>
@@ -1986,6 +2010,90 @@
             ? "(미설정)"
             : t.TargetService.Split('.').Last() + "." + t.TargetMethod;
 
+    private async Task ExportIncomingSnapshot()
+    {
+        var aggregates = State.SnapshotAggregates()
+            .OrderByDescending(a => a.LastSeenAt)
+            .ToList();
+
+        if (aggregates.Count == 0)
+        {
+            Snackbar.Add("내보낼 Incoming 데이터가 없습니다.", Severity.Warning);
+            return;
+        }
+
+        var payload = new IncomingExportFile
+        {
+            Version = 1,
+            ExportedAt = DateTimeOffset.Now,
+            Aggregates = aggregates.Select(a => new IncomingExportAggregate
+            {
+                Service = a.Service,
+                Method = a.Method,
+                Type = a.Type,
+                TotalCalls = a.TotalCalls,
+                TotalFrames = a.TotalFrames,
+                ActiveCalls = State.GetDisplayedActiveCalls(a),
+                LastSeenAt = a.LastSeenAt,
+                RecentCalls = State.SnapshotRecentCalls(a)
+                    .OrderByDescending(c => c.StartedAt)
+                    .Select(c => new IncomingExportCall
+                    {
+                        CallId = c.CallId,
+                        StartedAt = c.StartedAt,
+                        LastActivityAt = c.LastActivityAt,
+                        EndedAt = c.EndedAt,
+                        Result = c.Result,
+                        Frames = State.SnapshotFrames(c).ToList()
+                    })
+                    .ToList()
+            }).ToList()
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("workbench.downloadText", $"incoming-{DateTime.Now:yyyyMMdd-HHmmss}.json", json, "application/json");
+        Snackbar.Add($"Incoming 스냅샷 저장 완료: {payload.Aggregates.Count} rpc", Severity.Success);
+    }
+
+    private void TrimIncomingSnapshot()
+    {
+        var removed = State.TrimIncomingAggregates(32);
+        Snackbar.Add(removed > 0
+            ? $"Idle Incoming RPC {removed}건 정리 완료"
+            : "정리할 idle Incoming RPC가 없습니다.",
+            removed > 0 ? Severity.Success : Severity.Info);
+    }
+
+    private async Task ExportOutboundSnapshot()
+    {
+        var outbound = State.SnapshotOutbound().ToList();
+        if (outbound.Count == 0)
+        {
+            Snackbar.Add("내보낼 Outbound 이력이 없습니다.", Severity.Warning);
+            return;
+        }
+
+        var payload = new OutboundExportFile
+        {
+            Version = 1,
+            ExportedAt = DateTimeOffset.Now,
+            Messages = outbound
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("workbench.downloadText", $"outbound-{DateTime.Now:yyyyMMdd-HHmmss}.json", json, "application/json");
+        Snackbar.Add($"Outbound 이력 저장 완료: {outbound.Count}건", Severity.Success);
+    }
+
+    private void TrimOutboundSnapshot()
+    {
+        var removed = State.TrimOutbound(500);
+        Snackbar.Add(removed > 0
+            ? $"Outbound 오래된 이력 {removed}건 정리 완료"
+            : "정리할 Outbound 이력이 없습니다.",
+            removed > 0 ? Severity.Success : Severity.Info);
+    }
+
     private async Task ExportAllScenarios()
     {
         var triggers = State.SnapshotTriggers()
@@ -2112,6 +2220,42 @@
         public int Version { get; set; }
         public DateTimeOffset ExportedAt { get; set; }
         public List<ScenarioExportItem> Triggers { get; set; } = [];
+    }
+
+    private sealed class IncomingExportFile
+    {
+        public int Version { get; set; }
+        public DateTimeOffset ExportedAt { get; set; }
+        public List<IncomingExportAggregate> Aggregates { get; set; } = [];
+    }
+
+    private sealed class IncomingExportAggregate
+    {
+        public string Service { get; set; } = string.Empty;
+        public string Method { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public int TotalCalls { get; set; }
+        public long TotalFrames { get; set; }
+        public int ActiveCalls { get; set; }
+        public DateTime LastSeenAt { get; set; }
+        public List<IncomingExportCall> RecentCalls { get; set; } = [];
+    }
+
+    private sealed class IncomingExportCall
+    {
+        public string CallId { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public DateTime LastActivityAt { get; set; }
+        public DateTime? EndedAt { get; set; }
+        public string? Result { get; set; }
+        public List<FrameVm> Frames { get; set; } = [];
+    }
+
+    private sealed class OutboundExportFile
+    {
+        public int Version { get; set; }
+        public DateTimeOffset ExportedAt { get; set; }
+        public List<OutboundMessageEntry> Messages { get; set; } = [];
     }
 
     private sealed class ScenarioExportItem
