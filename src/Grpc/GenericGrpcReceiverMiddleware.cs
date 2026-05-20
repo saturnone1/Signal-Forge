@@ -103,7 +103,7 @@ public class GenericGrpcReceiverMiddleware
         var totalBytes = 0;
         var notifiedCount = 0;
         long lastNotifyMs = -1000;
-        const int NotifyMinIntervalMs = 33; // ≈30 notify/s/call — 폭주 시 디코드·통지 CPU 상한
+        const int NotifyMinIntervalMs = 16; // ≈60 notify/s/call — UDS 왕복 지연 체감 최소화
         byte[]? pendingPayload = null;
         var pendingLen = 0;
         var pendingIndex = 0;

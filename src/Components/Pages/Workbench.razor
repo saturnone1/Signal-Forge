@@ -1214,8 +1214,8 @@
         State.Changed += OnStateChanged;
         State.Evicted += OnEvicted;
 
-        // 미들웨어 알림은 State가 직접 구독함. 여기선 _dirty만 보고 20Hz로 render.
-        _uiTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
+        // 미들웨어 알림은 State가 직접 구독함. 여기선 _dirty만 보고 최대 60Hz로 render.
+        _uiTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(16));
         _ = Task.Run(async () =>
         {
             try
