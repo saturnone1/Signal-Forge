@@ -62,6 +62,8 @@ public class WorkbenchStateService : IDisposable
     private const int MaxFramesBuffered = 200;
     private const int MaxLogs = 500;
     private const int MaxStreamRecv = 500;
+    private const int MaxOutboundEntries = 5000;
+    private const int MaxRpcAggregates = 256;
     private static readonly TimeSpan IncomingUiRefreshInterval = TimeSpan.FromMilliseconds(16);
     private static readonly TimeSpan ActiveDisplayHold = TimeSpan.FromMilliseconds(1200);
     private static readonly TimeSpan ActiveStaleTimeout = TimeSpan.FromSeconds(8);
@@ -138,6 +140,7 @@ public class WorkbenchStateService : IDisposable
             {
                 agg = new RpcAggregate(e.Service, e.Method, e.Type);
                 _aggregates[key] = agg;
+                PruneOldInactiveAggregatesUnderLock(MaxRpcAggregates);
             }
             var call = new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type);
             agg.RecentCalls.Add(call);
@@ -273,6 +276,36 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
+    public int TrimOutbound(int keepLatest)
+    {
+        if (keepLatest < 0) keepLatest = 0;
+
+        int removed;
+        lock (_lock)
+        {
+            removed = Math.Max(0, _outbound.Count - keepLatest);
+            if (removed > 0)
+                _outbound.RemoveRange(0, removed);
+        }
+
+        if (removed > 0) Changed?.Invoke();
+        return removed;
+    }
+
+    public int TrimIncomingAggregates(int keepLatestInactive)
+    {
+        if (keepLatestInactive < 0) keepLatestInactive = 0;
+
+        int removed;
+        lock (_lock)
+        {
+            removed = PruneOldInactiveAggregatesUnderLock(keepLatestInactive);
+        }
+
+        if (removed > 0) Changed?.Invoke();
+        return removed;
+    }
+
     public void SetPaused(bool paused)
     {
         if (IncomingPaused == paused) return;
@@ -294,6 +327,9 @@ public class WorkbenchStateService : IDisposable
     {
         lock (_lock)
         {
+            if (_outbound.Count >= MaxOutboundEntries)
+                _outbound.RemoveRange(0, _outbound.Count - MaxOutboundEntries + 1);
+
             _outbound.Add(new OutboundMessageEntry
             {
                 Time = DateTime.Now,
@@ -314,6 +350,27 @@ public class WorkbenchStateService : IDisposable
 
         if (active > 0) return active;
         return now - agg.LastSeenAt <= ActiveDisplayHold ? 1 : 0;
+    }
+
+    private int PruneOldInactiveAggregatesUnderLock(int keepLatestInactive)
+    {
+        var inactive = _aggregates.Values
+            .Where(a => a.ActiveCalls <= 0)
+            .OrderByDescending(a => a.LastSeenAt)
+            .ToList();
+
+        var removable = inactive.Skip(keepLatestInactive).ToList();
+        foreach (var agg in removable)
+            RemoveAggregateUnderLock(agg);
+
+        return removable.Count;
+    }
+
+    private void RemoveAggregateUnderLock(RpcAggregate aggregate)
+    {
+        _aggregates.Remove(aggregate.Key);
+        foreach (var call in aggregate.RecentCalls)
+            _callIndex.Remove(call.CallId);
     }
 
     private void SignalIncomingChanged()
