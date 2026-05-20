@@ -1,7 +1,9 @@
 using GrpcWorkbench.Services;
 using Google.Protobuf;
+using Google.Protobuf.Reflection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
+using System.Collections.Concurrent;
 
 namespace GrpcWorkbench.Grpc;
 
@@ -14,6 +16,8 @@ public class GenericGrpcReceiverMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GenericGrpcReceiverMiddleware> _logger;
+    private static readonly ConcurrentDictionary<Type, MessageParser?> RequestParserCache = new();
+    private static readonly JsonFormatter JsonFormatter = JsonFormatter.Default;
 
     // gRPC reflection handshake paths — not visualized (skipped from interception so we
     // don't protobuf-decode reflection traffic). No reflection service is registered, so
@@ -114,8 +118,9 @@ public class GenericGrpcReceiverMiddleware
             try
             {
                 var t = notify.GetOrResolveRequestType(methodName, FindRequestMessageType);
-                if (t?.GetProperty("Parser")?.GetValue(null) is MessageParser parser)
-                    return JsonFormatter.Default.Format(parser.ParseFrom(p));
+                var parser = GetParser(t);
+                if (parser != null)
+                    return JsonFormatter.Format(parser.ParseFrom(p));
             }
             catch { /* fallthrough */ }
             return FallbackHex(p, len);
@@ -194,6 +199,14 @@ public class GenericGrpcReceiverMiddleware
         notify.NotifyCallEnded(new IncomingCallEndedEvent(
             CallId: callId,
             Res: $"OK ({frameCount} frame(s){sampledNote}, {totalBytes} bytes, {sw.ElapsedMilliseconds} ms)"));
+    }
+
+    private static MessageParser? GetParser(Type? messageType)
+    {
+        if (messageType == null) return null;
+        return RequestParserCache.GetOrAdd(
+            messageType,
+            static t => t.GetProperty("Parser")?.GetValue(null) as MessageParser);
     }
 
     private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, int count)

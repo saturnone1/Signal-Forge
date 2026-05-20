@@ -67,7 +67,9 @@ public class WorkbenchStateService : IDisposable
     private static readonly TimeSpan IncomingUiRefreshInterval = TimeSpan.FromMilliseconds(16);
     private static readonly TimeSpan ActiveDisplayHold = TimeSpan.FromMilliseconds(1200);
     private static readonly TimeSpan ActiveStaleTimeout = TimeSpan.FromSeconds(8);
+    private static readonly long IncomingUiRefreshIntervalMs = (long)IncomingUiRefreshInterval.TotalMilliseconds;
     private int _incomingChangedScheduled;
+    private long _lastIncomingChangedAtMs;
 
     public event Action? Changed;
 
@@ -78,6 +80,7 @@ public class WorkbenchStateService : IDisposable
     public WorkbenchStateService(WorkbenchNotificationService notify)
     {
         _notify = notify;
+        _lastIncomingChangedAtMs = Environment.TickCount64;
         _incomingChangedTimer = new Timer(_ => FlushIncomingChanged(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _notify.CallStarted += OnCallStarted;
         _notify.StreamMessageReceived += OnStreamMessage;
@@ -376,14 +379,29 @@ public class WorkbenchStateService : IDisposable
     private void SignalIncomingChanged()
     {
         if (IncomingPaused) return;
+
+        var now = Environment.TickCount64;
+        var elapsed = now - Interlocked.Read(ref _lastIncomingChangedAtMs);
+        if (elapsed >= IncomingUiRefreshIntervalMs)
+        {
+            Interlocked.Exchange(ref _incomingChangedScheduled, 0);
+            _incomingChangedTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            Interlocked.Exchange(ref _lastIncomingChangedAtMs, now);
+            Changed?.Invoke();
+            return;
+        }
+
         if (Interlocked.Exchange(ref _incomingChangedScheduled, 1) == 1) return;
-        _incomingChangedTimer.Change(IncomingUiRefreshInterval, Timeout.InfiniteTimeSpan);
+
+        var dueMs = Math.Max(1, (int)(IncomingUiRefreshIntervalMs - elapsed));
+        _incomingChangedTimer.Change(TimeSpan.FromMilliseconds(dueMs), Timeout.InfiniteTimeSpan);
     }
 
     private void FlushIncomingChanged()
     {
         if (Interlocked.Exchange(ref _incomingChangedScheduled, 0) == 0) return;
         if (IncomingPaused) return;
+        Interlocked.Exchange(ref _lastIncomingChangedAtMs, Environment.TickCount64);
         Changed?.Invoke();
     }
 
