@@ -146,50 +146,44 @@
                         }
                         else
                         {
-                            var incomingAggregates = State.SnapshotAggregates().OrderBy(a => a.Key).ToList();
-                            var selectedAggregate = ResolveSelectedIncomingAggregate(incomingAggregates);
-                            var selectedRecentCalls = selectedAggregate == null
-                                ? []
-                                : State.SnapshotRecentCalls(selectedAggregate)
-                                    .OrderByDescending(c => c.StartedAt)
-                                    .ToList();
-                            var selectedIncomingCall = ResolveSelectedIncomingCall(selectedRecentCalls);
+                            var incomingCalls = State.SnapshotAggregates()
+                                .SelectMany(State.SnapshotRecentCalls)
+                                .OrderByDescending(c => c.LastActivityAt)
+                                .ThenByDescending(c => c.StartedAt)
+                                .ToList();
+                            var selectedIncomingCall = ResolveSelectedIncomingCall(incomingCalls);
                             var selectedFrames = selectedIncomingCall == null
                                 ? []
                                 : State.SnapshotFrames(selectedIncomingCall);
+                            var selectedFrame = selectedIncomingCall == null
+                                ? null
+                                : ResolveSelectedIncomingFrame(selectedFrames);
 
                             <div class="wb-master-detail">
                                 <div class="wb-master-list wb-scroll">
-                                    <div class="wb-master-head">관찰된 RPC</div>
-                                    @foreach (var agg in incomingAggregates)
-                                    {
-                                        var displayedActiveCalls = State.GetDisplayedActiveCalls(agg);
-                                        <button type="button"
-                                                class="wb-master-row @(selectedAggregate?.Key == agg.Key ? "is-selected" : null)"
-                                                @onclick="@(() => SelectIncomingAggregate(agg.Key))">
-                                            <div class="wb-master-row-top">
-                                                <span class="wb-mono wb-master-title">@($"{agg.Service.Split('.').Last()}.{agg.Method}")</span>
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@agg.TotalFrames 수신</MudChip>
-                                            </div>
-                                            <div class="wb-master-row-meta">
-                                                <span class="wb-master-type">@agg.Type</span>
-                                                <span>@($"{agg.RatePerSec:F1}/s")</span>
-                                                <span>@AgoLabel(agg.LastSeenAt)</span>
-                                                @if (displayedActiveCalls > 0)
-                                                {
-                                                    <span class="wb-master-live">@displayedActiveCalls 활성</span>
-                                                }
-                                            </div>
-                                        </button>
-                                    }
+                                    <div class="wb-master-head">관찰된 세션</div>
+                                    <button type="button" class="wb-master-row is-selected">
+                                        <div class="wb-master-row-top">
+                                            <span class="wb-mono wb-master-title">현재 수신 세션</span>
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@incomingCalls.Count 개 스트림/호출</MudChip>
+                                        </div>
+                                        <div class="wb-master-row-meta">
+                                            <span>@_mySocketPath</span>
+                                            <span>@($"{State.TotalRatePerSec:F1}/s")</span>
+                                            @if (topActiveCalls > 0)
+                                            {
+                                                <span class="wb-master-live">@topActiveCalls 활성</span>
+                                            }
+                                        </div>
+                                    </button>
                                 </div>
 
                                 <div class="wb-detail-pane">
-                                    @if (selectedAggregate == null)
+                                    @if (incomingCalls.Count == 0)
                                     {
                                         <div class="wb-empty" style="min-height:320px;">
                                             <MudIcon Icon="@Icons.Material.Outlined.TableRows" Class="mb-2" />
-                                            <div>좌측에서 RPC를 선택하면 최근 call과 frame 상세를 보여줍니다</div>
+                                            <div>좌측 세션 아래에서 스트림/호출과 메시지 상세를 보여줍니다</div>
                                         </div>
                                     }
                                     else
@@ -197,34 +191,35 @@
                                         <div class="wb-detail-head mb-3">
                                             <div class="wb-detail-head-copy">
                                                 <div class="wb-panel-kicker">상세</div>
-                                                <div class="wb-panel-heading">@($"{selectedAggregate.Service.Split('.').Last()}.{selectedAggregate.Method}")</div>
+                                                <div class="wb-panel-heading">현재 수신 세션</div>
                                             </div>
                                             <div class="wb-chip-row wb-chip-row--detail">
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--wrap">@selectedAggregate.Type</MudChip>
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@selectedAggregate.TotalFrames 수신</MudChip>
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@($"{State.GetDisplayedActiveCalls(selectedAggregate)} 활성")</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@incomingCalls.Count 개 스트림/호출</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--wrap">UDS listener</MudChip>
                                             </div>
                                         </div>
-                                        <div class="wb-inline-note mb-3">최근 call 목록에서 하나를 선택하면 우측 하단에 해당 frame 상세가 표시됩니다.</div>
+                                        <div class="wb-inline-note mb-3">수신과 송신 모두 같은 구조로 정리했습니다. 세션 아래에서 스트림/호출을 고르고, 마지막 열에서 메시지 상세를 확인합니다.</div>
                                         <div class="wb-call-grid">
                                             <div class="wb-call-list wb-scroll">
-                                                @if (selectedRecentCalls.Count == 0)
+                                                @if (incomingCalls.Count == 0)
                                                 {
-                                                    <div class="wb-empty" style="padding:18px 12px;">최근 call 없음</div>
+                                                    <div class="wb-empty" style="padding:18px 12px;">관찰된 스트림/호출 없음</div>
                                                 }
                                                 else
                                                 {
-                                                    @foreach (var call in selectedRecentCalls)
+                                                    @foreach (var call in incomingCalls)
                                                     {
                                                         var callFrames = State.SnapshotFrames(call);
                                                         <button type="button"
                                                                 class="wb-call-row @(selectedIncomingCall?.CallId == call.CallId ? "is-selected" : null)"
                                                                 @onclick="@(() => SelectIncomingCall(call.CallId))">
                                                             <div class="wb-call-row-top">
-                                                                <span class="wb-mono">@call.CallId[..8]</span>
-                                                                <span>@callFrames.Count f</span>
+                                                                <span class="wb-mono">@(call.Service.Split('.').Last()).@call.Method</span>
+                                                                <span>@callFrames.Count 개 메시지</span>
                                                             </div>
                                                             <div class="wb-call-row-meta">
+                                                                <span class="wb-mono">@call.CallId[..8]</span>
+                                                                <span>@call.Type</span>
                                                                 <span>@AgoLabel(call.LastActivityAt)</span>
                                                                 <span>@(string.IsNullOrEmpty(call.Result) ? "진행 중" : "종료됨")</span>
                                                             </div>
@@ -241,7 +236,7 @@
                                                 {
                                                     var inboundReplyEnabled = Notify.CanWriteInboundResponse(selectedIncomingCall.CallId);
                                                     <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
-                                                        <span class="wb-panel-title">프레임</span>
+                                                        <span class="wb-panel-title">메시지</span>
                                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@selectedFrames.Count</MudChip>
                                                         <MudSpacer />
                                                         @if (selectedFrames.Count > 0)
@@ -256,6 +251,14 @@
                                                     @if (!string.IsNullOrEmpty(selectedIncomingCall.Result))
                                                     {
                                                         <div class="wb-inline-note mb-2">@selectedIncomingCall.Result</div>
+                                                    }
+                                                    @if (selectedFrame != null)
+                                                    {
+                                                        <div class="wb-selection-note mb-2">
+                                                            <span>선택 스트림 <span class="wb-mono">@selectedIncomingCall.CallId[..8]</span></span>
+                                                            <span>메시지 @selectedFrame.Index / @selectedFrames.Count</span>
+                                                            <span>@AgoLabel(selectedIncomingCall.LastActivityAt)</span>
+                                                        </div>
                                                     }
                                                     @if (selectedIncomingCall.Type == "BidirectionalStreaming")
                                                     {
@@ -279,20 +282,29 @@
                                                     }
                                                     @if (selectedFrames.Count == 0)
                                                     {
-                                                        <div class="wb-empty" style="padding:18px 12px;">표시할 frame 없음</div>
+                                                        <div class="wb-empty" style="padding:18px 12px;">표시할 메시지 없음</div>
                                                     }
                                                     else
                                                     {
-                                                        @if (selectedFrames.Count > 1)
-                                                        {
-                                                            @for (int fi = 0; fi < selectedFrames.Count - 1; fi++)
+                                                        <div class="wb-scroll mb-2" style="max-height:180px;overflow-y:auto;">
+                                                            @foreach (var frame in selectedFrames.OrderByDescending(f => f.Index))
                                                             {
-                                                                var f = selectedFrames[fi];
-                                                                <pre class="wb-code wb-scroll mt-1" style="max-height:60px;font-size:.66rem;opacity:.55;">[@f.Index] @Summary(f.Data)</pre>
+                                                                <button type="button"
+                                                                        class="wb-call-row @(selectedFrame?.Index == frame.Index ? "is-selected" : null)"
+                                                                        @onclick="@(() => SelectIncomingFrame(frame.Index))">
+                                                                    <div class="wb-call-row-top">
+                                                                        <span class="wb-mono">메시지 @frame.Index</span>
+                                                                    </div>
+                                                                    <div class="wb-call-row-meta">
+                                                                        <span>@Summary(frame.Data)</span>
+                                                                    </div>
+                                                                </button>
                                                             }
+                                                        </div>
+                                                        @if (selectedFrame != null)
+                                                        {
+                                                            <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:320px;">[@selectedFrame.Index] @Fmt(selectedFrame.Data, selectedIncomingCall.Pretty)</pre>
                                                         }
-                                                        var latest = selectedFrames[^1];
-                                                        <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:320px;">[@latest.Index] @Fmt(latest.Data, selectedIncomingCall.Pretty)</pre>
                                                     }
                                                 }
                                             </div>
@@ -503,6 +515,10 @@
                 @if (_requestExpanded)
                 {
                     <div class="wb-panel-body">
+                        @{
+                            var requestInboundTarget = ResolveRequestInboundTarget();
+                            var isStreamingRequest = IsBidi || IsClientStream;
+                        }
                         <div class="wb-inline-note mb-3">
                             현재 선택된 메서드에 맞춰 요청을 만들고, 필요하면 그대로 Trigger step으로 등록할 수 있습니다.
                         </div>
@@ -534,6 +550,30 @@
                                               Style="font-size:.8rem;" />
                             }
 
+                            <div class="wb-mode-strip mb-3">
+                                <div class="wb-mode-card @(requestInboundTarget == null ? "is-active" : null)">
+                                    <div class="wb-panel-kicker">기본 호출</div>
+                                    <div class="wb-mode-title">선택한 메서드로 새 호출 전송</div>
+                                    <div class="wb-mode-note">@(_selectedService?.ServiceName.Split('.').Last()).@_selectedMethod.MethodName · @RpcExecutionLabel(_selectedMethod.RpcType)</div>
+                                </div>
+                                @if (requestInboundTarget != null)
+                                {
+                                    <div class="wb-mode-card is-active">
+                                        <div class="wb-panel-kicker">열린 스트림 대상</div>
+                                        <div class="wb-mode-title">기존 inbound 스트림에 payload 쓰기</div>
+                                        <div class="wb-mode-note">@FormatInboundTargetLabel(requestInboundTarget)</div>
+                                    </div>
+                                }
+                                @if (isStreamingRequest)
+                                {
+                                    <div class="wb-mode-card @(_streamOpen ? "is-active" : null)">
+                                        <div class="wb-panel-kicker">스트림 제어</div>
+                                        <div class="wb-mode-title">내가 연 스트림 열기/전송/종료</div>
+                                        <div class="wb-mode-note">@(_streamOpen && _streamId != null ? $"활성 스트림 {_streamId[..8]} · 전송 {_sentCount}건" : "스트림이 아직 열리지 않았습니다")</div>
+                                    </div>
+                                }
+                            </div>
+
                             <div class="d-flex flex-wrap align-center mb-3" style="gap:8px;">
                                 <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
                                            StartIcon="@Icons.Material.Filled.Bolt"
@@ -551,10 +591,10 @@
                                     <MudSelectItem T="string" Value="@target.CallId">@FormatInboundTargetLabel(target)</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (ResolveRequestInboundTarget() != null)
+                            @if (requestInboundTarget != null)
                             {
                                 <div class="wb-inline-note mb-3">
-                                    현재 요청 JSON은 열린 inbound 스트림 @FormatInboundTargetLabel(ResolveRequestInboundTarget()!) 로 전송됩니다.
+                                    현재 요청 JSON은 열린 inbound 스트림 @FormatInboundTargetLabel(requestInboundTarget) 로 전송됩니다.
                                 </div>
                             }
                             else if (_selectedMethod != null)
@@ -564,7 +604,7 @@
                                 </div>
                             }
 
-                            @if (ResolveRequestInboundTarget() != null)
+                            @if (requestInboundTarget != null)
                             {
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
                                            StartIcon="@Icons.Material.Filled.Send"
@@ -580,54 +620,44 @@
                                     }
                                 </MudButton>
                             }
-                            else if (IsBidi || IsClientStream)
+                            else if (isStreamingRequest)
                             {
-                                <div class="d-flex flex-wrap mb-2" style="gap:8px;">
-                                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.PlayArrow"
-                                               Disabled="@(_session == null || _streamOpen)" OnClick="StartStream">
-                                        스트림 시작
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Send"
-                                               Disabled="@(!_streamOpen)" OnClick="SendStreamMessage">
-                                        메시지 전송
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Stop"
-                                               Disabled="@(!_streamOpen)" OnClick="CloseStream">
-                                        종료
-                                    </MudButton>
+                                <div class="wb-subpanel mb-2">
+                                    <div class="wb-subpanel-head mb-2">
+                                        <div>
+                                            <div class="wb-panel-kicker">스트림 제어</div>
+                                            <div class="wb-panel-heading">내가 연 스트림으로 메시지 보내기</div>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex flex-wrap mb-2" style="gap:8px;">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                   Disabled="@(_session == null || _streamOpen)" OnClick="StartStream">
+                                            스트림 시작
+                                        </MudButton>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.Send"
+                                                   Disabled="@(!_streamOpen)" OnClick="SendStreamMessage">
+                                            현재 JSON 전송
+                                        </MudButton>
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.Stop"
+                                                   Disabled="@(!_streamOpen)" OnClick="CloseStream">
+                                            스트림 종료
+                                        </MudButton>
+                                    </div>
+                                    @if (_streamOpen && _streamId != null)
+                                    {
+                                        <div class="wb-panel wb-rpc-accent wb-rpc-bidi pa-2 mb-2 d-flex align-center"
+                                             style="gap:10px;">
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Secondary" />
+                                            <MudText Typo="Typo.caption">
+                                                <b>스트림 활성</b> · <span class="wb-mono">@_streamId![..8]</span> · 전송 @_sentCount 건
+                                            </MudText>
+                                        </div>
+                                    }
                                 </div>
-                                @if (_streamOpen && _streamId != null)
-                                {
-                                    <div class="wb-panel wb-rpc-accent wb-rpc-bidi pa-2 mb-2 d-flex align-center"
-                                         style="gap:10px;">
-                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Secondary" />
-                                        <MudText Typo="Typo.caption">
-                                            <b>스트림 활성</b> · <span class="wb-mono">@_streamId![..8]</span> · 전송 @_sentCount 건
-                                        </MudText>
-                                    </div>
-                                }
 
-                                @if (State.StreamRecvCount > 0)
-                                {
-                                    var streamRecv = State.SnapshotStreamRecv();
-                                    <div class="d-flex align-center mb-1" style="gap:8px;">
-                                        <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small"
-                                                 Color="Color.Secondary" />
-                                        <span class="wb-panel-title">Stream ← 수신</span>
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                                            @streamRecv.Count
-                                        </MudChip>
-                                    </div>
-                                    <div class="wb-scroll mb-2" style="max-height:28vh;overflow-y:auto;">
-                                        @foreach (var m in streamRecv.AsEnumerable().Reverse().Take(50))
-                                        {
-                                            <pre class="wb-code wb-scroll wb-code--accent mb-1" style="max-height:140px;">@m</pre>
-                                        }
-                                    </div>
-                                }
                             }
                             else
                             {
@@ -665,8 +695,8 @@
                                    Size="Size.Small" OnClick="@(() => _triggersExpanded = !_triggersExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
                     <div>
-                        <div class="wb-panel-kicker">Automation</div>
-                        <div class="wb-panel-heading">Triggers and scenarios</div>
+                        <div class="wb-panel-kicker">자동화</div>
+                        <div class="wb-panel-heading">트리거와 시나리오</div>
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.TriggerCount</MudChip>
                     @{
@@ -675,7 +705,7 @@
                     @if (enabledCount > 0)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                            @enabledCount enabled
+                            @enabledCount 활성
                         </MudChip>
                     }
                     <MudSpacer />
@@ -698,9 +728,9 @@
                         <div class="wb-panel pa-2 mb-3">
                             <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
                                 <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Info" />
-                                <span class="wb-panel-title">Scenarios</span>
+                                <span class="wb-panel-title">시나리오</span>
                                 <span style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
-                                    Run은 같은 Scenario 이름의 step을 순서대로 수동 실행합니다. Enabled는 백그라운드 자동 실행 여부만 제어합니다.
+                                    실행은 같은 시나리오 이름의 step을 순서대로 수동 수행합니다. 활성은 백그라운드 자동 실행 여부만 제어합니다.
                                 </span>
                                 <MudSpacer />
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small"
@@ -735,50 +765,65 @@
                                             <MudButton Variant="Variant.Text" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.Download"
                                                        OnClick="@(() => ExportScenario(group.Key))">
-                                                Export
+                                                내보내기
                                             </MudButton>
                                             <MudButton Variant="Variant.Outlined" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.PlayArrow"
                                                        OnClick="@(() => RunScenario(group.Key))">
-                                                Run
+                                                실행
                                             </MudButton>
                                         </div>
-                                        <div class="wb-scroll mt-2" style="max-height:260px;overflow:auto;">
-                                            <table style="width:100%;border-collapse:collapse;font-size:.72rem;">
-                                                <thead>
-                                                    <tr style="color:var(--mud-palette-text-secondary);text-align:left;">
-                                                        <th style="padding:4px 6px;">Step</th>
-                                                        <th style="padding:4px 6px;">Type</th>
-                                                        <th style="padding:4px 6px;">When</th>
-                                                        <th style="padding:4px 6px;">Target</th>
-                                                        <th style="padding:4px 6px;">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var step in group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name))
-                                                    {
-                                                        <tr @key="step.Id" style="border-top:1px solid var(--mud-palette-divider);vertical-align:top;">
-                                                            <td style="padding:6px;white-space:nowrap;">
-                                                                <div style="font-weight:600;">@step.StepOrder</div>
-                                                                <div style="color:var(--mud-palette-text-secondary);">@(string.IsNullOrWhiteSpace(step.Name) ? step.Id : step.Name)</div>
-                                                            </td>
-                                                            <td style="padding:6px;white-space:nowrap;">@TriggerTypeLabel(step.Type)</td>
-                                                            <td style="padding:6px;color:var(--mud-palette-text-secondary);">@ScenarioWhenLabel(step)</td>
-                                                            <td style="padding:6px;color:var(--mud-palette-text-secondary);">@ScenarioTargetLabel(step)</td>
-                                                            <td style="padding:6px;white-space:nowrap;">
-                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small"
-                                                                               Disabled="@(step.StepOrder <= 1)"
-                                                                               OnClick="@(() => MoveScenarioStep(step, -1))" />
-                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small"
-                                                                               Disabled="@(step == group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name).Last())"
-                                                                               OnClick="@(() => MoveScenarioStep(step, 1))" />
-                                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                                               OnClick="@(() => EditTrigger(step))" />
-                                                            </td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
+                                        <div class="wb-scenario-list mt-2 wb-scroll" style="max-height:320px;overflow:auto;">
+                                            @foreach (var step in group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name))
+                                            {
+                                                var orderedSteps = group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name).ToList();
+                                                <div @key="step.Id" class="wb-scenario-step">
+                                                    <div class="wb-scenario-step-top">
+                                                        <div>
+                                                            <div class="wb-scenario-step-order">단계 @step.StepOrder</div>
+                                                            <div class="wb-scenario-step-title">@(string.IsNullOrWhiteSpace(step.Name) ? step.Id : step.Name)</div>
+                                                        </div>
+                                                        <div class="wb-chip-row">
+                                                            <MudChip T="string" Size="Size.Small" Color="@TriggerTypeColor(step.Type)" Variant="Variant.Text" Class="ma-0">
+                                                                @TriggerTypeLabel(step.Type)
+                                                            </MudChip>
+                                                            @if (step.Enabled)
+                                                            {
+                                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">활성</MudChip>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div class="wb-scenario-step-meta">
+                                                        <div>
+                                                            <span class="wb-scenario-label">조건</span>
+                                                            <span class="wb-scenario-value wb-preline">@ScenarioWhenLabel(step)</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="wb-scenario-label">대상</span>
+                                                            <span class="wb-scenario-value">@TriggerDestinationLabel(step)</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="wb-scenario-step-actions">
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.KeyboardArrowUp"
+                                                                   Disabled="@(step.StepOrder <= 1)"
+                                                                   OnClick="@(() => MoveScenarioStep(step, -1))">
+                                                            위로
+                                                        </MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                                                                   Disabled="@(step == orderedSteps.Last())"
+                                                                   OnClick="@(() => MoveScenarioStep(step, 1))">
+                                                            아래로
+                                                        </MudButton>
+                                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.Edit"
+                                                                   OnClick="@(() => EditTrigger(step))">
+                                                            편집
+                                                        </MudButton>
+                                                    </div>
+                                                </div>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -797,7 +842,7 @@
                     {
                         @foreach (var t in State.SnapshotTriggers())
                         {
-                            <div @key="t.Id" class="wb-panel pa-2 mb-2">
+                            <div @key="t.Id" class="wb-panel pa-2 mb-2 wb-trigger-card">
                                     <div class="d-flex align-center flex-wrap" style="gap:8px;">
                                         <MudSwitch T="bool" Value="t.Enabled"
                                                    ValueChanged="@((bool v) => { t.Enabled = v; State.NotifyTriggersChanged(); })"
@@ -839,13 +884,13 @@
                                         <MudSpacer />
                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0"
                                                  Color="@(t.Enabled ? Color.Success : Color.Default)">
-                                            @(t.Enabled ? "auto on" : "manual only")
+                                            @(t.Enabled ? "자동 실행" : "수동만")
                                         </MudChip>
-                                        <span style="font-size:.7rem;">fires @t.TotalFires</span>
+                                        <span style="font-size:.7rem;">실행 @t.TotalFires 회</span>
                                         @if (t.Errors > 0)
                                         {
                                             <MudTooltip Text="@(t.LastError ?? "")">
-                                                <span style="font-size:.7rem;color:var(--mud-palette-error);">err @t.Errors</span>
+                                                <span style="font-size:.7rem;color:var(--mud-palette-error);">오류 @t.Errors</span>
                                             </MudTooltip>
                                         }
                                         @if (t.LastFiredAt.HasValue)
@@ -869,6 +914,16 @@
                                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                                        OnClick="@(() => EditTrigger(t))" />
                                     </div>
+                                    <div class="wb-trigger-meta-grid mt-2">
+                                        <div>
+                                            <span class="wb-scenario-label">조건</span>
+                                            <span class="wb-scenario-value wb-preline">@ScenarioWhenLabel(t)</span>
+                                        </div>
+                                        <div>
+                                            <span class="wb-scenario-label">대상</span>
+                                            <span class="wb-scenario-value">@TriggerDestinationLabel(t)</span>
+                                        </div>
+                                    </div>
                             </div>
                         }
                     }
@@ -884,8 +939,8 @@
                                    Size="Size.Small" OnClick="@(() => _outboundExpanded = !_outboundExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.NorthEast" Size="Size.Small" Color="Color.Primary" />
                     <div>
-                        <div class="wb-panel-kicker">History</div>
-                        <div class="wb-panel-heading">Outbound</div>
+                        <div class="wb-panel-kicker">이력</div>
+                        <div class="wb-panel-heading">송신</div>
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.OutboundCount</MudChip>
                     <MudSpacer />
@@ -893,13 +948,13 @@
                                StartIcon="@Icons.Material.Filled.Download"
                                Disabled="@(State.OutboundCount == 0)"
                                OnClick="ExportOutboundSnapshot">
-                        Export
+                        내보내기
                     </MudButton>
                     <MudButton Variant="Variant.Text" Size="Size.Small"
                                StartIcon="@Icons.Material.Filled.ContentCut"
                                Disabled="@(State.OutboundCount == 0)"
                                OnClick="TrimOutboundSnapshot">
-                        Trim 500
+                        500건만 유지
                     </MudButton>
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
                                    title="송신 이력 비우기" OnClick="@(() => State.ClearOutbound())" />
@@ -907,44 +962,122 @@
                 @if (_outboundExpanded)
                 {
                     var outbound = State.SnapshotOutbound();
+                    var outboundAggregates = BuildOutboundAggregates(outbound);
+                    var selectedOutboundAggregate = ResolveSelectedOutboundAggregate(outboundAggregates);
+                    var selectedOutboundEntries = selectedOutboundAggregate?.Entries
+                        .OrderByDescending(e => e.Time)
+                        .ToList() ?? [];
+                    var selectedOutboundEntry = ResolveSelectedOutboundEntry(selectedOutboundEntries);
                     <div class="wb-panel-body">
-                        <div class="wb-scroll" style="max-height:220px;overflow-y:auto;">
-                            @if (outbound.Count == 0)
-                            {
-                                <div class="wb-empty" style="min-height:120px;">
-                                    <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Class="mb-2" />
-                                    <div>송신 이력 없음</div>
-                                </div>
-                            }
-                            else
-                            {
-                                @foreach (var item in outbound.AsEnumerable().Reverse())
-                                {
-                                    <div @key="item.Id" class="wb-panel pa-2 mb-2">
-                                        <div class="d-flex align-center flex-wrap" style="gap:8px;">
-                                            <MudIconButton Size="Size.Small"
-                                                           Icon="@(item.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
-                                                           OnClick="@(() => item.Expanded = !item.Expanded)" />
-                                            <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">@item.Time.ToString("HH:mm:ss")</span>
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Class="ma-0">@item.Source</MudChip>
-                                            <span class="wb-mono" style="font-size:.74rem;color:var(--mud-palette-text-secondary);">
-                                                @(item.Service.Split('.').Last() + "." + item.Method)
-                                            </span>
+                        @if (outbound.Count == 0)
+                        {
+                            <div class="wb-empty" style="min-height:120px;">
+                                <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Class="mb-2" />
+                                <div>송신 이력 없음</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="wb-master-detail" style="min-height:420px;">
+                                <div class="wb-master-list wb-scroll">
+                                    <div class="wb-master-head">관찰된 세션</div>
+                                    <button type="button" class="wb-master-row is-selected">
+                                        <div class="wb-master-row-top">
+                                            <span class="wb-mono wb-master-title">현재 송신 세션</span>
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@outboundAggregates.Count 개 스트림/호출</MudChip>
                                         </div>
-                                        @if (item.Expanded)
-                                        {
-                                            <pre class="wb-code wb-scroll mt-2" style="max-height:180px;">@item.Json</pre>
-                                        }
-                                        else
-                                        {
-                                            <div class="wb-code mt-2" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
-                                                @Summary(item.Json)
+                                        <div class="wb-master-row-meta">
+                                            <span>@(_session?.UnixSocketPath ?? "세션 미연결")</span>
+                                            <span>@State.OutboundCount 건 송신</span>
+                                        </div>
+                                    </button>
+                                </div>
+
+                                <div class="wb-detail-pane">
+                                    @if (outboundAggregates.Count == 0)
+                                    {
+                                        <div class="wb-empty" style="min-height:320px;">
+                                            <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Class="mb-2" />
+                                            <div>좌측 세션 아래에서 송신 스트림/호출과 메시지 상세를 보여줍니다</div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="wb-detail-head mb-3">
+                                            <div class="wb-detail-head-copy">
+                                                <div class="wb-panel-kicker">상세</div>
+                                                <div class="wb-panel-heading">현재 송신 세션</div>
                                             </div>
-                                        }
-                                    </div>
-                                }
-                            }
-                        </div>
+                                            <div class="wb-chip-row wb-chip-row--detail">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@outboundAggregates.Count 개 스트림/호출</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--wrap">outbound session</MudChip>
+                                            </div>
+                                        </div>
+                                        <div class="wb-inline-note mb-3">송신도 수신과 같은 구조입니다. 세션 아래에서 스트림/호출을 고르고, 마지막 열에서 메시지 상세를 확인합니다.</div>
+                                        <div class="wb-call-grid">
+                                            <div class="wb-call-list wb-scroll">
+                                                @foreach (var agg in outboundAggregates)
+                                                {
+                                                    <button type="button"
+                                                            class="wb-call-row @(selectedOutboundAggregate?.Key == agg.Key ? "is-selected" : null)"
+                                                            @onclick="@(() => SelectOutboundAggregate(agg.Key))">
+                                                        <div class="wb-call-row-top">
+                                                            <span class="wb-mono">@agg.Label</span>
+                                                            <span>@agg.Count 개 메시지</span>
+                                                        </div>
+                                                        <div class="wb-call-row-meta">
+                                                            <span>@AgoLabel(agg.LastSentAt)</span>
+                                                            <span>@agg.SourcesLabel</span>
+                                                        </div>
+                                                    </button>
+                                                }
+                                            </div>
+                                            <div class="wb-frame-detail wb-scroll">
+                                                @if (selectedOutboundAggregate == null)
+                                                {
+                                                    <div class="wb-empty" style="padding:18px 12px;">상세를 볼 송신 스트림/호출을 선택하세요</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+                                                        <span class="wb-panel-title">메시지</span>
+                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@selectedOutboundEntries.Count</MudChip>
+                                                    </div>
+                                                    @if (selectedOutboundEntry != null)
+                                                    {
+                                                        <div class="wb-selection-note mb-2">
+                                                            <span>@selectedOutboundAggregate.Label</span>
+                                                            <span>메시지 @selectedOutboundEntries.FindIndex(e => e.Id == selectedOutboundEntry.Id) + 1 / @selectedOutboundEntries.Count</span>
+                                                            <span>@selectedOutboundEntry.Source</span>
+                                                        </div>
+                                                    }
+                                                    <div class="wb-scroll mb-2" style="max-height:180px;overflow-y:auto;">
+                                                        @foreach (var item in selectedOutboundEntries)
+                                                        {
+                                                            <button type="button"
+                                                                    class="wb-call-row @(selectedOutboundEntry?.Id == item.Id ? "is-selected" : null)"
+                                                                    @onclick="@(() => SelectOutboundEntry(item.Id))">
+                                                                <div class="wb-call-row-top">
+                                                                    <span class="wb-mono">@item.Time.ToString("HH:mm:ss")</span>
+                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Class="ma-0">@item.Source</MudChip>
+                                                                </div>
+                                                                <div class="wb-call-row-meta">
+                                                                    <span>@Summary(item.Json)</span>
+                                                                </div>
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                    @if (selectedOutboundEntry != null)
+                                                    {
+                                                        <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:320px;">@selectedOutboundEntry.Json</pre>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -958,8 +1091,8 @@
                                    Size="Size.Small" OnClick="@(() => _logsExpanded = !_logsExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
                     <div>
-                        <div class="wb-panel-kicker">Events</div>
-                        <div class="wb-panel-heading">Session / system log</div>
+                        <div class="wb-panel-kicker">이벤트</div>
+                        <div class="wb-panel-heading">세션 / 시스템 로그</div>
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.LogCount</MudChip>
                     <MudSpacer />
@@ -1001,7 +1134,7 @@
                 <div class="wb-editor-drawer wb-panel pa-4 wb-scroll">
                     <div class="wb-panel-head mb-3">
                         <div>
-                            <div class="wb-panel-kicker">Trigger Editor</div>
+                            <div class="wb-panel-kicker">트리거 편집기</div>
                             <div class="wb-panel-heading">@(string.IsNullOrWhiteSpace(editor.Name) ? editor.Id : editor.Name)</div>
                         </div>
                         <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseTriggerEditor" />
@@ -1017,7 +1150,7 @@
                                           Margin="Margin.Dense" Variant="Variant.Outlined" />
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            <MudTextField @bind-Value="editor.Scenario" Label="Scenario"
+                            <MudTextField @bind-Value="editor.Scenario" Label="시나리오"
                                           Placeholder="예: handshake-a-to-b"
                                           HelperText="같은 이름이면 한 시나리오로 묶여 Step 순서대로 실행됩니다"
                                           Margin="Margin.Dense" Variant="Variant.Outlined" />
@@ -1052,7 +1185,7 @@
                         <MudItem xs="12" sm="3">
                             <MudSelect T="string" Value="editor.TargetService"
                                        ValueChanged="@((string v) => { editor.TargetService = v; editor.TargetMethod = ""; State.NotifyTriggersChanged(); })"
-                                       Label="Target Service" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                       Label="대상 서비스" Margin="Margin.Dense" Variant="Variant.Outlined">
                                 @foreach (var s in _services)
                                 {
                                     <MudSelectItem T="string" Value="@s.ServiceName">@s.ServiceName</MudSelectItem>
@@ -1062,7 +1195,7 @@
                         <MudItem xs="12" sm="3">
                             <MudSelect T="string" Value="editor.TargetMethod"
                                        ValueChanged="@((string v) => OnTriggerTargetMethodChanged(editor, v))"
-                                       Label="Target Method" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                       Label="대상 메서드" Margin="Margin.Dense" Variant="Variant.Outlined"
                                        Disabled="@string.IsNullOrEmpty(editor.TargetService)">
                                 @{
                                     var editorSvc = _services.FirstOrDefault(s => s.ServiceName == editor.TargetService);
@@ -1073,10 +1206,18 @@
                                 }
                             </MudSelect>
                         </MudItem>
+                        <MudItem xs="12" sm="3" Class="d-flex align-center">
+                            <MudCheckBox T="bool" Value="editor.UseOpenStreamTarget"
+                                         ValueChanged="@((bool v) => { editor.UseOpenStreamTarget = v; if (v) editor.InboundTargetCallId = string.Empty; State.NotifyTriggersChanged(); })"
+                                         Disabled="@(!_streamOpen)"
+                                         Label="현재 열린 로컬 스트림 사용"
+                                         Color="Color.Primary" />
+                        </MudItem>
                         <MudItem xs="12" sm="6">
                             <MudSelect T="string" Value="@TriggerInboundTargetValue(editor)"
                                        ValueChanged="@((string v) => OnTriggerInboundTargetChanged(editor, v))"
-                                       Label="열린 스트림 대상" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                       Label="열린 inbound 스트림 대상" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                       Disabled="@editor.UseOpenStreamTarget">
                                 <MudSelectItem T="string" Value="@NoInboundTargetValue">사용 안 함</MudSelectItem>
                                 @foreach (var target in AvailableInboundTargets())
                                 {
@@ -1089,17 +1230,17 @@
                         {
                             case TriggerType.Periodic:
                                 <MudItem xs="6" sm="3">
-                                    <MudNumericField @bind-Value="editor.IntervalMs" Label="Interval (ms)" Min="10" Max="3600000"
+                                    <MudNumericField @bind-Value="editor.IntervalMs" Label="간격 (ms)" Min="10" Max="3600000"
                                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
                                 </MudItem>
                                 <MudItem xs="6" sm="3">
-                                    <MudNumericField T="int?" @bind-Value="editor.MaxFires" Label="Max fires (비우면 무한)"
+                                    <MudNumericField T="int?" @bind-Value="editor.MaxFires" Label="최대 실행 횟수 (비우면 무한)"
                                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
                                 </MudItem>
                                 break;
                             case TriggerType.Bulk:
                                 <MudItem xs="6" sm="3">
-                                    <MudNumericField @bind-Value="editor.BulkCount" Label="Count" Min="1" Max="10000"
+                                    <MudNumericField @bind-Value="editor.BulkCount" Label="개수" Min="1" Max="10000"
                                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
                                 </MudItem>
                                 <MudItem xs="6" sm="3" Class="d-flex align-center">
@@ -1110,7 +1251,7 @@
                                 <MudItem xs="6" sm="4">
                                     <MudSelect T="string" Value="@MatchServiceValue(editor)"
                                                ValueChanged="@((string v) => OnTriggerMatchServiceChanged(editor, v))"
-                                               Label="When Incoming Service" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                             Label="수신 서비스 조건" Margin="Margin.Dense" Variant="Variant.Outlined">
                                         <MudSelectItem T="string" Value="@AnyMatchValue">전체 수신 서비스</MudSelectItem>
                                         @foreach (var serviceName in IncomingServiceOptions())
                                         {
@@ -1121,7 +1262,7 @@
                                 <MudItem xs="6" sm="4">
                                     <MudSelect T="string" Value="@MatchMethodValue(editor)"
                                                ValueChanged="@((string v) => OnTriggerMatchMethodChanged(editor, v))"
-                                               Label="When Incoming Method" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                             Label="수신 메서드 조건" Margin="Margin.Dense" Variant="Variant.Outlined">
                                         <MudSelectItem T="string" Value="@AnyMatchValue">전체 메서드</MudSelectItem>
                                         @foreach (var methodName in IncomingMethodOptions(editor.MatchService))
                                         {
@@ -1130,7 +1271,7 @@
                                     </MudSelect>
                                 </MudItem>
                                 <MudItem xs="12" sm="4">
-                                    <MudTextField @bind-Value="editor.MatchJsonPath" Label="When JSON Path"
+                                    <MudTextField @bind-Value="editor.MatchJsonPath" Label="JSON Path 조건"
                                                   Placeholder="예: trackNumber 또는 header.messageId"
                                                   HelperText="비우면 필드값 조건 없음"
                                                   Margin="Margin.Dense" Variant="Variant.Outlined" />
@@ -1138,7 +1279,7 @@
                                 <MudItem xs="6" sm="3">
                                     <MudSelect T="IncomingMatchOperator" Value="editor.MatchOperator"
                                                ValueChanged="@((IncomingMatchOperator v) => { editor.MatchOperator = v; State.NotifyTriggersChanged(); })"
-                                               Label="Compare" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                               Label="비교 방식" Margin="Margin.Dense" Variant="Variant.Outlined">
                                         @foreach (var op in Enum.GetValues<IncomingMatchOperator>())
                                         {
                                             <MudSelectItem T="IncomingMatchOperator" Value="op">@IncomingMatchOperatorLabel(op)</MudSelectItem>
@@ -1146,7 +1287,7 @@
                                     </MudSelect>
                                 </MudItem>
                                 <MudItem xs="12" sm="9">
-                                    <MudTextField @bind-Value="editor.MatchValue" Label="Expected Value"
+                                    <MudTextField @bind-Value="editor.MatchValue" Label="기대 값"
                                                   Placeholder="예: 1201 또는 hostile"
                                                   HelperText="JSON path 값과 비교합니다"
                                                   Margin="Margin.Dense" Variant="Variant.Outlined" />
@@ -1217,6 +1358,10 @@
     private bool _triggersExpanded = true;
     private string? _selectedIncomingRpcKey;
     private string? _selectedIncomingCallId;
+    private int? _selectedIncomingFrameIndex;
+    private string? _selectedOutboundKey;
+    private string? _selectedOutboundId;
+    private string? _activeClientStreamIncomingCallId;
     private Trigger? _editingTrigger;
 
     // ── 1-탭 정책 + 변경 감지 펌프 ──────────────────────────────────────────
@@ -1433,6 +1578,11 @@
     {
         if (_session == null) return;
         var session = _session;
+        if (!string.IsNullOrWhiteSpace(_activeClientStreamIncomingCallId))
+        {
+            State.CompleteSyntheticStreamCall(_activeClientStreamIncomingCallId, "세션 종료됨");
+            _activeClientStreamIncomingCallId = null;
+        }
         ChannelProvider.ReleaseChannel(session);
         SessionService.DeleteSession(session.SessionId);
         Ui.SetConnection(false, null);
@@ -1573,18 +1723,30 @@
     {
         if (_session == null || _selectedMethod == null) return;
         State.ResetStream();
+        var serviceName = _selectedService?.ServiceName;
+        var methodName = _selectedMethod.MethodName;
+        var rpcType = _selectedMethod.RpcType;
+        var syntheticCallId = Guid.NewGuid().ToString("N")[..12];
+        _activeClientStreamIncomingCallId = syntheticCallId;
+        if (!string.IsNullOrWhiteSpace(serviceName))
+        {
+            _selectedIncomingRpcKey = $"{serviceName}.{methodName}";
+            _selectedIncomingCallId = syntheticCallId;
+        }
         try
         {
             var streamId = await StreamingService.OpenStreamAsync(BuildPayload(), _session,
                 json =>
                 {
-                    State.AddStreamRecv(json);
+                    if (!string.IsNullOrWhiteSpace(serviceName))
+                        State.AddStreamRecv(syntheticCallId, serviceName, methodName, rpcType, json);
                     return Task.CompletedTask;
                 });
-            State.SetStreamId(streamId);
+            State.SetStream(streamId, serviceName, methodName, rpcType);
         }
         catch (Exception ex)
         {
+            _activeClientStreamIncomingCallId = null;
             Log($"스트림 시작 실패: {ex.Message}", LogLevel.Error);
         }
     }
@@ -1608,10 +1770,14 @@
     private async Task CloseStream()
     {
         if (_streamId == null) return;
+        var syntheticCallId = _activeClientStreamIncomingCallId;
         try
         {
             var result = await StreamingService.CloseStreamAsync(_streamId);
-            State.SetStreamId(null);
+            State.SetStream(null);
+            if (!string.IsNullOrWhiteSpace(syntheticCallId))
+                State.CompleteSyntheticStreamCall(syntheticCallId, result.IsSuccess ? "종료됨" : $"오류: {result.Error}");
+            _activeClientStreamIncomingCallId = null;
             if (!result.IsSuccess)
                 Log($"스트림 오류: {result.Error}", LogLevel.Error);
         }
@@ -1773,6 +1939,7 @@
             Editing = true,
             TargetService = _selectedService?.ServiceName ?? "",
             TargetMethod = _selectedMethod?.MethodName ?? "",
+            UseOpenStreamTarget = _streamOpen && (IsBidi || IsClientStream),
             InboundTargetCallId = ResolveRequestInboundTarget()?.CallId ?? string.Empty,
             PayloadTemplate = _requestJson
         };
@@ -1806,6 +1973,7 @@
             MatchValue = last?.MatchValue ?? "",
             TargetService = last?.TargetService ?? _selectedService?.ServiceName ?? "",
             TargetMethod = last?.TargetMethod ?? _selectedMethod?.MethodName ?? "",
+            UseOpenStreamTarget = last?.UseOpenStreamTarget ?? (_streamOpen && (IsBidi || IsClientStream)),
             InboundTargetCallId = last?.InboundTargetCallId ?? ResolveRequestInboundTarget()?.CallId ?? string.Empty,
             PayloadTemplate = last?.PayloadTemplate ?? _requestJson,
             Editing = true
@@ -1829,6 +1997,7 @@
         if (_selectedService == null || _selectedMethod == null) return;
         t.TargetService = _selectedService.ServiceName;
         t.TargetMethod = _selectedMethod.MethodName;
+        t.UseOpenStreamTarget = _streamOpen && (_selectedMethod.RpcType == "BidirectionalStreaming" || _selectedMethod.RpcType == "ClientStreaming");
         t.InboundTargetCallId = ResolveRequestInboundTarget()?.CallId ?? string.Empty;
         t.PayloadTemplate = _requestJson;
         State.NotifyTriggersChanged();
@@ -1984,6 +2153,7 @@
         if (calls.Count == 0)
         {
             _selectedIncomingCallId = null;
+            _selectedIncomingFrameIndex = null;
             return null;
         }
 
@@ -1992,15 +2162,88 @@
         return call;
     }
 
+    private FrameVm? ResolveSelectedIncomingFrame(IReadOnlyList<FrameVm> frames)
+    {
+        if (frames.Count == 0)
+        {
+            _selectedIncomingFrameIndex = null;
+            return null;
+        }
+
+        var frame = frames.FirstOrDefault(f => f.Index == _selectedIncomingFrameIndex) ?? frames[^1];
+        _selectedIncomingFrameIndex = frame.Index;
+        return frame;
+    }
+
     private void SelectIncomingAggregate(string key)
     {
         _selectedIncomingRpcKey = key;
         _selectedIncomingCallId = null;
+        _selectedIncomingFrameIndex = null;
     }
 
     private void SelectIncomingCall(string callId)
     {
         _selectedIncomingCallId = callId;
+        _selectedIncomingFrameIndex = null;
+    }
+
+    private void SelectIncomingFrame(int frameIndex)
+    {
+        _selectedIncomingFrameIndex = frameIndex;
+    }
+
+    private List<OutboundAggregateVm> BuildOutboundAggregates(IReadOnlyList<OutboundMessageEntry> outbound)
+        => outbound
+            .GroupBy(item => $"{item.Service}.{item.Method}", StringComparer.Ordinal)
+            .Select(group => new OutboundAggregateVm(
+                group.Key,
+                group.First().Service,
+                group.First().Method,
+                group.Count(),
+                group.Max(item => item.Time),
+                group.Select(item => item.Source).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(source => source).ToList(),
+                group.OrderByDescending(item => item.Time).ToList()))
+            .OrderByDescending(group => group.LastSentAt)
+            .ThenBy(group => group.Key)
+            .ToList();
+
+    private OutboundAggregateVm? ResolveSelectedOutboundAggregate(List<OutboundAggregateVm> aggregates)
+    {
+        if (aggregates.Count == 0)
+        {
+            _selectedOutboundKey = null;
+            _selectedOutboundId = null;
+            return null;
+        }
+
+        var aggregate = aggregates.FirstOrDefault(a => a.Key == _selectedOutboundKey) ?? aggregates[0];
+        _selectedOutboundKey = aggregate.Key;
+        return aggregate;
+    }
+
+    private OutboundMessageEntry? ResolveSelectedOutboundEntry(List<OutboundMessageEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            _selectedOutboundId = null;
+            return null;
+        }
+
+        var entry = entries.FirstOrDefault(item => item.Id == _selectedOutboundId) ?? entries[0];
+        _selectedOutboundId = entry.Id;
+        return entry;
+    }
+
+    private void SelectOutboundAggregate(string key)
+    {
+        _selectedOutboundKey = key;
+        _selectedOutboundId = null;
+    }
+
+    private void SelectOutboundEntry(string id)
+    {
+        _selectedOutboundId = id;
     }
 
     private void UseIncomingCallAsRequestTarget(IncomingCallVm call)
@@ -2097,15 +2340,15 @@
 
     private static string IncomingMatchOperatorLabel(IncomingMatchOperator op) => op switch
     {
-        IncomingMatchOperator.NotEquals => "not equals",
-        IncomingMatchOperator.Contains => "contains",
-        IncomingMatchOperator.StartsWith => "starts with",
-        IncomingMatchOperator.EndsWith => "ends with",
+        IncomingMatchOperator.NotEquals => "같지 않음",
+        IncomingMatchOperator.Contains => "포함",
+        IncomingMatchOperator.StartsWith => "시작 일치",
+        IncomingMatchOperator.EndsWith => "끝 일치",
         IncomingMatchOperator.GreaterThan => ">",
         IncomingMatchOperator.GreaterThanOrEqual => ">=",
         IncomingMatchOperator.LessThan => "<",
         IncomingMatchOperator.LessThanOrEqual => "<=",
-        _ => "equals"
+        _ => "같음"
     };
 
     private static string ScenarioWhenLabel(Trigger t)
@@ -2119,13 +2362,24 @@
         }
 
         if (t.Type == TriggerType.Periodic)
-            return $"every {t.IntervalMs} ms";
+            return $"매 {t.IntervalMs}ms";
 
-        return $"count {t.BulkCount} {(t.BulkParallel ? "parallel" : "seq")}";
+        return $"{t.BulkCount}건 {(t.BulkParallel ? "병렬" : "순차")}";
     }
 
+    private static string RpcExecutionLabel(string? rpcType) => rpcType switch
+    {
+        "Unary" => "단일 요청/응답",
+        "ServerStreaming" => "서버 스트리밍 수신",
+        "ClientStreaming" => "클라이언트 스트리밍",
+        "BidirectionalStreaming" => "양방향 스트리밍",
+        _ => "호출 방식 미확인"
+    };
+
     private static string ScenarioTargetLabel(Trigger t) =>
-        string.IsNullOrEmpty(t.TargetService)
+        t.UseOpenStreamTarget
+            ? "현재 열린 로컬 스트림"
+            : string.IsNullOrEmpty(t.TargetService)
             ? "(미설정)"
             : t.TargetService.Split('.').Last() + "." + t.TargetMethod;
 
@@ -2283,6 +2537,7 @@
                     Enabled = item.Enabled,
                     TargetService = item.TargetService,
                     TargetMethod = item.TargetMethod,
+                    UseOpenStreamTarget = item.UseOpenStreamTarget,
                     InboundTargetCallId = item.InboundTargetCallId ?? string.Empty,
                     PayloadTemplate = string.IsNullOrWhiteSpace(item.PayloadTemplate) ? "{}" : item.PayloadTemplate,
                     IntervalMs = Math.Max(10, item.IntervalMs),
@@ -2316,6 +2571,7 @@
         Enabled = t.Enabled,
         TargetService = t.TargetService,
         TargetMethod = t.TargetMethod,
+        UseOpenStreamTarget = t.UseOpenStreamTarget,
         InboundTargetCallId = t.InboundTargetCallId,
         PayloadTemplate = t.PayloadTemplate,
         IntervalMs = t.IntervalMs,
@@ -2379,6 +2635,19 @@
         public List<OutboundMessageEntry> Messages { get; set; } = [];
     }
 
+    private sealed record OutboundAggregateVm(
+        string Key,
+        string Service,
+        string Method,
+        int Count,
+        DateTime LastSentAt,
+        List<string> Sources,
+        List<OutboundMessageEntry> Entries)
+    {
+        public string Label => Service.Split('.').Last() + "." + Method;
+        public string SourcesLabel => string.Join(" / ", Sources);
+    }
+
     private sealed class ScenarioExportItem
     {
         public string Name { get; set; } = string.Empty;
@@ -2388,6 +2657,7 @@
         public bool Enabled { get; set; }
         public string TargetService { get; set; } = string.Empty;
         public string TargetMethod { get; set; } = string.Empty;
+        public bool UseOpenStreamTarget { get; set; }
         public string? InboundTargetCallId { get; set; }
         public string PayloadTemplate { get; set; } = "{}";
         public int IntervalMs { get; set; } = 1000;
@@ -2412,7 +2682,9 @@
     }
 
     private static string TriggerDestinationLabel(Trigger t)
-        => string.IsNullOrWhiteSpace(t.InboundTargetCallId)
+        => t.UseOpenStreamTarget
+            ? "현재 열린 로컬 스트림"
+            : string.IsNullOrWhiteSpace(t.InboundTargetCallId)
             ? (string.IsNullOrEmpty(t.TargetService) ? "(미설정)" : t.TargetService.Split('.').Last() + "." + t.TargetMethod)
             : $"열린 스트림 · {t.InboundTargetCallId[..Math.Min(8, t.InboundTargetCallId.Length)]}";
 
@@ -2421,6 +2693,12 @@
 
     private void OnTriggerInboundTargetChanged(Trigger t, string value)
     {
+        if (t.UseOpenStreamTarget)
+        {
+            t.InboundTargetCallId = string.Empty;
+            State.NotifyTriggersChanged();
+            return;
+        }
         t.InboundTargetCallId = value == NoInboundTargetValue ? string.Empty : value;
         State.NotifyTriggersChanged();
     }

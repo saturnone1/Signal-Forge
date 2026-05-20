@@ -31,6 +31,9 @@ public class WorkbenchStateService : IDisposable
     public GrpcSession? Session { get; private set; }
     public string? StreamId { get; private set; }
     public bool IsStreamOpen => StreamId != null;
+    public string? ActiveStreamServiceName { get; private set; }
+    public string? ActiveStreamMethodName { get; private set; }
+    public string? ActiveStreamRpcType { get; private set; }
     public int SentCount { get; private set; }
 
     public List<ServiceMetadata> Services { get; private set; } = [];
@@ -59,6 +62,7 @@ public class WorkbenchStateService : IDisposable
     public int StreamRecvCount { get { lock (_lock) return _streamRecv.Count; } }
 
     private const int MaxRecentCallsPerRpc = 10;
+    private const int DefaultFramesPerCall = 24;
     private const int MaxFramesBuffered = 200;
     private const int MaxLogs = 500;
     private const int MaxStreamRecv = 500;
@@ -172,8 +176,8 @@ public class WorkbenchStateService : IDisposable
             if (!_aggregates.TryGetValue(key, out var agg)) return;
             var now = DateTime.UtcNow;
 
-            // BufferMode OFF: 최신 1건만 유지 (메모리 안전). ON: 최대 N건 히스토리.
-            var cap = agg.BufferMode ? MaxFramesBuffered : 1;
+            // 기본 모드에서도 최근 일부 프레임은 남겨 상세 확인이 가능해야 한다.
+            var cap = agg.BufferMode ? MaxFramesBuffered : DefaultFramesPerCall;
             if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
             call.Frames.Add(new FrameVm(e.FrameIndex, e.Data));
             call.LastActivityAt = now;
@@ -254,13 +258,13 @@ public class WorkbenchStateService : IDisposable
             if (!_aggregates.TryGetValue(aggKey, out var agg)) return;
             if (agg.BufferMode == on) return;
             agg.BufferMode = on;
-            // OFF 전환 시 히스토리는 최신 1건만 남기고 트림 (메모리 회수).
+            // OFF 전환 시에도 최근 몇 개 프레임은 남겨 상세 확인이 가능하게 유지.
             if (!on)
             {
                 foreach (var call in agg.RecentCalls)
                 {
-                    if (call.Frames.Count > 1)
-                        call.Frames.RemoveRange(0, call.Frames.Count - 1);
+                    if (call.Frames.Count > DefaultFramesPerCall)
+                        call.Frames.RemoveRange(0, call.Frames.Count - DefaultFramesPerCall);
                 }
             }
         }
@@ -411,21 +415,30 @@ public class WorkbenchStateService : IDisposable
         if (session == null)
         {
             StreamId = null;
+            ActiveStreamServiceName = null;
+            ActiveStreamMethodName = null;
+            ActiveStreamRpcType = null;
             SentCount = 0;
             lock (_lock) _streamRecv.Clear();
         }
         Changed?.Invoke();
     }
 
-    public void SetStreamId(string? streamId)
+    public void SetStream(string? streamId, string? serviceName = null, string? methodName = null, string? rpcType = null)
     {
         StreamId = streamId;
+        ActiveStreamServiceName = streamId == null ? null : serviceName;
+        ActiveStreamMethodName = streamId == null ? null : methodName;
+        ActiveStreamRpcType = streamId == null ? null : rpcType;
         Changed?.Invoke();
     }
 
     public void ResetStream()
     {
         StreamId = null;
+        ActiveStreamServiceName = null;
+        ActiveStreamMethodName = null;
+        ActiveStreamRpcType = null;
         SentCount = 0;
         lock (_lock) _streamRecv.Clear();
         Changed?.Invoke();
@@ -437,14 +450,71 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
-    public void AddStreamRecv(string json)
+    public void AddStreamRecv(string callId, string service, string method, string type, string json)
     {
         lock (_lock)
         {
             if (_streamRecv.Count >= MaxStreamRecv) _streamRecv.RemoveAt(0);
             _streamRecv.Add(json);
+
+            var now = DateTime.UtcNow;
+            var key = $"{service}.{method}";
+            if (!_aggregates.TryGetValue(key, out var agg))
+            {
+                agg = new RpcAggregate(service, method, type);
+                _aggregates[key] = agg;
+                PruneOldInactiveAggregatesUnderLock(MaxRpcAggregates);
+            }
+
+            if (!_callIndex.TryGetValue(callId, out var call))
+            {
+                call = new IncomingCallVm(callId, service, method, type);
+                agg.RecentCalls.Add(call);
+                if (agg.RecentCalls.Count > MaxRecentCallsPerRpc)
+                {
+                    var evicted = agg.RecentCalls[0];
+                    agg.RecentCalls.RemoveAt(0);
+                    if (evicted.Result == null)
+                        agg.ActiveCalls = Math.Max(0, agg.ActiveCalls - 1);
+                    _callIndex.Remove(evicted.CallId);
+                }
+
+                _callIndex[callId] = call;
+                agg.ActiveCalls++;
+                agg.TotalCalls++;
+            }
+
+            var cap = agg.BufferMode ? MaxFramesBuffered : DefaultFramesPerCall;
+            if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
+            call.Frames.Add(new FrameVm(call.Frames.Count + 1, json));
+            call.LastActivityAt = now;
+
+            agg.TotalFrames++;
+            agg.LastSeenAt = now;
+            agg.RecordFrame(now);
         }
-        Changed?.Invoke();
+        SignalIncomingChanged();
+    }
+
+    public void CompleteSyntheticStreamCall(string callId, string? result)
+    {
+        lock (_lock)
+        {
+            if (!_callIndex.TryGetValue(callId, out var call)) return;
+            if (call.Result != null) return;
+
+            call.Result = string.IsNullOrWhiteSpace(result) ? "종료됨" : result;
+            call.EndedAt = DateTime.UtcNow;
+            call.LastActivityAt = call.EndedAt.Value;
+
+            var key = $"{call.Service}.{call.Method}";
+            if (_aggregates.TryGetValue(key, out var agg))
+            {
+                agg.ActiveCalls = Math.Max(0, agg.ActiveCalls - 1);
+                agg.LastSeenAt = call.EndedAt.Value;
+            }
+        }
+        SignalIncomingChanged();
     }
 
     public void SetServices(List<ServiceMetadata> services)
