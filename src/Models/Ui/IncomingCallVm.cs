@@ -8,6 +8,9 @@ public sealed class IncomingCallVm(string callId, string service, string method,
     public string Service { get; } = service;
     public string Method { get; } = method;
     public string Type { get; } = type;
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
+    public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
+    public DateTime? EndedAt { get; set; }
     // BufferMode OFF: Frames에는 최신 1건만 보관. ON: 최근 N건(상한) 보관.
     // 어느 모드든 마지막 항목이 LatestFrame.
     public List<FrameVm> Frames { get; } = [];
@@ -75,6 +78,17 @@ public sealed class RpcAggregate(string service, string method, string type)
     }
 }
 
-public enum LogLevel { Info, Success, Warn, Error, Send }
+public enum LogLevel { Info, Success, Warn, Error }
 
 public sealed record LogEntry(DateTime Time, string Text, LogLevel Level);
+
+public sealed class OutboundMessageEntry
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    public DateTime Time { get; init; }
+    public string Service { get; init; } = "";
+    public string Method { get; init; } = "";
+    public string Json { get; init; } = "{}";
+    public string Source { get; init; } = "";
+    public bool Expanded { get; set; }
+}

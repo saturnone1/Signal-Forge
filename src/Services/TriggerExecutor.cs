@@ -128,6 +128,7 @@ public class TriggerExecutor : IHostedService, IDisposable
             if (t.Type != TriggerType.OnIncoming || !t.Enabled) continue;
             if (!string.IsNullOrEmpty(t.MatchService) && t.MatchService != call.Service) continue;
             if (!string.IsNullOrEmpty(t.MatchMethod) && t.MatchMethod != call.Method) continue;
+            if (!MatchesIncomingCondition(t, e.Data)) continue;
             _ = Task.Run(() => FireOnce(t, e.Data));
         }
     }
@@ -174,7 +175,6 @@ public class TriggerExecutor : IHostedService, IDisposable
                 RequestJson = json,
                 TimeoutSeconds = 10
             };
-
             // RPC 타입 조회 — 미상이면 Unary fallback
             var svc = session.Services?.FirstOrDefault(s => s.ServiceName == t.TargetService);
             var method = svc?.Methods.FirstOrDefault(m => m.MethodName == t.TargetMethod);
@@ -225,6 +225,7 @@ public class TriggerExecutor : IHostedService, IDisposable
                     throw new InvalidOperationException($"Unknown RPC type: {rpcType}");
             }
 
+            _state.AddOutbound(t.TargetService, t.TargetMethod, json, $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}");
             Interlocked.Increment(ref t.TotalFires);
             t.LastFiredAt = DateTime.UtcNow;
             t.LastError = null;
@@ -274,6 +275,67 @@ public class TriggerExecutor : IHostedService, IDisposable
             });
         }
         catch { return template; }
+    }
+
+    private static bool MatchesIncomingCondition(Trigger t, string incomingJson)
+    {
+        if (string.IsNullOrWhiteSpace(t.MatchJsonPath) || string.IsNullOrWhiteSpace(t.MatchValue))
+            return true;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(incomingJson);
+            var actual = GetByPath(doc.RootElement, t.MatchJsonPath.Trim());
+            if (actual == null) return false;
+
+            if (TryCompareAsNumbers(actual, t.MatchValue, out var actualNumber, out var expectedNumber))
+            {
+                return t.MatchOperator switch
+                {
+                    IncomingMatchOperator.GreaterThan => actualNumber > expectedNumber,
+                    IncomingMatchOperator.GreaterThanOrEqual => actualNumber >= expectedNumber,
+                    IncomingMatchOperator.LessThan => actualNumber < expectedNumber,
+                    IncomingMatchOperator.LessThanOrEqual => actualNumber <= expectedNumber,
+                    IncomingMatchOperator.NotEquals => actualNumber != expectedNumber,
+                    _ => actualNumber == expectedNumber
+                };
+            }
+
+            return t.MatchOperator switch
+            {
+                IncomingMatchOperator.NotEquals =>
+                    !string.Equals(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase),
+                IncomingMatchOperator.Contains =>
+                    actual.Contains(t.MatchValue, StringComparison.OrdinalIgnoreCase),
+                IncomingMatchOperator.StartsWith =>
+                    actual.StartsWith(t.MatchValue, StringComparison.OrdinalIgnoreCase),
+                IncomingMatchOperator.EndsWith =>
+                    actual.EndsWith(t.MatchValue, StringComparison.OrdinalIgnoreCase),
+                IncomingMatchOperator.GreaterThan =>
+                    string.Compare(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase) > 0,
+                IncomingMatchOperator.GreaterThanOrEqual =>
+                    string.Compare(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase) >= 0,
+                IncomingMatchOperator.LessThan =>
+                    string.Compare(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase) < 0,
+                IncomingMatchOperator.LessThanOrEqual =>
+                    string.Compare(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase) <= 0,
+                _ =>
+                    string.Equals(actual, t.MatchValue, StringComparison.OrdinalIgnoreCase)
+            };
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCompareAsNumbers(string actual, string expected, out decimal actualNumber, out decimal expectedNumber)
+    {
+        var style = System.Globalization.NumberStyles.Any;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var actualOk = decimal.TryParse(actual, style, culture, out actualNumber);
+        var expectedOk = decimal.TryParse(expected, style, culture, out expectedNumber);
+        return actualOk && expectedOk;
     }
 
     private static string? GetByPath(JsonElement root, string path)

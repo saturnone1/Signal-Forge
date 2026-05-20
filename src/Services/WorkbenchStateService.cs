@@ -23,6 +23,7 @@ public class WorkbenchStateService : IDisposable
     // 미들웨어가 CallId로 프레임을 보내므로 빠른 조회용 인덱스.
     private readonly Dictionary<string, IncomingCallVm> _callIndex = new(StringComparer.Ordinal);
     private readonly List<LogEntry> _logs = [];
+    private readonly List<OutboundMessageEntry> _outbound = [];
     private readonly List<string> _streamRecv = [];
 
     // ── 발신/선택 상태 ─────────────────────────────────────────────────────
@@ -53,12 +54,15 @@ public class WorkbenchStateService : IDisposable
         get { lock (_lock) return _aggregates.Values.Sum(a => a.RatePerSec); }
     }
     public int LogCount { get { lock (_lock) return _logs.Count; } }
+    public int OutboundCount { get { lock (_lock) return _outbound.Count; } }
     public int StreamRecvCount { get { lock (_lock) return _streamRecv.Count; } }
 
     private const int MaxRecentCallsPerRpc = 10;
     private const int MaxFramesBuffered = 200;
     private const int MaxLogs = 500;
     private const int MaxStreamRecv = 500;
+    private static readonly TimeSpan ActiveDisplayHold = TimeSpan.FromMilliseconds(1200);
+    private static readonly TimeSpan ActiveStaleTimeout = TimeSpan.FromSeconds(8);
 
     public event Action? Changed;
 
@@ -108,11 +112,22 @@ public class WorkbenchStateService : IDisposable
         lock (_lock) return [.. _streamRecv];
     }
 
+    public IReadOnlyList<OutboundMessageEntry> SnapshotOutbound()
+    {
+        lock (_lock) return [.. _outbound];
+    }
+
+    public int GetDisplayedActiveCalls(RpcAggregate agg)
+    {
+        lock (_lock) return ComputeDisplayedActiveCalls(agg, DateTime.UtcNow);
+    }
+
     // ── 미들웨어 알림 핸들러 ───────────────────────────────────────────────
     private void OnCallStarted(IncomingCallStartedEvent e)
     {
         lock (_lock)
         {
+            var now = DateTime.UtcNow;
             var key = $"{e.Service}.{e.Method}";
             if (!_aggregates.TryGetValue(key, out var agg))
             {
@@ -125,12 +140,14 @@ public class WorkbenchStateService : IDisposable
             {
                 var evicted = agg.RecentCalls[0];
                 agg.RecentCalls.RemoveAt(0);
+                if (evicted.Result == null)
+                    agg.ActiveCalls = Math.Max(0, agg.ActiveCalls - 1);
                 _callIndex.Remove(evicted.CallId);
             }
             _callIndex[e.CallId] = call;
             agg.ActiveCalls++;
             agg.TotalCalls++;
-            agg.LastSeenAt = DateTime.UtcNow;
+            agg.LastSeenAt = now;
         }
         Changed?.Invoke();
     }
@@ -142,15 +159,17 @@ public class WorkbenchStateService : IDisposable
             if (!_callIndex.TryGetValue(e.CallId, out var call)) return;
             var key = $"{call.Service}.{call.Method}";
             if (!_aggregates.TryGetValue(key, out var agg)) return;
+            var now = DateTime.UtcNow;
 
             // BufferMode OFF: 최신 1건만 유지 (메모리 안전). ON: 최대 N건 히스토리.
             var cap = agg.BufferMode ? MaxFramesBuffered : 1;
             if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
             call.Frames.Add(new FrameVm(e.FrameIndex, e.Data));
+            call.LastActivityAt = now;
 
             agg.TotalFrames++;
-            agg.LastSeenAt = DateTime.UtcNow;
-            agg.RecordFrame(DateTime.UtcNow);
+            agg.LastSeenAt = now;
+            agg.RecordFrame(now);
         }
         Changed?.Invoke();
     }
@@ -161,6 +180,8 @@ public class WorkbenchStateService : IDisposable
         {
             if (!_callIndex.TryGetValue(e.CallId, out var call)) return;
             call.Result = e.Res;
+            call.EndedAt = DateTime.UtcNow;
+            call.LastActivityAt = call.EndedAt.Value;
             var key = $"{call.Service}.{call.Method}";
             if (_aggregates.TryGetValue(key, out var agg))
             {
@@ -241,6 +262,12 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
+    public void ClearOutbound()
+    {
+        lock (_lock) _outbound.Clear();
+        Changed?.Invoke();
+    }
+
     public void SetPaused(bool paused)
     {
         if (IncomingPaused == paused) return;
@@ -256,6 +283,32 @@ public class WorkbenchStateService : IDisposable
             _logs.Add(new LogEntry(DateTime.Now, text, level));
         }
         Changed?.Invoke();
+    }
+
+    public void AddOutbound(string service, string method, string json, string source)
+    {
+        lock (_lock)
+        {
+            _outbound.Add(new OutboundMessageEntry
+            {
+                Time = DateTime.Now,
+                Service = service,
+                Method = method,
+                Json = json,
+                Source = source
+            });
+        }
+        Changed?.Invoke();
+    }
+
+    private static int ComputeDisplayedActiveCalls(RpcAggregate agg, DateTime now)
+    {
+        var active = agg.RecentCalls.Count(call =>
+            call.Result == null &&
+            now - call.LastActivityAt <= ActiveStaleTimeout);
+
+        if (active > 0) return active;
+        return now - agg.LastSeenAt <= ActiveDisplayHold ? 1 : 0;
     }
 
     public void SetSession(GrpcSession? session)
