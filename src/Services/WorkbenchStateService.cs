@@ -16,6 +16,7 @@ public class WorkbenchStateService : IDisposable
 {
     private readonly WorkbenchNotificationService _notify;
     private readonly object _lock = new();
+    private readonly Timer _incomingChangedTimer;
 
     // ── 누적 상태 ──────────────────────────────────────────────────────────
     // RPC(Service.Method)별 집계. 대규모 부하 대응으로 flat 콜 리스트 대신 사용.
@@ -61,8 +62,10 @@ public class WorkbenchStateService : IDisposable
     private const int MaxFramesBuffered = 200;
     private const int MaxLogs = 500;
     private const int MaxStreamRecv = 500;
+    private static readonly TimeSpan IncomingUiRefreshInterval = TimeSpan.FromMilliseconds(16);
     private static readonly TimeSpan ActiveDisplayHold = TimeSpan.FromMilliseconds(1200);
     private static readonly TimeSpan ActiveStaleTimeout = TimeSpan.FromSeconds(8);
+    private int _incomingChangedScheduled;
 
     public event Action? Changed;
 
@@ -73,6 +76,7 @@ public class WorkbenchStateService : IDisposable
     public WorkbenchStateService(WorkbenchNotificationService notify)
     {
         _notify = notify;
+        _incomingChangedTimer = new Timer(_ => FlushIncomingChanged(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _notify.CallStarted += OnCallStarted;
         _notify.StreamMessageReceived += OnStreamMessage;
         _notify.CallEnded += OnCallEnded;
@@ -80,6 +84,7 @@ public class WorkbenchStateService : IDisposable
 
     public void Dispose()
     {
+        _incomingChangedTimer.Dispose();
         _notify.CallStarted -= OnCallStarted;
         _notify.StreamMessageReceived -= OnStreamMessage;
         _notify.CallEnded -= OnCallEnded;
@@ -149,7 +154,7 @@ public class WorkbenchStateService : IDisposable
             agg.TotalCalls++;
             agg.LastSeenAt = now;
         }
-        Changed?.Invoke();
+        SignalIncomingChanged();
     }
 
     private void OnStreamMessage(IncomingStreamMessageEvent e)
@@ -171,7 +176,7 @@ public class WorkbenchStateService : IDisposable
             agg.LastSeenAt = now;
             agg.RecordFrame(now);
         }
-        Changed?.Invoke();
+        SignalIncomingChanged();
     }
 
     private void OnCallEnded(IncomingCallEndedEvent e)
@@ -189,7 +194,7 @@ public class WorkbenchStateService : IDisposable
                 agg.LastSeenAt = DateTime.UtcNow;
             }
         }
-        Changed?.Invoke();
+        SignalIncomingChanged();
     }
 
     // ── UI 호출 ────────────────────────────────────────────────────────────
@@ -309,6 +314,18 @@ public class WorkbenchStateService : IDisposable
 
         if (active > 0) return active;
         return now - agg.LastSeenAt <= ActiveDisplayHold ? 1 : 0;
+    }
+
+    private void SignalIncomingChanged()
+    {
+        if (Interlocked.Exchange(ref _incomingChangedScheduled, 1) == 1) return;
+        _incomingChangedTimer.Change(IncomingUiRefreshInterval, Timeout.InfiniteTimeSpan);
+    }
+
+    private void FlushIncomingChanged()
+    {
+        if (Interlocked.Exchange(ref _incomingChangedScheduled, 0) == 0) return;
+        Changed?.Invoke();
     }
 
     public void SetSession(GrpcSession? session)
