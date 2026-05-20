@@ -318,6 +318,7 @@ public class WorkbenchStateService : IDisposable
 
     private void SignalIncomingChanged()
     {
+        if (IncomingPaused) return;
         if (Interlocked.Exchange(ref _incomingChangedScheduled, 1) == 1) return;
         _incomingChangedTimer.Change(IncomingUiRefreshInterval, Timeout.InfiniteTimeSpan);
     }
@@ -325,6 +326,7 @@ public class WorkbenchStateService : IDisposable
     private void FlushIncomingChanged()
     {
         if (Interlocked.Exchange(ref _incomingChangedScheduled, 0) == 0) return;
+        if (IncomingPaused) return;
         Changed?.Invoke();
     }
 
