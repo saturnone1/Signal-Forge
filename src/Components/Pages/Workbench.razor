@@ -1222,7 +1222,7 @@
             {
                 while (await _uiTimer.WaitForNextTickAsync(_cts.Token))
                 {
-                    if (_dirty && !State.IncomingPaused)
+                    if (_dirty)
                     {
                         _dirty = false;
                         await InvokeAsync(StateHasChanged);
