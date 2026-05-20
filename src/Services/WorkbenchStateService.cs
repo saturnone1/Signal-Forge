@@ -31,6 +31,7 @@ public class WorkbenchStateService : IDisposable
     public GrpcSession? Session { get; private set; }
     public string? StreamId { get; private set; }
     public bool IsStreamOpen => StreamId != null;
+    public string? ActiveStreamSessionId { get; private set; }
     public string? ActiveStreamServiceName { get; private set; }
     public string? ActiveStreamMethodName { get; private set; }
     public string? ActiveStreamRpcType { get; private set; }
@@ -149,7 +150,7 @@ public class WorkbenchStateService : IDisposable
                 _aggregates[key] = agg;
                 PruneOldInactiveAggregatesUnderLock(MaxRpcAggregates);
             }
-            var call = new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type);
+            var call = new IncomingCallVm(e.CallId, e.Service, e.Method, e.Type, e.SessionId);
             agg.RecentCalls.Add(call);
             if (agg.RecentCalls.Count > MaxRecentCallsPerRpc)
             {
@@ -330,7 +331,7 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
-    public void AddOutbound(string service, string method, string json, string source)
+    public void AddOutbound(string service, string method, string json, string source, string? sessionId = null)
     {
         lock (_lock)
         {
@@ -339,6 +340,7 @@ public class WorkbenchStateService : IDisposable
 
             _outbound.Add(new OutboundMessageEntry
             {
+                SessionId = sessionId,
                 Time = DateTime.Now,
                 Service = service,
                 Method = method,
@@ -415,6 +417,7 @@ public class WorkbenchStateService : IDisposable
         if (session == null)
         {
             StreamId = null;
+            ActiveStreamSessionId = null;
             ActiveStreamServiceName = null;
             ActiveStreamMethodName = null;
             ActiveStreamRpcType = null;
@@ -424,9 +427,10 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
-    public void SetStream(string? streamId, string? serviceName = null, string? methodName = null, string? rpcType = null)
+    public void SetStream(string? streamId, string? sessionId = null, string? serviceName = null, string? methodName = null, string? rpcType = null)
     {
         StreamId = streamId;
+        ActiveStreamSessionId = streamId == null ? null : sessionId;
         ActiveStreamServiceName = streamId == null ? null : serviceName;
         ActiveStreamMethodName = streamId == null ? null : methodName;
         ActiveStreamRpcType = streamId == null ? null : rpcType;
@@ -436,6 +440,7 @@ public class WorkbenchStateService : IDisposable
     public void ResetStream()
     {
         StreamId = null;
+        ActiveStreamSessionId = null;
         ActiveStreamServiceName = null;
         ActiveStreamMethodName = null;
         ActiveStreamRpcType = null;
@@ -450,7 +455,7 @@ public class WorkbenchStateService : IDisposable
         Changed?.Invoke();
     }
 
-    public void AddStreamRecv(string callId, string service, string method, string type, string json)
+    public void AddStreamRecv(string callId, string service, string method, string type, string json, string? sessionId = null)
     {
         lock (_lock)
         {
@@ -468,7 +473,7 @@ public class WorkbenchStateService : IDisposable
 
             if (!_callIndex.TryGetValue(callId, out var call))
             {
-                call = new IncomingCallVm(callId, service, method, type);
+                call = new IncomingCallVm(callId, service, method, type, sessionId);
                 agg.RecentCalls.Add(call);
                 if (agg.RecentCalls.Count > MaxRecentCallsPerRpc)
                 {

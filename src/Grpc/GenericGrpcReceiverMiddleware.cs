@@ -1,3 +1,4 @@
+using GrpcWorkbench.Models.Api;
 using GrpcWorkbench.Services;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
@@ -66,6 +67,8 @@ public class GenericGrpcReceiverMiddleware
 
         var callId    = Guid.NewGuid().ToString("N")[..8];
         var sw        = System.Diagnostics.Stopwatch.StartNew();
+        context.Request.Headers.TryGetValue(GrpcRequestPayload.SessionIdMetadataKey, out var sessionIdValues);
+        var sessionId = sessionIdValues.FirstOrDefault();
         // proto 메타데이터에서 정확한 RPC 타입 조회 (폴백: 이름 heuristic)
         var callType  = notify.GetRpcType(serviceName, methodName);
         _logger.LogInformation("[gRPC RX] {CallId} {ServiceName}/{MethodName} ({CallType})",
@@ -121,6 +124,7 @@ public class GenericGrpcReceiverMiddleware
         // ── Broadcast call started ────────────────────────────────────────────
         notify.NotifyCallStarted(new IncomingCallStartedEvent(
             CallId: callId,
+            SessionId: string.IsNullOrWhiteSpace(sessionId) ? null : sessionId,
             Service: serviceName,
             Method: methodName,
             Type: callType,

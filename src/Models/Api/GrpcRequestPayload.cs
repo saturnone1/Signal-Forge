@@ -2,6 +2,8 @@ namespace GrpcWorkbench.Models.Api;
 
 public class GrpcRequestPayload
 {
+    public const string SessionIdMetadataKey = "x-workbench-session-id";
+
     public string SessionId { get; set; } = string.Empty;
     public string ServiceName { get; set; } = string.Empty;
     public string MethodName { get; set; } = string.Empty;

@@ -29,6 +29,19 @@ public interface IGrpcStreamingService
     Task WriteMessageAsync(string streamId, string messageJson);
     Task<StreamCloseResult> CloseStreamAsync(string streamId);
     bool IsStreamOpen(string streamId);
+    IReadOnlyList<OpenLocalStreamInfo> SnapshotOpenStreams();
+}
+
+public class OpenLocalStreamInfo
+{
+    public required string StreamId { get; init; }
+    public required string SessionId { get; init; }
+    public required string ServiceName { get; init; }
+    public required string MethodName { get; init; }
+    public required string RpcType { get; init; }
+    public required DateTime OpenedAt { get; init; }
+    public int MessagesSent { get; init; }
+    public int ReceivedCount { get; init; }
 }
 
 public class StreamCloseResult
@@ -42,7 +55,11 @@ public class StreamCloseResult
 internal class ActiveStreamContext
 {
     public required string StreamId { get; init; }
+    public required string SessionId { get; init; }
+    public required string ServiceName { get; init; }
+    public required string MethodName { get; init; }
     public required string RpcType { get; init; }
+    public required DateTime OpenedAt { get; init; }
     public required object StreamCall { get; init; }
     public required object RequestStream { get; init; }
     public required MethodInfo WriteAsyncMethod { get; init; }
@@ -202,7 +219,11 @@ public class GrpcStreamingService : IGrpcStreamingService
             ctx = new ActiveStreamContext
             {
                 StreamId = streamId,
+                SessionId = session.SessionId,
+                ServiceName = payload.ServiceName,
+                MethodName = payload.MethodName,
                 RpcType = "BidirectionalStreaming",
+                OpenedAt = DateTime.UtcNow,
                 StreamCall = streamCall,
                 RequestStream = requestStream,
                 WriteAsyncMethod = writeAsyncMethod,
@@ -241,7 +262,11 @@ public class GrpcStreamingService : IGrpcStreamingService
             ctx = new ActiveStreamContext
             {
                 StreamId = streamId,
+                SessionId = session.SessionId,
+                ServiceName = payload.ServiceName,
+                MethodName = payload.MethodName,
                 RpcType = "ClientStreaming",
+                OpenedAt = DateTime.UtcNow,
                 StreamCall = streamCall,
                 RequestStream = requestStream,
                 WriteAsyncMethod = writeAsyncMethod,
@@ -310,11 +335,29 @@ public class GrpcStreamingService : IGrpcStreamingService
     /// <summary>해당 streamId의 스트림이 현재 열려있는지 확인합니다.</summary>
     public bool IsStreamOpen(string streamId) => _streams.ContainsKey(streamId);
 
+    public IReadOnlyList<OpenLocalStreamInfo> SnapshotOpenStreams()
+        => _streams.Values
+            .Select(ctx => new OpenLocalStreamInfo
+            {
+                StreamId = ctx.StreamId,
+                SessionId = ctx.SessionId,
+                ServiceName = ctx.ServiceName,
+                MethodName = ctx.MethodName,
+                RpcType = ctx.RpcType,
+                OpenedAt = ctx.OpenedAt,
+                MessagesSent = ctx.MessagesSent,
+                ReceivedCount = ctx.ReceivedMessages.Count
+            })
+            .OrderByDescending(info => info.OpenedAt)
+            .ToList();
+
     // ── 공통 헬퍼 ────────────────────────────────────────────────────────────
 
     private static CallOptions BuildCallOptions(GrpcRequestPayload payload, bool noDeadline = false)
     {
         var metadata = new Metadata();
+        if (!string.IsNullOrWhiteSpace(payload.SessionId))
+            metadata.Add(GrpcRequestPayload.SessionIdMetadataKey, payload.SessionId);
         if (payload.Metadata != null)
         {
             foreach (var kvp in payload.Metadata)
