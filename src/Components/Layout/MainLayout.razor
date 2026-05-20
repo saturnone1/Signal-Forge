@@ -13,11 +13,11 @@
                Style="border-bottom:1px solid var(--mud-palette-lines-default);">
         <MudIcon Icon="@Icons.Material.Filled.Hub" Color="Color.Primary" Class="mr-2" />
         <MudText Typo="Typo.subtitle1" Style="font-weight:700;letter-spacing:.02em;">
-            gRPC Workbench
+            gRPC 워크벤치
         </MudText>
         <MudText Typo="Typo.caption" Class="ml-3 d-none d-sm-flex"
                  Style="color:var(--mud-palette-text-disabled);">
-            bidirectional gRPC over UDS
+            UDS 기반 양방향 gRPC
         </MudText>
 
         <MudSpacer />
@@ -26,7 +26,7 @@
         <div class="d-flex align-center mr-3" style="gap:8px;">
             <span class="wb-dot @(Ui.IsConnected ? "wb-dot--on" : "wb-dot--off")"></span>
             <MudText Typo="Typo.caption" Style="font-weight:600;">
-                @(Ui.IsConnected ? "Connected" : "Disconnected")
+                @(Ui.IsConnected ? "연결됨" : "연결 안 됨")
             </MudText>
             @if (Ui.IsConnected && !string.IsNullOrEmpty(Ui.SocketPath))
             {

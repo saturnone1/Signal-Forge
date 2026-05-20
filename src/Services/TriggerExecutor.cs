@@ -148,25 +148,43 @@ public class TriggerExecutor : IHostedService, IDisposable
     // ── 발사 본체 ───────────────────────────────────────────────────────
     private async Task FireOnce(Trigger t, string? incomingJson)
     {
-        var session = _state.Session;
-        if (session == null)
-        {
-            t.LastError = "No active session";
-            Interlocked.Increment(ref t.Errors);
-            _state.NotifyTriggersChanged();
-            return;
-        }
-        if (string.IsNullOrEmpty(t.TargetService) || string.IsNullOrEmpty(t.TargetMethod))
-        {
-            t.LastError = "Target Service/Method not set";
-            Interlocked.Increment(ref t.Errors);
-            _state.NotifyTriggersChanged();
-            return;
-        }
-
         try
         {
             var json = ApplyTemplate(t.PayloadTemplate, t, incomingJson);
+
+            if (!string.IsNullOrWhiteSpace(t.InboundTargetCallId))
+            {
+                await _notify.SendInboundResponseAsync(t.InboundTargetCallId, json);
+
+                var inboundCall = _state.FindCallById(t.InboundTargetCallId);
+                _state.AddOutbound(
+                    inboundCall?.Service ?? t.TargetService,
+                    inboundCall?.Method ?? t.TargetMethod,
+                    json,
+                    $"trigger:{(string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name)}:stream");
+
+                Interlocked.Increment(ref t.TotalFires);
+                t.LastFiredAt = DateTime.UtcNow;
+                t.LastError = null;
+                return;
+            }
+
+            var session = _state.Session;
+            if (session == null)
+            {
+                t.LastError = "No active session";
+                Interlocked.Increment(ref t.Errors);
+                _state.NotifyTriggersChanged();
+                return;
+            }
+            if (string.IsNullOrEmpty(t.TargetService) || string.IsNullOrEmpty(t.TargetMethod))
+            {
+                t.LastError = "Target Service/Method not set";
+                Interlocked.Increment(ref t.Errors);
+                _state.NotifyTriggersChanged();
+                return;
+            }
+
             var payload = new GrpcRequestPayload
             {
                 SessionId = session.SessionId,
