@@ -3,6 +3,7 @@ using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 
 namespace GrpcWorkbench.Grpc;
@@ -94,6 +95,28 @@ public class GenericGrpcReceiverMiddleware
             throw;
         }
         _logger.LogInformation("[gRPC RX] {CallId} response headers sent", callId);
+
+        SemaphoreSlim? responseWriteLock = null;
+        if (callType == "BidirectionalStreaming")
+        {
+            responseWriteLock = new SemaphoreSlim(1, 1);
+            notify.RegisterInboundResponseStream(callId, serviceName, methodName, async payload =>
+            {
+                await responseWriteLock.WaitAsync();
+                try
+                {
+                    var header = new byte[5];
+                    BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(1), payload.Length);
+                    await context.Response.Body.WriteAsync(header);
+                    await context.Response.Body.WriteAsync(payload);
+                    await context.Response.Body.FlushAsync();
+                }
+                finally
+                {
+                    responseWriteLock.Release();
+                }
+            });
+        }
 
         // ── Broadcast call started ────────────────────────────────────────────
         notify.NotifyCallStarted(new IncomingCallStartedEvent(
@@ -196,6 +219,8 @@ public class GenericGrpcReceiverMiddleware
 
         // ── Broadcast call ended ──────────────────────────────────────────────
         var sampledNote = frameCount > notifiedCount ? $", {frameCount - notifiedCount} sampled-out" : "";
+        notify.UnregisterInboundResponseStream(callId);
+        responseWriteLock?.Dispose();
         notify.NotifyCallEnded(new IncomingCallEndedEvent(
             CallId: callId,
             Res: $"OK ({frameCount} frame(s){sampledNote}, {totalBytes} bytes, {sw.ElapsedMilliseconds} ms)"));
