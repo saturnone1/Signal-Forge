@@ -36,12 +36,265 @@
     </MudOverlay>
 }
 
-<div class="pa-3">
-    <MudGrid Spacing="3">
+<div class="wb-page pa-3">
+    @{
+        var topActiveCalls = State.SnapshotAggregates().Sum(State.GetDisplayedActiveCalls);
+        var selectedMethodLabel = _selectedMethod == null
+            ? "메서드 미선택"
+            : $"{_selectedService?.ServiceName.Split('.').Last()}.{_selectedMethod.MethodName}";
+    }
+
+    <div class="wb-hero mb-4">
+        <div>
+            <div class="wb-panel-kicker">gRPC Workbench</div>
+            <div class="wb-hero-title">세션, 요청, 수신 흐름을 한 화면에서 다루는 테스트 콘솔</div>
+            <div class="wb-hero-subtitle">상단은 현재 작업 상태, 본문은 Setup / Request / Incoming, 하단은 Trigger와 기록 영역으로 분리했습니다.</div>
+        </div>
+        <div class="wb-hero-metrics">
+            <div class="wb-metric-card">
+                <div class="wb-metric-label">Session</div>
+                <div class="wb-metric-value">@(_session != null ? "Connected" : "Disconnected")</div>
+                <div class="wb-metric-note">@(_session?.UnixSocketPath ?? "소켓 경로 미연결")</div>
+            </div>
+            <div class="wb-metric-card">
+                <div class="wb-metric-label">Method</div>
+                <div class="wb-metric-value">@selectedMethodLabel</div>
+                <div class="wb-metric-note">@(_selectedMethod?.RpcType ?? "RPC 미선택")</div>
+            </div>
+            <div class="wb-metric-card">
+                <div class="wb-metric-label">Incoming</div>
+                <div class="wb-metric-value">@topActiveCalls active</div>
+                <div class="wb-metric-note">@State.RpcCount rpc · @State.TriggerCount trigger</div>
+            </div>
+        </div>
+    </div>
+
+    <MudGrid Spacing="2">
+
+        @* ════════ 상단: 수신 ════════ *@
+        <MudItem xs="12">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="d-flex align-center flex-wrap mb-1" style="gap:8px;">
+                    <MudIconButton Icon="@(_incomingExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                   Size="Size.Small" OnClick="@(() => _incomingExpanded = !_incomingExpanded)" />
+                    <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Small" Color="Color.Info" />
+                    <div>
+                        <div class="wb-panel-kicker">Incoming</div>
+                        <div class="wb-panel-heading">Observed RPC traffic on this instance</div>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.RpcCount rpcs</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                             Color="@(topActiveCalls > 0 ? Color.Info : Color.Default)">
+                        @topActiveCalls active
+                    </MudChip>
+                    <MudSpacer />
+                    @if (_incomingExpanded)
+                    {
+                        <MudTooltip Text="@(State.IncomingPaused ? "수신 표시 재개 (백그라운드 누적은 계속됨)" : "수신 표시 일시정지")">
+                            <MudIconButton Size="Size.Small"
+                                           Color="@(State.IncomingPaused ? Color.Warning : Color.Default)"
+                                           Icon="@(State.IncomingPaused ? Icons.Material.Filled.PlayArrow : Icons.Material.Filled.Pause)"
+                                           OnClick="@(() => State.SetPaused(!State.IncomingPaused))" />
+                        </MudTooltip>
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
+                                       title="수신 집계 비우기" OnClick="@(() => State.ClearIncoming())" />
+                    }
+                </div>
+
+                @if (_incomingExpanded)
+                {
+                    <div class="wb-panel-body">
+                        <div class="d-flex align-center flex-wrap mb-3 wb-stat-strip" style="gap:6px;">
+                            <MudTooltip Text="활성 RPC 종류 수">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                                    @State.RpcCount rpcs
+                                </MudChip>
+                            </MudTooltip>
+                            <MudTooltip Text="진행 중인 호출 수">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                                         Color="@(topActiveCalls > 0 ? Color.Info : Color.Default)">
+                                    @topActiveCalls active
+                                </MudChip>
+                            </MudTooltip>
+                            <MudTooltip Text="총 수신 rate (frames/sec)">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                                    @($"{State.TotalRatePerSec:F1}/s")
+                                </MudChip>
+                            </MudTooltip>
+                        </div>
+
+                        <div class="wb-inline-note mb-3">수신 집계는 Service.Method 기준으로 정리되고, 펼쳤을 때만 프레임 상세를 보여줍니다.</div>
+
+                        @if (State.RpcCount == 0)
+                        {
+                            <div class="wb-empty">
+                                <MudIcon Icon="@Icons.Material.Outlined.Sensors" Class="mb-2" />
+                                <div>이 인스턴스의 UDS 서버 수신 호출이<br />Service.Method 단위로 집계됩니다</div>
+                            </div>
+                        }
+                        else
+                        {
+                            var incomingAggregates = State.SnapshotAggregates().OrderBy(a => a.Key).ToList();
+                            var selectedAggregate = ResolveSelectedIncomingAggregate(incomingAggregates);
+                            var selectedRecentCalls = selectedAggregate == null
+                                ? []
+                                : State.SnapshotRecentCalls(selectedAggregate)
+                                    .OrderByDescending(c => c.StartedAt)
+                                    .ToList();
+                            var selectedIncomingCall = ResolveSelectedIncomingCall(selectedRecentCalls);
+                            var selectedFrames = selectedIncomingCall == null
+                                ? []
+                                : State.SnapshotFrames(selectedIncomingCall);
+
+                            <div class="wb-master-detail">
+                                <div class="wb-master-list wb-scroll">
+                                    <div class="wb-master-head">Observed RPCs</div>
+                                    @foreach (var agg in incomingAggregates)
+                                    {
+                                        var displayedActiveCalls = State.GetDisplayedActiveCalls(agg);
+                                        <button type="button"
+                                                class="wb-master-row @(selectedAggregate?.Key == agg.Key ? "is-selected" : null)"
+                                                @onclick="@(() => SelectIncomingAggregate(agg.Key))">
+                                            <div class="wb-master-row-top">
+                                                <span class="wb-mono wb-master-title">@($"{agg.Service.Split('.').Last()}.{agg.Method}")</span>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@agg.TotalFrames recv</MudChip>
+                                            </div>
+                                            <div class="wb-master-row-meta">
+                                                <span class="wb-master-type">@agg.Type</span>
+                                                <span>@($"{agg.RatePerSec:F1}/s")</span>
+                                                <span>@AgoLabel(agg.LastSeenAt)</span>
+                                                @if (displayedActiveCalls > 0)
+                                                {
+                                                    <span class="wb-master-live">@displayedActiveCalls active</span>
+                                                }
+                                            </div>
+                                        </button>
+                                    }
+                                </div>
+
+                                <div class="wb-detail-pane">
+                                    @if (selectedAggregate == null)
+                                    {
+                                        <div class="wb-empty" style="min-height:320px;">
+                                            <MudIcon Icon="@Icons.Material.Outlined.TableRows" Class="mb-2" />
+                                            <div>좌측에서 RPC를 선택하면 최근 call과 frame 상세를 보여줍니다</div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="wb-detail-head mb-3">
+                                            <div class="wb-detail-head-copy">
+                                                <div class="wb-panel-kicker">Detail</div>
+                                                <div class="wb-panel-heading">@($"{selectedAggregate.Service.Split('.').Last()}.{selectedAggregate.Method}")</div>
+                                            </div>
+                                            <div class="wb-chip-row wb-chip-row--detail">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--wrap">@selectedAggregate.Type</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@selectedAggregate.TotalFrames recv</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0 wb-chip wb-chip--ellipsis">@($"{State.GetDisplayedActiveCalls(selectedAggregate)} active")</MudChip>
+                                            </div>
+                                        </div>
+                                        <div class="wb-inline-note mb-3">최근 call 목록에서 하나를 선택하면 우측 하단에 해당 frame 상세가 표시됩니다.</div>
+                                        <div class="wb-call-grid">
+                                            <div class="wb-call-list wb-scroll">
+                                                @if (selectedRecentCalls.Count == 0)
+                                                {
+                                                    <div class="wb-empty" style="padding:18px 12px;">최근 call 없음</div>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var call in selectedRecentCalls)
+                                                    {
+                                                        var callFrames = State.SnapshotFrames(call);
+                                                        <button type="button"
+                                                                class="wb-call-row @(selectedIncomingCall?.CallId == call.CallId ? "is-selected" : null)"
+                                                                @onclick="@(() => SelectIncomingCall(call.CallId))">
+                                                            <div class="wb-call-row-top">
+                                                                <span class="wb-mono">@call.CallId[..8]</span>
+                                                                <span>@callFrames.Count f</span>
+                                                            </div>
+                                                            <div class="wb-call-row-meta">
+                                                                <span>@AgoLabel(call.LastActivityAt)</span>
+                                                                <span>@(string.IsNullOrEmpty(call.Result) ? "running" : "closed")</span>
+                                                            </div>
+                                                        </button>
+                                                    }
+                                                }
+                                            </div>
+                                            <div class="wb-frame-detail wb-scroll">
+                                                @if (selectedIncomingCall == null)
+                                                {
+                                                    <div class="wb-empty" style="padding:18px 12px;">상세를 볼 call을 선택하세요</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+                                                        <span class="wb-panel-title">Frames</span>
+                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@selectedFrames.Count</MudChip>
+                                                        <MudSpacer />
+                                                        @if (selectedFrames.Count > 0)
+                                                        {
+                                                            <MudTooltip Text="@(selectedIncomingCall.Pretty ? "원문(raw)" : "들여쓰기")">
+                                                                <MudIconButton Size="Size.Small" Class="pa-0"
+                                                                               Icon="@(selectedIncomingCall.Pretty ? Icons.Material.Filled.Notes : Icons.Material.Filled.FormatAlignLeft)"
+                                                                               OnClick="@(() => selectedIncomingCall.Pretty = !selectedIncomingCall.Pretty)" />
+                                                            </MudTooltip>
+                                                        }
+                                                    </div>
+                                                    @if (!string.IsNullOrEmpty(selectedIncomingCall.Result))
+                                                    {
+                                                        <div class="wb-inline-note mb-2">@selectedIncomingCall.Result</div>
+                                                    }
+                                                    @if (selectedFrames.Count == 0)
+                                                    {
+                                                        <div class="wb-empty" style="padding:18px 12px;">표시할 frame 없음</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @if (selectedFrames.Count > 1)
+                                                        {
+                                                            @for (int fi = 0; fi < selectedFrames.Count - 1; fi++)
+                                                            {
+                                                                var f = selectedFrames[fi];
+                                                                <pre class="wb-code wb-scroll mt-1" style="max-height:60px;font-size:.66rem;opacity:.55;">[@f.Index] @Summary(f.Data)</pre>
+                                                            }
+                                                        }
+                                                        var latest = selectedFrames[^1];
+                                                        <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:320px;">[@latest.Index] @Fmt(latest.Data, selectedIncomingCall.Pretty)</pre>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </MudItem>
 
         @* ════════ 좌측: 가이드 설정 사이드바 ════════ *@
-        <MudItem xs="12" md="3">
-            <div class="wb-panel pa-3">
+        <MudItem xs="12" md="4">
+            <div class="wb-panel wb-panel--major wb-panel--sticky wb-panel--contain pa-3">
+                <div class="d-flex align-center flex-wrap mb-1" style="gap:8px;">
+                    <MudIconButton Icon="@(_setupExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                   Size="Size.Small" OnClick="@(() => _setupExpanded = !_setupExpanded)" />
+                    <MudIcon Icon="@Icons.Material.Filled.Tune" Size="Size.Small" Color="Color.Primary" />
+                    <div>
+                        <div class="wb-panel-kicker">Setup</div>
+                        <div class="wb-panel-heading">Connection and method selection</div>
+                    </div>
+                    <MudSpacer />
+                    <div class="wb-chip-row">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0">socket</MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0">proto</MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0">method</MudChip>
+                    </div>
+                </div>
+
+                @if (_setupExpanded)
+                {
+                    <div class="wb-panel-body">
 
                 @* ── 1. 세션 ── *@
                 <div class="d-flex align-center mb-2" style="gap:8px;">
@@ -145,7 +398,7 @@
                 else
                 {
                     <MudSelect T="ServiceMetadata" Label="서비스" @bind-Value="_selectedService"
-                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2 wb-select wb-select--ellipsis wb-select--comfortable"
                                ToStringFunc="@(s => s?.ServiceName ?? string.Empty)">
                         @foreach (var svc in _services)
                         {
@@ -155,7 +408,7 @@
 
                     <MudSelect T="MethodMetadata" Label="메서드" Value="_selectedMethod"
                                ValueChanged="@((MethodMetadata? m) => OnMethodSelected(m))"
-                               Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-select wb-select--ellipsis wb-select--comfortable"
                                Disabled="_selectedService == null"
                                ToStringFunc="@(m => m?.MethodName ?? string.Empty)">
                         @foreach (var method in _selectedService?.Methods ?? [])
@@ -170,8 +423,8 @@
                     {
                         <div class="wb-panel wb-rpc-accent @RpcCss(_selectedMethod.RpcType) pa-2 mt-2">
                             <MudChip T="string" Size="Size.Small" Color="@RpcTypeColor(_selectedMethod.RpcType)"
-                                     Variant="Variant.Text" Class="ma-0 mb-1">@_selectedMethod.RpcType</MudChip>
-                            <div class="wb-mono" style="font-size:.72rem;line-height:1.6;">
+                                     Variant="Variant.Text" Class="ma-0 mb-1 wb-chip wb-chip--wrap">@_selectedMethod.RpcType</MudChip>
+                            <div class="wb-mono wb-type-signature" style="font-size:.72rem;line-height:1.6;">
                                 <span style="color:var(--mud-palette-text-secondary);">in </span>@_selectedMethod.InputType<br />
                                 <span style="color:var(--mud-palette-text-secondary);">out</span> @_selectedMethod.OutputType
                             </div>
@@ -186,15 +439,23 @@
                         </div>
                     }
                 }
+                    </div>
+                }
             </div>
         </MudItem>
 
-        @* ════════ 중앙: 요청 ════════ *@
-        <MudItem xs="12" md="5">
-            <div class="wb-panel pa-3">
-                <div class="d-flex align-center mb-3" style="gap:8px;">
-                    <MudIcon Icon="@Icons.Material.Filled.NorthEast" Size="Size.Small" Color="Color.Primary" />
-                    <span class="wb-panel-title">Request</span>
+        @* ════════ 하단 상단열: 요청 ════════ *@
+        <MudItem xs="12" md="8">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="d-flex align-center flex-wrap mb-1" style="gap:8px;">
+                    <MudIconButton Icon="@(_requestExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                   Size="Size.Small" OnClick="@(() => _requestExpanded = !_requestExpanded)" />
+                    <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" Color="Color.Primary" />
+                    <div>
+                        <div class="wb-panel-kicker">Request</div>
+                        <div class="wb-panel-heading">Payload editing and manual send</div>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@(_selectedMethod?.RpcType ?? "method 없음")</MudChip>
                     <MudSpacer />
                     @if (_schemaFields.Count > 0)
                     {
@@ -206,266 +467,126 @@
                         </MudToggleGroup>
                     }
                 </div>
+                @if (_requestExpanded)
+                {
+                    <div class="wb-panel-body">
+                        <div class="wb-inline-note mb-3">
+                            현재 선택된 메서드에 맞춰 요청을 만들고, 필요하면 그대로 Trigger step으로 등록할 수 있습니다.
+                        </div>
 
-                @if (_selectedMethod == null)
-                {
-                    <div class="wb-empty">
-                        <MudIcon Icon="@Icons.Material.Outlined.TouchApp" Class="mb-2" />
-                        <div>좌측에서 세션 연결 → 메서드를 선택하세요</div>
-                    </div>
-                }
-                else
-                {
-                    @if (!_rawJsonMode && _schemaFields.Count > 0)
-                    {
-                        <div class="wb-scroll mb-3" style="max-height:46vh;overflow-y:auto;">
-                            @foreach (var field in _schemaFields)
+                        @if (_selectedMethod == null)
+                        {
+                            <div class="wb-empty">
+                                <MudIcon Icon="@Icons.Material.Outlined.TouchApp" Class="mb-2" />
+                                <div>좌측에서 세션 연결 → 메서드를 선택하세요</div>
+                            </div>
+                        }
+                        else
+                        {
+                            @if (!_rawJsonMode && _schemaFields.Count > 0)
                             {
-                                <div class="mb-2">
-                                    <SchemaFormField Field="field" OnChanged="@BuildJsonFromForm" />
+                                <div class="wb-scroll mb-3" style="max-height:46vh;overflow-y:auto;">
+                                    @foreach (var field in _schemaFields)
+                                    {
+                                        <div class="mb-2">
+                                            <SchemaFormField Field="field" OnChanged="@BuildJsonFromForm" />
+                                        </div>
+                                    }
                                 </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <MudTextField @bind-Value="_requestJson" Label="요청 JSON" Variant="Variant.Outlined"
-                                      Lines="12" FullWidth="true" Class="mb-3 wb-mono"
-                                      Style="font-size:.8rem;" />
-                    }
-
-                    @if (IsBidi || IsClientStream)
-                    {
-                        <div class="d-flex flex-wrap mb-2" style="gap:8px;">
-                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.PlayArrow"
-                                       Disabled="@(_session == null || _streamOpen)" OnClick="StartStream">
-                                스트림 시작
-                            </MudButton>
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.Send"
-                                       Disabled="@(!_streamOpen)" OnClick="SendStreamMessage">
-                                메시지 전송
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.Stop"
-                                       Disabled="@(!_streamOpen)" OnClick="CloseStream">
-                                종료
-                            </MudButton>
-                        </div>
-                        @if (_streamOpen && _streamId != null)
-                        {
-                            <div class="wb-panel wb-rpc-accent wb-rpc-bidi pa-2 mb-2 d-flex align-center"
-                                 style="gap:10px;">
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Secondary" />
-                                <MudText Typo="Typo.caption">
-                                    <b>스트림 활성</b> · <span class="wb-mono">@_streamId![..8]</span> · 전송 @_sentCount 건
-                                </MudText>
-                            </div>
-                        }
-
-                        @if (State.StreamRecvCount > 0)
-                        {
-                            var streamRecv = State.SnapshotStreamRecv();
-                            <div class="d-flex align-center mb-1" style="gap:8px;">
-                                <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small"
-                                         Color="Color.Secondary" />
-                                <span class="wb-panel-title">Stream ← 수신</span>
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                                    @streamRecv.Count
-                                </MudChip>
-                            </div>
-                            <div class="wb-scroll mb-2" style="max-height:28vh;overflow-y:auto;">
-                                @foreach (var m in streamRecv.AsEnumerable().Reverse().Take(50))
-                                {
-                                    <pre class="wb-code wb-scroll wb-code--accent mb-1" style="max-height:140px;">@m</pre>
-                                }
-                            </div>
-                        }
-                    }
-                    else
-                    {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                                   StartIcon="@Icons.Material.Filled.Send"
-                                   Disabled="@(_session == null || _requesting)" OnClick="SendRequest">
-                            @if (_requesting)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                                <text>전송 중…</text>
                             }
                             else
                             {
-                                <text>전송</text>
+                                <MudTextField @bind-Value="_requestJson" Label="요청 JSON" Variant="Variant.Outlined"
+                                              Lines="12" FullWidth="true" Class="mb-3 wb-mono"
+                                              Style="font-size:.8rem;" />
                             }
-                        </MudButton>
-                    }
 
-                    @if (!string.IsNullOrEmpty(_responseText))
-                    {
-                        <MudDivider Class="my-3" />
-                        <CodeBlock Title="Response" Text="@_responseText" Accent="true" MaxHeight="32vh" />
-                    }
-                }
-            </div>
-        </MudItem>
-
-        @* ════════ 우측: 수신 ════════ *@
-        <MudItem xs="12" md="4">
-            <div class="wb-panel pa-3">
-                <div class="d-flex align-center flex-wrap mb-3" style="gap:6px;">
-                    <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small" Color="Color.Secondary" />
-                    <span class="wb-panel-title">Incoming</span>
-                    <MudTooltip Text="활성 RPC 종류 수">
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                            @State.RpcCount rpcs
-                        </MudChip>
-                    </MudTooltip>
-                    <MudTooltip Text="진행 중인 호출 수">
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
-                                 Color="@(State.ActiveCallsTotal > 0 ? Color.Info : Color.Default)">
-                            @State.ActiveCallsTotal active
-                        </MudChip>
-                    </MudTooltip>
-                    <MudTooltip Text="총 수신 rate (frames/sec)">
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                            @($"{State.TotalRatePerSec:F1}/s")
-                        </MudChip>
-                    </MudTooltip>
-                    <MudSpacer />
-                    <MudTooltip Text="@(State.IncomingPaused ? "수신 표시 재개 (백그라운드 누적은 계속됨)" : "수신 표시 일시정지")">
-                        <MudIconButton Size="Size.Small"
-                                       Color="@(State.IncomingPaused ? Color.Warning : Color.Default)"
-                                       Icon="@(State.IncomingPaused ? Icons.Material.Filled.PlayArrow : Icons.Material.Filled.Pause)"
-                                       OnClick="@(() => State.SetPaused(!State.IncomingPaused))" />
-                    </MudTooltip>
-                    <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
-                                   title="수신 집계 비우기" OnClick="@(() => State.ClearIncoming())" />
-                </div>
-
-                @if (State.RpcCount == 0)
-                {
-                    <div class="wb-empty">
-                        <MudIcon Icon="@Icons.Material.Outlined.Sensors" Class="mb-2" />
-                        <div>이 인스턴스의 UDS 서버 수신 호출이<br />Service.Method 단위로 집계됩니다</div>
-                    </div>
-                }
-                else
-                {
-                    <div class="wb-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto;">
-                        @* 안정 정렬 — 매 프레임 출렁이지 않게 알파벳 고정.
-                           활동/rate 정보는 행 우측에 그대로 표시. *@
-                        @foreach (var agg in State.SnapshotAggregates().OrderBy(a => a.Key))
-                        {
-                            <div class="wb-panel wb-rpc-accent @RpcCss(agg.Type) pa-2 mb-2">
-                                @* ── RPC 헤더 행 ─────────────────────────────────────── *@
-                                <div class="d-flex align-center" style="gap:8px;cursor:pointer;"
-                                     @onclick="@(() => agg.Expanded = !agg.Expanded)">
-                                    <MudIcon Size="Size.Small"
-                                             Icon="@(agg.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" />
-                                    <span class="wb-mono" style="font-size:.78rem;font-weight:600;color:var(--wb-rpc);">
-                                        @($"{agg.Service.Split('.').Last()}.{agg.Method}")
-                                    </span>
-                                    <MudSpacer />
-                                    <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
-                                        @($"{agg.RatePerSec:F1}/s")
-                                    </span>
-                                    <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
-                                    <span style="font-size:.7rem;color:var(--mud-palette-text-secondary);">
-                                        @agg.TotalFrames recv
-                                    </span>
-                                    @if (agg.ActiveCalls > 0)
-                                    {
-                                        <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
-                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Style="width:12px;height:12px;" />
-                                        <span style="font-size:.7rem;color:var(--mud-palette-info);">
-                                            @agg.ActiveCalls active
-                                        </span>
-                                    }
-                                    <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">·</span>
-                                    <span style="font-size:.68rem;color:var(--mud-palette-text-disabled);">
-                                        @AgoLabel(agg.LastSeenAt)
-                                    </span>
-                                    <span @onclick:stopPropagation="true" @onclick="@(_ => {})">
-                                        <MudTooltip Text="@(agg.BufferMode ? "버퍼 모드 ON: 콜당 최근 200 프레임 보관" : "버퍼 모드 OFF: 콜당 최신 1 프레임만")">
-                                            <MudIconButton Size="Size.Small" Class="pa-0"
-                                                           Color="@(agg.BufferMode ? Color.Warning : Color.Default)"
-                                                           Icon="@(agg.BufferMode ? Icons.Material.Filled.PushPin : Icons.Material.Outlined.PushPin)"
-                                                           OnClick="@(() => State.SetBufferMode(agg.Key, !agg.BufferMode))" />
-                                        </MudTooltip>
-                                    </span>
-                                </div>
-
-                                @* ── 펼치면: 최근 콜 목록 ─────────────────────────────── *@
-                                @if (agg.Expanded)
+                            <div class="d-flex flex-wrap align-center mb-3" style="gap:8px;">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Bolt"
+                                           Disabled="@(_session == null || _selectedMethod == null)"
+                                           OnClick="RegisterCurrentRequestAsTrigger">
+                                    현재 요청으로 Trigger 등록
+                                </MudButton>
+                                @if (_selectedMethod != null)
                                 {
-                                    var recent = State.SnapshotRecentCalls(agg);
-                                    @if (recent.Count == 0)
+                                    <span style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
+                                        Request JSON이 선택한 @(_selectedService?.ServiceName.Split('.').Last()).@_selectedMethod.MethodName Trigger payload로 저장됩니다
+                                    </span>
+                                }
+                            </div>
+
+                            @if (IsBidi || IsClientStream)
+                            {
+                                <div class="d-flex flex-wrap mb-2" style="gap:8px;">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                                               Disabled="@(_session == null || _streamOpen)" OnClick="StartStream">
+                                        스트림 시작
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Send"
+                                               Disabled="@(!_streamOpen)" OnClick="SendStreamMessage">
+                                        메시지 전송
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Stop"
+                                               Disabled="@(!_streamOpen)" OnClick="CloseStream">
+                                        종료
+                                    </MudButton>
+                                </div>
+                                @if (_streamOpen && _streamId != null)
+                                {
+                                    <div class="wb-panel wb-rpc-accent wb-rpc-bidi pa-2 mb-2 d-flex align-center"
+                                         style="gap:10px;">
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Secondary" />
+                                        <MudText Typo="Typo.caption">
+                                            <b>스트림 활성</b> · <span class="wb-mono">@_streamId![..8]</span> · 전송 @_sentCount 건
+                                        </MudText>
+                                    </div>
+                                }
+
+                                @if (State.StreamRecvCount > 0)
+                                {
+                                    var streamRecv = State.SnapshotStreamRecv();
+                                    <div class="d-flex align-center mb-1" style="gap:8px;">
+                                        <MudIcon Icon="@Icons.Material.Filled.SouthWest" Size="Size.Small"
+                                                 Color="Color.Secondary" />
+                                        <span class="wb-panel-title">Stream ← 수신</span>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                                            @streamRecv.Count
+                                        </MudChip>
+                                    </div>
+                                    <div class="wb-scroll mb-2" style="max-height:28vh;overflow-y:auto;">
+                                        @foreach (var m in streamRecv.AsEnumerable().Reverse().Take(50))
+                                        {
+                                            <pre class="wb-code wb-scroll wb-code--accent mb-1" style="max-height:140px;">@m</pre>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                                           StartIcon="@Icons.Material.Filled.Send"
+                                           Disabled="@(_session == null || _requesting)" OnClick="SendRequest">
+                                    @if (_requesting)
                                     {
-                                        <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">콜 없음</span>
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                        <text>전송 중…</text>
                                     }
                                     else
                                     {
-                                        <div class="mt-2" style="border-left:2px solid var(--mud-palette-divider);padding-left:6px;">
-                                            @foreach (var call in recent.AsEnumerable().Reverse())
-                                            {
-                                                var frames = State.SnapshotFrames(call);
-                                                <div class="mb-1">
-                                                    <div class="d-flex align-center" style="gap:6px;cursor:pointer;"
-                                                         @onclick="@(() => call.Expanded = !call.Expanded)">
-                                                        <MudIcon Size="Size.Small"
-                                                                 Icon="@(call.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" />
-                                                        <span class="wb-mono" style="font-size:.66rem;color:var(--mud-palette-text-disabled);">
-                                                            @call.CallId[..8]
-                                                        </span>
-                                                        <span style="font-size:.66rem;color:var(--mud-palette-text-secondary);">
-                                                            @frames.Count f
-                                                        </span>
-                                                        <MudSpacer />
-                                                        @if (!string.IsNullOrEmpty(call.Result))
-                                                        {
-                                                            <MudTooltip Text="@call.Result">
-                                                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
-                                                                         Size="Size.Small" Color="Color.Success"
-                                                                         Style="font-size:14px;" />
-                                                            </MudTooltip>
-                                                        }
-                                                        else
-                                                        {
-                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true"
-                                                                                 Style="width:12px;height:12px;" />
-                                                        }
-                                                        @if (call.Expanded && frames.Count > 0)
-                                                        {
-                                                            <span @onclick:stopPropagation="true" @onclick="@(_ => {})">
-                                                                <MudTooltip Text="@(call.Pretty ? "원문(raw)" : "들여쓰기")">
-                                                                    <MudIconButton Size="Size.Small" Class="pa-0"
-                                                                                   Icon="@(call.Pretty ? Icons.Material.Filled.Notes : Icons.Material.Filled.FormatAlignLeft)"
-                                                                                   OnClick="@(() => call.Pretty = !call.Pretty)" />
-                                                                </MudTooltip>
-                                                            </span>
-                                                        }
-                                                    </div>
-
-                                                    @if (call.Expanded && frames.Count > 0)
-                                                    {
-                                                        @* 버퍼 모드: 과거 프레임 요약 + 최신 1건 전체 *@
-                                                        @if (frames.Count > 1)
-                                                        {
-                                                            @for (int fi = 0; fi < frames.Count - 1; fi++)
-                                                            {
-                                                                var f = frames[fi];
-                                                                <pre class="wb-code wb-scroll mt-1" style="max-height:60px;font-size:.66rem;opacity:.55;">[@f.Index] @Summary(f.Data)</pre>
-                                                            }
-                                                        }
-                                                        var latest = frames[^1];
-                                                        <pre class="wb-code wb-scroll wb-code--accent mt-1" style="max-height:220px;">[@latest.Index] @Fmt(latest.Data, call.Pretty)</pre>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
+                                        <text>전송</text>
                                     }
-                                }
-                            </div>
+                                </MudButton>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_responseText))
+                            {
+                                <MudDivider Class="my-3" />
+                                <CodeBlock Title="Response" Text="@_responseText" Accent="true" MaxHeight="32vh" />
+                            }
                         }
                     </div>
                 }
@@ -474,12 +595,15 @@
 
         @* ════════ 하단: Triggers (자동 송신 규칙) ════════ *@
         <MudItem xs="12">
-            <div class="wb-panel pa-2">
+            <div class="wb-panel wb-panel--major pa-3">
                 <div class="d-flex align-center mb-2" style="gap:8px;">
                     <MudIconButton Icon="@(_triggersExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
                                    Size="Size.Small" OnClick="@(() => _triggersExpanded = !_triggersExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
-                    <span class="wb-panel-title">Triggers</span>
+                    <div>
+                        <div class="wb-panel-kicker">Automation</div>
+                        <div class="wb-panel-heading">Triggers and scenarios</div>
+                    </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.TriggerCount</MudChip>
                     @{
                         var enabledCount = State.SnapshotTriggers().Count(x => x.Enabled);
@@ -493,13 +617,111 @@
                     <MudSpacer />
                     <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Add" OnClick="AddNewTrigger"
-                               Disabled="@(_session == null || _services.Count == 0)">
+                               Disabled="@(_session == null || _selectedMethod == null)">
                         Trigger 추가
                     </MudButton>
                 </div>
 
                 @if (_triggersExpanded)
                 {
+                    var scenarioGroups = State.SnapshotTriggers()
+                        .Where(x => !string.IsNullOrWhiteSpace(x.Scenario))
+                        .GroupBy(x => x.Scenario.Trim(), StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(g => g.Key)
+                        .ToList();
+                    @if (scenarioGroups.Count > 0)
+                    {
+                        <div class="wb-panel pa-2 mb-3">
+                            <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Info" />
+                                <span class="wb-panel-title">Scenarios</span>
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
+                                    Run은 같은 Scenario 이름의 step을 순서대로 수동 실행합니다. Enabled는 백그라운드 자동 실행 여부만 제어합니다.
+                                </span>
+                                <MudSpacer />
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Download"
+                                           Disabled="@(scenarioGroups.Count == 0)"
+                                           OnClick="ExportAllScenarios">
+                                    JSON 내보내기
+                                </MudButton>
+                                <MudFileUpload T="IBrowserFile" FilesChanged="ImportScenarioJson" Accept=".json">
+                                    <ActivatorContent>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.UploadFile">
+                                            JSON 불러오기
+                                        </MudButton>
+                                    </ActivatorContent>
+                                </MudFileUpload>
+                            </div>
+                            <div class="d-flex flex-wrap" style="gap:8px;">
+                                @foreach (var group in scenarioGroups)
+                                {
+                                    <div class="wb-panel pa-2" style="min-width:320px;flex:1 1 480px;">
+                                        <div class="d-flex align-center" style="gap:8px;">
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Info" Class="ma-0">
+                                                @group.Key
+                                            </MudChip>
+                                            <MudSpacer />
+                                            <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Add"
+                                                       OnClick="@(() => AddScenarioStep(group.Key))">
+                                                Step 추가
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Download"
+                                                       OnClick="@(() => ExportScenario(group.Key))">
+                                                Export
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                       OnClick="@(() => RunScenario(group.Key))">
+                                                Run
+                                            </MudButton>
+                                        </div>
+                                        <div class="wb-scroll mt-2" style="max-height:260px;overflow:auto;">
+                                            <table style="width:100%;border-collapse:collapse;font-size:.72rem;">
+                                                <thead>
+                                                    <tr style="color:var(--mud-palette-text-secondary);text-align:left;">
+                                                        <th style="padding:4px 6px;">Step</th>
+                                                        <th style="padding:4px 6px;">Type</th>
+                                                        <th style="padding:4px 6px;">When</th>
+                                                        <th style="padding:4px 6px;">Target</th>
+                                                        <th style="padding:4px 6px;">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var step in group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name))
+                                                    {
+                                                        <tr @key="step.Id" style="border-top:1px solid var(--mud-palette-divider);vertical-align:top;">
+                                                            <td style="padding:6px;white-space:nowrap;">
+                                                                <div style="font-weight:600;">@step.StepOrder</div>
+                                                                <div style="color:var(--mud-palette-text-secondary);">@(string.IsNullOrWhiteSpace(step.Name) ? step.Id : step.Name)</div>
+                                                            </td>
+                                                            <td style="padding:6px;white-space:nowrap;">@TriggerTypeLabel(step.Type)</td>
+                                                            <td style="padding:6px;color:var(--mud-palette-text-secondary);">@ScenarioWhenLabel(step)</td>
+                                                            <td style="padding:6px;color:var(--mud-palette-text-secondary);">@ScenarioTargetLabel(step)</td>
+                                                            <td style="padding:6px;white-space:nowrap;">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small"
+                                                                               Disabled="@(step.StepOrder <= 1)"
+                                                                               OnClick="@(() => MoveScenarioStep(step, -1))" />
+                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small"
+                                                                               Disabled="@(step == group.OrderBy(x => x.StepOrder).ThenBy(x => x.Name).Last())"
+                                                                               OnClick="@(() => MoveScenarioStep(step, 1))" />
+                                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                                               OnClick="@(() => EditTrigger(step))" />
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
                     @if (State.TriggerCount == 0)
                     {
                         <div class="wb-empty">
@@ -512,111 +734,6 @@
                         @foreach (var t in State.SnapshotTriggers())
                         {
                             <div @key="t.Id" class="wb-panel pa-2 mb-2">
-                                @if (t.Editing)
-                                {
-                                    <MudGrid Spacing="2">
-                                        <MudItem xs="12" sm="3">
-                                            <MudTextField @bind-Value="t.Name" Label="이름" Placeholder="@t.Id"
-                                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                        </MudItem>
-                                        <MudItem xs="6" sm="2">
-                                            <MudSelect T="TriggerType" Value="t.Type"
-                                                       ValueChanged="@((TriggerType v) => { t.Type = v; State.NotifyTriggersChanged(); })"
-                                                       Label="타입" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                @foreach (var tt in Enum.GetValues<TriggerType>())
-                                                {
-                                                    <MudSelectItem T="TriggerType" Value="tt">@tt</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        </MudItem>
-                                        <MudItem xs="12" sm="3">
-                                            <MudSelect T="string" Value="t.TargetService"
-                                                       ValueChanged="@((string v) => { t.TargetService = v; t.TargetMethod = ""; State.NotifyTriggersChanged(); })"
-                                                       Label="Target Service" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                @foreach (var s in _services)
-                                                {
-                                                    <MudSelectItem T="string" Value="@s.ServiceName">@s.ServiceName</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        </MudItem>
-                                        <MudItem xs="12" sm="4">
-                                            <MudSelect T="string" Value="t.TargetMethod"
-                                                       ValueChanged="@((string v) => OnTriggerTargetMethodChanged(t, v))"
-                                                       Label="Target Method" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                                       Disabled="@string.IsNullOrEmpty(t.TargetService)">
-                                                @{
-                                                    var svc = _services.FirstOrDefault(s => s.ServiceName == t.TargetService);
-                                                }
-                                                @foreach (var m in svc?.Methods ?? [])
-                                                {
-                                                    <MudSelectItem T="string" Value="@m.MethodName">
-                                                        @m.MethodName  ·  @m.RpcType
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        </MudItem>
-
-                                        @* 타입별 추가 설정 *@
-                                        @switch (t.Type)
-                                        {
-                                            case TriggerType.Periodic:
-                                                <MudItem xs="6" sm="3">
-                                                    <MudNumericField @bind-Value="t.IntervalMs" Label="Interval (ms)" Min="10" Max="3600000"
-                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                <MudItem xs="6" sm="3">
-                                                    <MudNumericField T="int?" @bind-Value="t.MaxFires" Label="Max fires (비우면 무한)"
-                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                break;
-                                            case TriggerType.Bulk:
-                                                <MudItem xs="6" sm="3">
-                                                    <MudNumericField @bind-Value="t.BulkCount" Label="Count" Min="1" Max="10000"
-                                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                <MudItem xs="6" sm="3" Class="d-flex align-center">
-                                                    <MudCheckBox @bind-Value="t.BulkParallel" Label="병렬 발사" Color="Color.Primary" />
-                                                </MudItem>
-                                                break;
-                                            case TriggerType.OnIncoming:
-                                                <MudItem xs="6" sm="3">
-                                                    <MudTextField @bind-Value="t.MatchService" Label="Match Service"
-                                                                  Placeholder="비우면 전체"
-                                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                <MudItem xs="6" sm="3">
-                                                    <MudTextField @bind-Value="t.MatchMethod" Label="Match Method"
-                                                                  Placeholder="비우면 전체"
-                                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                break;
-                                        }
-
-                                        <MudItem xs="12">
-                                            <MudTextField @bind-Value="t.PayloadTemplate" Label="Payload Template (JSON)"
-                                                          HelperText="변수: {{counter}}, {{now}}, OnIncoming은 {{incoming.<dotted.path>}}"
-                                                          Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-mono" />
-                                        </MudItem>
-                                        <MudItem xs="12" Class="d-flex" Style="gap:8px;">
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                                       OnClick="@(() => { t.Editing = false; State.NotifyTriggersChanged(); })">
-                                                저장
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                       OnClick="@(() => { t.Editing = false; State.NotifyTriggersChanged(); })">
-                                                닫기
-                                            </MudButton>
-                                            <MudSpacer />
-                                            <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
-                                                       StartIcon="@Icons.Material.Filled.Delete"
-                                                       OnClick="@(() => State.RemoveTrigger(t.Id))">
-                                                삭제
-                                            </MudButton>
-                                        </MudItem>
-                                    </MudGrid>
-                                }
-                                else
-                                {
                                     <div class="d-flex align-center flex-wrap" style="gap:8px;">
                                         <MudSwitch T="bool" Value="t.Enabled"
                                                    ValueChanged="@((bool v) => { t.Enabled = v; State.NotifyTriggersChanged(); })"
@@ -626,6 +743,13 @@
                                         <span style="font-weight:600;">
                                             @(string.IsNullOrEmpty(t.Name) ? t.Id : t.Name)
                                         </span>
+                                        @if (!string.IsNullOrWhiteSpace(t.Scenario))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info"
+                                                     Variant="Variant.Text" Class="ma-0">
+                                                @($"{t.Scenario} · step {t.StepOrder}")
+                                            </MudChip>
+                                        }
                                         <span class="wb-mono" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
                                             → @(string.IsNullOrEmpty(t.TargetService) ? "(미설정)" : t.TargetService.Split('.').Last() + "." + t.TargetMethod)
                                         </span>
@@ -649,6 +773,10 @@
                                                 break;
                                         }
                                         <MudSpacer />
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0"
+                                                 Color="@(t.Enabled ? Color.Success : Color.Default)">
+                                            @(t.Enabled ? "auto on" : "manual only")
+                                        </MudChip>
                                         <span style="font-size:.7rem;">fires @t.TotalFires</span>
                                         @if (t.Errors > 0)
                                         {
@@ -675,9 +803,8 @@
                                                            OnClick="@(() => FireManual(t))" title="1회 발사" />
                                         }
                                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                       OnClick="@(() => { t.Editing = true; State.NotifyTriggersChanged(); })" />
+                                                       OnClick="@(() => EditTrigger(t))" />
                                     </div>
-                                }
                             </div>
                         }
                     }
@@ -685,14 +812,79 @@
             </div>
         </MudItem>
 
-        @* ════════ 하단: 로그 ════════ *@
-        <MudItem xs="12">
-            <div class="wb-panel pa-2">
+        @* ════════ 하단: 송신 이력 ════════ *@
+        <MudItem xs="12" md="7">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="d-flex align-center mb-1" style="gap:8px;">
+                    <MudIconButton Icon="@(_outboundExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                   Size="Size.Small" OnClick="@(() => _outboundExpanded = !_outboundExpanded)" />
+                    <MudIcon Icon="@Icons.Material.Filled.NorthEast" Size="Size.Small" Color="Color.Primary" />
+                    <div>
+                        <div class="wb-panel-kicker">History</div>
+                        <div class="wb-panel-heading">Outbound</div>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.OutboundCount</MudChip>
+                    <MudSpacer />
+                    <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
+                                   title="송신 이력 비우기" OnClick="@(() => State.ClearOutbound())" />
+                </div>
+                @if (_outboundExpanded)
+                {
+                    var outbound = State.SnapshotOutbound();
+                    <div class="wb-panel-body">
+                        <div class="wb-scroll" style="max-height:220px;overflow-y:auto;">
+                            @if (outbound.Count == 0)
+                            {
+                                <div class="wb-empty" style="min-height:120px;">
+                                    <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Class="mb-2" />
+                                    <div>송신 이력 없음</div>
+                                </div>
+                            }
+                            else
+                            {
+                                @foreach (var item in outbound.AsEnumerable().Reverse())
+                                {
+                                    <div @key="item.Id" class="wb-panel pa-2 mb-2">
+                                        <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                                            <MudIconButton Size="Size.Small"
+                                                           Icon="@(item.Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                           OnClick="@(() => item.Expanded = !item.Expanded)" />
+                                            <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">@item.Time.ToString("HH:mm:ss")</span>
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Class="ma-0">@item.Source</MudChip>
+                                            <span class="wb-mono" style="font-size:.74rem;color:var(--mud-palette-text-secondary);">
+                                                @(item.Service.Split('.').Last() + "." + item.Method)
+                                            </span>
+                                        </div>
+                                        @if (item.Expanded)
+                                        {
+                                            <pre class="wb-code wb-scroll mt-2" style="max-height:180px;">@item.Json</pre>
+                                        }
+                                        else
+                                        {
+                                            <div class="wb-code mt-2" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
+                                                @Summary(item.Json)
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </MudItem>
+
+        @* ════════ 하단: 세션 / 이벤트 로그 ════════ *@
+        <MudItem xs="12" md="5">
+            <div class="wb-panel wb-panel--major pa-3">
                 <div class="d-flex align-center mb-1" style="gap:8px;">
                     <MudIconButton Icon="@(_logsExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
                                    Size="Size.Small" OnClick="@(() => _logsExpanded = !_logsExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
-                    <span class="wb-panel-title">Logs</span>
+                    <div>
+                        <div class="wb-panel-kicker">Events</div>
+                        <div class="wb-panel-heading">Session / system log</div>
+                    </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@State.LogCount</MudChip>
                     <MudSpacer />
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
@@ -724,6 +916,196 @@
         </MudItem>
 
     </MudGrid>
+
+    @if (_editingTrigger != null)
+    {
+        var editor = _editingTrigger;
+        <MudOverlay Visible="true" DarkBackground="true" ZIndex="1400">
+            <div class="wb-editor-shell">
+                <div class="wb-editor-drawer wb-panel pa-4 wb-scroll">
+                    <div class="wb-panel-head mb-3">
+                        <div>
+                            <div class="wb-panel-kicker">Trigger Editor</div>
+                            <div class="wb-panel-heading">@(string.IsNullOrWhiteSpace(editor.Name) ? editor.Id : editor.Name)</div>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseTriggerEditor" />
+                    </div>
+
+                    <div class="wb-inline-note mb-3">
+                        Trigger 편집을 메인 리스트 밖으로 분리했습니다. 저장 후 메인 화면에서는 요약만 보여주고, 자세한 수정은 여기서 처리합니다.
+                    </div>
+
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="editor.Name" Label="이름" Placeholder="@editor.Id"
+                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="editor.Scenario" Label="Scenario"
+                                          Placeholder="예: handshake-a-to-b"
+                                          HelperText="같은 이름이면 한 시나리오로 묶여 Step 순서대로 실행됩니다"
+                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+                            @if (ScenarioNames().Count > 0)
+                            {
+                                <div class="d-flex flex-wrap mt-1" style="gap:6px;">
+                                    @foreach (var scenarioName in ScenarioNames())
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                                 Color="Color.Info" Class="ma-0"
+                                                 OnClick="@(() => { editor.Scenario = scenarioName; State.NotifyTriggersChanged(); })">
+                                            @scenarioName
+                                        </MudChip>
+                                    }
+                                </div>
+                            }
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudNumericField @bind-Value="editor.StepOrder" Label="Step" Min="1"
+                                             Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudSelect T="TriggerType" Value="editor.Type"
+                                       ValueChanged="@((TriggerType v) => { editor.Type = v; State.NotifyTriggersChanged(); })"
+                                       Label="타입" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                @foreach (var tt in Enum.GetValues<TriggerType>())
+                                {
+                                    <MudSelectItem T="TriggerType" Value="tt">@tt</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudSelect T="string" Value="editor.TargetService"
+                                       ValueChanged="@((string v) => { editor.TargetService = v; editor.TargetMethod = ""; State.NotifyTriggersChanged(); })"
+                                       Label="Target Service" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                @foreach (var s in _services)
+                                {
+                                    <MudSelectItem T="string" Value="@s.ServiceName">@s.ServiceName</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudSelect T="string" Value="editor.TargetMethod"
+                                       ValueChanged="@((string v) => OnTriggerTargetMethodChanged(editor, v))"
+                                       Label="Target Method" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                       Disabled="@string.IsNullOrEmpty(editor.TargetService)">
+                                @{
+                                    var editorSvc = _services.FirstOrDefault(s => s.ServiceName == editor.TargetService);
+                                }
+                                @foreach (var m in editorSvc?.Methods ?? [])
+                                {
+                                    <MudSelectItem T="string" Value="@m.MethodName">@m.MethodName  ·  @m.RpcType</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+
+                        @switch (editor.Type)
+                        {
+                            case TriggerType.Periodic:
+                                <MudItem xs="6" sm="3">
+                                    <MudNumericField @bind-Value="editor.IntervalMs" Label="Interval (ms)" Min="10" Max="3600000"
+                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudItem>
+                                <MudItem xs="6" sm="3">
+                                    <MudNumericField T="int?" @bind-Value="editor.MaxFires" Label="Max fires (비우면 무한)"
+                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudItem>
+                                break;
+                            case TriggerType.Bulk:
+                                <MudItem xs="6" sm="3">
+                                    <MudNumericField @bind-Value="editor.BulkCount" Label="Count" Min="1" Max="10000"
+                                                     Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudItem>
+                                <MudItem xs="6" sm="3" Class="d-flex align-center">
+                                    <MudCheckBox @bind-Value="editor.BulkParallel" Label="병렬 발사" Color="Color.Primary" />
+                                </MudItem>
+                                break;
+                            case TriggerType.OnIncoming:
+                                <MudItem xs="6" sm="4">
+                                    <MudSelect T="string" Value="@MatchServiceValue(editor)"
+                                               ValueChanged="@((string v) => OnTriggerMatchServiceChanged(editor, v))"
+                                               Label="When Incoming Service" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                        <MudSelectItem T="string" Value="@AnyMatchValue">전체 수신 서비스</MudSelectItem>
+                                        @foreach (var serviceName in IncomingServiceOptions())
+                                        {
+                                            <MudSelectItem T="string" Value="@serviceName">@serviceName</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="6" sm="4">
+                                    <MudSelect T="string" Value="@MatchMethodValue(editor)"
+                                               ValueChanged="@((string v) => OnTriggerMatchMethodChanged(editor, v))"
+                                               Label="When Incoming Method" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                        <MudSelectItem T="string" Value="@AnyMatchValue">전체 메서드</MudSelectItem>
+                                        @foreach (var methodName in IncomingMethodOptions(editor.MatchService))
+                                        {
+                                            <MudSelectItem T="string" Value="@methodName">@methodName</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" sm="4">
+                                    <MudTextField @bind-Value="editor.MatchJsonPath" Label="When JSON Path"
+                                                  Placeholder="예: trackNumber 또는 header.messageId"
+                                                  HelperText="비우면 필드값 조건 없음"
+                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudItem>
+                                <MudItem xs="6" sm="3">
+                                    <MudSelect T="IncomingMatchOperator" Value="editor.MatchOperator"
+                                               ValueChanged="@((IncomingMatchOperator v) => { editor.MatchOperator = v; State.NotifyTriggersChanged(); })"
+                                               Label="Compare" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                        @foreach (var op in Enum.GetValues<IncomingMatchOperator>())
+                                        {
+                                            <MudSelectItem T="IncomingMatchOperator" Value="op">@IncomingMatchOperatorLabel(op)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" sm="9">
+                                    <MudTextField @bind-Value="editor.MatchValue" Label="Expected Value"
+                                                  Placeholder="예: 1201 또는 hostile"
+                                                  HelperText="JSON path 값과 비교합니다"
+                                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudItem>
+                                break;
+                        }
+
+                        <MudItem xs="12">
+                            <div class="d-flex flex-wrap align-center" style="gap:8px;">
+                                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);">
+                                    Payload는 Request 패널에서 편집 후 Trigger 등록/덮어쓰기로 관리합니다. 변수: {{counter}}, {{now}}, OnIncoming은 {{incoming.&lt;dotted.path&gt;}}
+                                </MudText>
+                                <MudSpacer />
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                           Disabled="@(_selectedMethod == null)"
+                                           OnClick="@(() => ApplyCurrentRequestToTrigger(editor))">
+                                    현재 Request로 덮어쓰기
+                                </MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small"
+                                           OnClick="@(() => LoadTriggerIntoRequest(editor))">
+                                    Request로 불러오기
+                                </MudButton>
+                            </div>
+                            <pre class="wb-code wb-scroll mt-2" style="max-height:180px;">@editor.PayloadTemplate</pre>
+                        </MudItem>
+                        <MudItem xs="12" Class="d-flex" Style="gap:8px;">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       OnClick="SaveTriggerEditor">
+                                저장
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       OnClick="CloseTriggerEditor">
+                                닫기
+                            </MudButton>
+                            <MudSpacer />
+                            <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Delete"
+                                       OnClick="@(() => DeleteTrigger(editor))">
+                                삭제
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </div>
+        </MudOverlay>
+    }
 </div>
 
 @code {
@@ -739,8 +1121,15 @@
 
     private List<SchemaField> _schemaFields = [];
     private bool _rawJsonMode = false;
-    private bool _logsExpanded = true;
+    private bool _setupExpanded = true;
+    private bool _incomingExpanded = true;
+    private bool _requestExpanded = true;
+    private bool _outboundExpanded = true;
+    private bool _logsExpanded = false;
     private bool _triggersExpanded = true;
+    private string? _selectedIncomingRpcKey;
+    private string? _selectedIncomingCallId;
+    private Trigger? _editingTrigger;
 
     // ── 1-탭 정책 + 변경 감지 펌프 ──────────────────────────────────────────
     private Guid _clientId;
@@ -792,7 +1181,6 @@
         LogLevel.Success => "var(--mud-palette-success)",
         LogLevel.Warn    => "var(--mud-palette-warning)",
         LogLevel.Error   => "var(--mud-palette-error)",
-        LogLevel.Send    => "var(--mud-palette-info)",
         _                => "var(--mud-palette-text-secondary)"
     };
 
@@ -801,7 +1189,6 @@
         LogLevel.Success => Icons.Material.Filled.CheckCircle,
         LogLevel.Warn    => Icons.Material.Filled.Warning,
         LogLevel.Error   => Icons.Material.Filled.Error,
-        LogLevel.Send    => Icons.Material.Filled.NorthEast,
         _                => Icons.Material.Filled.Info
     };
 
@@ -1063,16 +1450,13 @@
                     },
                     async _ => await InvokeAsync(StateHasChanged));
                 _responseText = string.Join("\n---\n", msgs);
-                Log($"ServerStreaming 완료 ({msgs.Count}건)", LogLevel.Success);
+                State.AddOutbound(payload.ServiceName, payload.MethodName, payload.RequestJson, "request");
             }
             else
             {
                 var result = await UnaryGrpcService.ExecuteUnaryCallAsync(payload, _session);
                 _responseText = result.IsSuccess ? result.ResponseJson : result.ErrorMessage ?? "오류";
-                Log(result.IsSuccess
-                    ? $"응답 수신 ({result.ElapsedMilliseconds}ms)"
-                    : $"실패: {result.ErrorMessage}",
-                    result.IsSuccess ? LogLevel.Success : LogLevel.Error);
+                State.AddOutbound(payload.ServiceName, payload.MethodName, payload.RequestJson, "request");
             }
         }
         catch (Exception ex)
@@ -1099,7 +1483,6 @@
                     return Task.CompletedTask;
                 });
             State.SetStreamId(streamId);
-            Log($"스트림 시작: {streamId[..8]}", LogLevel.Send);
         }
         catch (Exception ex)
         {
@@ -1114,7 +1497,8 @@
         {
             await StreamingService.WriteMessageAsync(_streamId, _requestJson);
             State.IncrementSent();
-            Log($"전송 #{State.SentCount}", LogLevel.Send);
+            if (_selectedService != null && _selectedMethod != null)
+                State.AddOutbound(_selectedService.ServiceName, _selectedMethod.MethodName, _requestJson, "stream");
         }
         catch (Exception ex)
         {
@@ -1129,10 +1513,8 @@
         {
             var result = await StreamingService.CloseStreamAsync(_streamId);
             State.SetStreamId(null);
-            Log(result.IsSuccess
-                ? $"스트림 종료 (수신 {result.Messages?.Count ?? 0}건)"
-                : $"스트림 오류: {result.Error}",
-                result.IsSuccess ? LogLevel.Warn : LogLevel.Error);
+            if (!result.IsSuccess)
+                Log($"스트림 오류: {result.Error}", LogLevel.Error);
         }
         catch (Exception ex)
         {
@@ -1288,12 +1670,81 @@
         var t = new Trigger
         {
             Name = $"trigger-{State.TriggerCount + 1}",
+            StepOrder = State.TriggerCount + 1,
             Editing = true,
             TargetService = _selectedService?.ServiceName ?? "",
             TargetMethod = _selectedMethod?.MethodName ?? "",
             PayloadTemplate = _requestJson
         };
         State.AddTrigger(t);
+        _editingTrigger = t;
+    }
+
+    private void AddScenarioStep(string scenario)
+    {
+        foreach (var existing in State.SnapshotTriggers()) existing.Editing = false;
+
+        var steps = State.SnapshotTriggers()
+            .Where(t => string.Equals(t.Scenario?.Trim(), scenario, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.StepOrder)
+            .ToList();
+
+        var last = steps.LastOrDefault();
+        var trigger = new Trigger
+        {
+            Name = $"{scenario}-step-{(last?.StepOrder ?? 0) + 1}",
+            Scenario = scenario,
+            StepOrder = (last?.StepOrder ?? 0) + 1,
+            Type = last?.Type ?? TriggerType.Periodic,
+            BulkCount = last?.BulkCount ?? 10,
+            BulkParallel = last?.BulkParallel ?? false,
+            IntervalMs = last?.IntervalMs ?? 1000,
+            MatchService = last?.MatchService ?? "",
+            MatchMethod = last?.MatchMethod ?? "",
+            MatchJsonPath = last?.MatchJsonPath ?? "",
+            MatchOperator = last?.MatchOperator ?? IncomingMatchOperator.Equals,
+            MatchValue = last?.MatchValue ?? "",
+            TargetService = last?.TargetService ?? _selectedService?.ServiceName ?? "",
+            TargetMethod = last?.TargetMethod ?? _selectedMethod?.MethodName ?? "",
+            PayloadTemplate = last?.PayloadTemplate ?? _requestJson,
+            Editing = true
+        };
+        State.AddTrigger(trigger);
+        _triggersExpanded = true;
+        _editingTrigger = trigger;
+    }
+
+    private void RegisterCurrentRequestAsTrigger()
+    {
+        if (_session == null || _selectedMethod == null || _selectedService == null) return;
+        AddNewTrigger();
+        _triggersExpanded = true;
+        Snackbar.Add("현재 Request를 기반으로 Trigger를 추가했습니다.", Severity.Success);
+    }
+
+    private void ApplyCurrentRequestToTrigger(Trigger t)
+    {
+        if (_selectedService == null || _selectedMethod == null) return;
+        t.TargetService = _selectedService.ServiceName;
+        t.TargetMethod = _selectedMethod.MethodName;
+        t.PayloadTemplate = _requestJson;
+        State.NotifyTriggersChanged();
+        Snackbar.Add("현재 Request 내용으로 Trigger를 갱신했습니다.", Severity.Success);
+    }
+
+    private void LoadTriggerIntoRequest(Trigger t)
+    {
+        var svc = _services.FirstOrDefault(s => s.ServiceName == t.TargetService);
+        if (svc != null)
+        {
+            _selectedService = svc;
+            var method = svc.Methods.FirstOrDefault(m => m.MethodName == t.TargetMethod);
+            if (method != null) OnMethodSelected(method);
+        }
+        _rawJsonMode = true;
+        _requestJson = t.PayloadTemplate;
+        _ = SaveToLocalStorage();
+        Snackbar.Add("Trigger payload를 Request 편집기로 불러왔습니다.", Severity.Info);
     }
 
     // 타겟 메서드 바뀌면 이전 메서드용 payload는 거의 확실히 호환 안 됨 → 기본 "{}"
@@ -1302,6 +1753,76 @@
     {
         t.TargetMethod = method;
         t.PayloadTemplate = "{}";
+        State.NotifyTriggersChanged();
+    }
+
+    private void OnTriggerMatchServiceChanged(Trigger t, string value)
+    {
+        t.MatchService = value == AnyMatchValue ? "" : value;
+        if (!string.IsNullOrEmpty(t.MatchMethod) &&
+            !IncomingMethodOptions(t.MatchService).Contains(t.MatchMethod, StringComparer.Ordinal))
+            t.MatchMethod = "";
+        State.NotifyTriggersChanged();
+    }
+
+    private void OnTriggerMatchMethodChanged(Trigger t, string value)
+    {
+        t.MatchMethod = value == AnyMatchValue ? "" : value;
+        State.NotifyTriggersChanged();
+    }
+
+    private void EditTrigger(Trigger trigger)
+    {
+        foreach (var existing in State.SnapshotTriggers()) existing.Editing = false;
+        trigger.Editing = true;
+        _editingTrigger = trigger;
+        _triggersExpanded = true;
+        State.NotifyTriggersChanged();
+    }
+
+    private void SaveTriggerEditor()
+    {
+        if (_editingTrigger == null) return;
+        _editingTrigger.Editing = false;
+        _editingTrigger = null;
+        State.NotifyTriggersChanged();
+        Snackbar.Add("Trigger 저장 완료", Severity.Success);
+    }
+
+    private void CloseTriggerEditor()
+    {
+        if (_editingTrigger == null) return;
+        _editingTrigger.Editing = false;
+        _editingTrigger = null;
+        State.NotifyTriggersChanged();
+    }
+
+    private void DeleteTrigger(Trigger trigger)
+    {
+        State.RemoveTrigger(trigger.Id);
+        if (_editingTrigger?.Id == trigger.Id)
+            _editingTrigger = null;
+        Snackbar.Add("Trigger 삭제 완료", Severity.Info);
+    }
+
+    private void MoveScenarioStep(Trigger trigger, int delta)
+    {
+        if (string.IsNullOrWhiteSpace(trigger.Scenario) || delta == 0) return;
+
+        var steps = State.SnapshotTriggers()
+            .Where(t => string.Equals(t.Scenario?.Trim(), trigger.Scenario.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.StepOrder)
+            .ThenBy(t => t.Name)
+            .ToList();
+
+        var index = steps.FindIndex(t => t.Id == trigger.Id);
+        var newIndex = index + delta;
+        if (index < 0 || newIndex < 0 || newIndex >= steps.Count) return;
+
+        (steps[index], steps[newIndex]) = (steps[newIndex], steps[index]);
+        for (var i = 0; i < steps.Count; i++)
+            steps[i].StepOrder = i + 1;
+
         State.NotifyTriggersChanged();
     }
 
@@ -1315,6 +1836,69 @@
         await TriggerExec.FireBulkAsync(t);
     }
 
+    private async Task RunScenario(string scenario)
+    {
+        var steps = State.SnapshotTriggers()
+            .Where(t => string.Equals(t.Scenario?.Trim(), scenario, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.StepOrder)
+            .ThenBy(t => t.Name)
+            .ToList();
+
+        if (steps.Count == 0)
+        {
+            Snackbar.Add($"실행할 step이 없습니다: {scenario}", Severity.Warning);
+            return;
+        }
+
+        foreach (var step in steps)
+        {
+            if (step.Type == TriggerType.Bulk)
+                await TriggerExec.FireBulkAsync(step);
+            else
+                await TriggerExec.FireManualAsync(step);
+        }
+
+        Snackbar.Add($"Scenario 실행 완료: {scenario} ({steps.Count} step)", Severity.Success);
+    }
+
+    private RpcAggregate? ResolveSelectedIncomingAggregate(List<RpcAggregate> aggregates)
+    {
+        if (aggregates.Count == 0)
+        {
+            _selectedIncomingRpcKey = null;
+            _selectedIncomingCallId = null;
+            return null;
+        }
+
+        var aggregate = aggregates.FirstOrDefault(a => a.Key == _selectedIncomingRpcKey) ?? aggregates[0];
+        _selectedIncomingRpcKey = aggregate.Key;
+        return aggregate;
+    }
+
+    private IncomingCallVm? ResolveSelectedIncomingCall(List<IncomingCallVm> calls)
+    {
+        if (calls.Count == 0)
+        {
+            _selectedIncomingCallId = null;
+            return null;
+        }
+
+        var call = calls.FirstOrDefault(c => c.CallId == _selectedIncomingCallId) ?? calls[0];
+        _selectedIncomingCallId = call.CallId;
+        return call;
+    }
+
+    private void SelectIncomingAggregate(string key)
+    {
+        _selectedIncomingRpcKey = key;
+        _selectedIncomingCallId = null;
+    }
+
+    private void SelectIncomingCall(string callId)
+    {
+        _selectedIncomingCallId = callId;
+    }
+
     private static Color TriggerTypeColor(TriggerType t) => t switch
     {
         TriggerType.Periodic => Color.Info,
@@ -1322,6 +1906,234 @@
         TriggerType.Bulk => Color.Secondary,
         _ => Color.Default
     };
+
+    private const string AnyMatchValue = "__ANY__";
+
+    private List<string> ScenarioNames() => State.SnapshotTriggers()
+        .Select(t => t.Scenario?.Trim())
+        .Where(s => !string.IsNullOrWhiteSpace(s))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+        .Cast<string>()
+        .ToList();
+
+    private List<string> IncomingServiceOptions() => State.SnapshotAggregates()
+        .Select(a => a.Service)
+        .Concat(_services.Select(s => s.ServiceName))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private List<string> IncomingMethodOptions(string? serviceName)
+    {
+        var incoming = State.SnapshotAggregates()
+            .Where(a => string.IsNullOrEmpty(serviceName) || string.Equals(a.Service, serviceName, StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.Method);
+
+        var proto = _services
+            .Where(s => string.IsNullOrEmpty(serviceName) || string.Equals(s.ServiceName, serviceName, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(s => s.Methods.Select(m => m.MethodName));
+
+        return incoming.Concat(proto)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string MatchServiceValue(Trigger t) => string.IsNullOrEmpty(t.MatchService) ? AnyMatchValue : t.MatchService;
+
+    private static string MatchMethodValue(Trigger t) => string.IsNullOrEmpty(t.MatchMethod) ? AnyMatchValue : t.MatchMethod;
+
+    private static string TriggerTypeLabel(TriggerType t) => t switch
+    {
+        TriggerType.Periodic => "주기",
+        TriggerType.OnIncoming => "수신 반응",
+        TriggerType.Bulk => "묶음",
+        _ => t.ToString()
+    };
+
+    private static string IncomingMatchOperatorLabel(IncomingMatchOperator op) => op switch
+    {
+        IncomingMatchOperator.NotEquals => "not equals",
+        IncomingMatchOperator.Contains => "contains",
+        IncomingMatchOperator.StartsWith => "starts with",
+        IncomingMatchOperator.EndsWith => "ends with",
+        IncomingMatchOperator.GreaterThan => ">",
+        IncomingMatchOperator.GreaterThanOrEqual => ">=",
+        IncomingMatchOperator.LessThan => "<",
+        IncomingMatchOperator.LessThanOrEqual => "<=",
+        _ => "equals"
+    };
+
+    private static string ScenarioWhenLabel(Trigger t)
+    {
+        if (t.Type == TriggerType.OnIncoming)
+        {
+            var rpc = $"{(string.IsNullOrEmpty(t.MatchService) ? "*" : t.MatchService)}.{(string.IsNullOrEmpty(t.MatchMethod) ? "*" : t.MatchMethod)}";
+            if (string.IsNullOrWhiteSpace(t.MatchJsonPath) || string.IsNullOrWhiteSpace(t.MatchValue))
+                return rpc;
+            return $"{rpc}\n{t.MatchJsonPath} {IncomingMatchOperatorLabel(t.MatchOperator)} {t.MatchValue}";
+        }
+
+        if (t.Type == TriggerType.Periodic)
+            return $"every {t.IntervalMs} ms";
+
+        return $"count {t.BulkCount} {(t.BulkParallel ? "parallel" : "seq")}";
+    }
+
+    private static string ScenarioTargetLabel(Trigger t) =>
+        string.IsNullOrEmpty(t.TargetService)
+            ? "(미설정)"
+            : t.TargetService.Split('.').Last() + "." + t.TargetMethod;
+
+    private async Task ExportAllScenarios()
+    {
+        var triggers = State.SnapshotTriggers()
+            .Where(t => !string.IsNullOrWhiteSpace(t.Scenario))
+            .OrderBy(t => t.Scenario, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.StepOrder)
+            .ThenBy(t => t.Name)
+            .ToList();
+
+        await ExportScenarioSet("scenarios-all", triggers);
+    }
+
+    private async Task ExportScenario(string scenario)
+    {
+        var triggers = State.SnapshotTriggers()
+            .Where(t => string.Equals(t.Scenario?.Trim(), scenario, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.StepOrder)
+            .ThenBy(t => t.Name)
+            .ToList();
+
+        await ExportScenarioSet($"scenario-{SanitizeFileName(scenario)}", triggers);
+    }
+
+    private async Task ExportScenarioSet(string fileStem, List<Trigger> triggers)
+    {
+        if (triggers.Count == 0)
+        {
+            Snackbar.Add("내보낼 시나리오가 없습니다.", Severity.Warning);
+            return;
+        }
+
+        var payload = new ScenarioExportFile
+        {
+            Version = 1,
+            ExportedAt = DateTimeOffset.Now,
+            Triggers = triggers.Select(ToScenarioExportItem).ToList()
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("workbench.downloadText", $"{fileStem}.json", json, "application/json");
+        Snackbar.Add($"시나리오 JSON 저장 완료: {triggers.Count} step", Severity.Success);
+    }
+
+    private async Task ImportScenarioJson(IBrowserFile file)
+    {
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            var payload = JsonSerializer.Deserialize<ScenarioExportFile>(json);
+            if (payload?.Triggers == null || payload.Triggers.Count == 0)
+            {
+                Snackbar.Add("불러올 step이 없습니다.", Severity.Warning);
+                return;
+            }
+
+            foreach (var existing in State.SnapshotTriggers()) existing.Editing = false;
+
+            foreach (var item in payload.Triggers)
+            {
+                State.AddTrigger(new Trigger
+                {
+                    Name = item.Name,
+                    Scenario = item.Scenario,
+                    StepOrder = Math.Max(1, item.StepOrder),
+                    Type = item.Type,
+                    Enabled = item.Enabled,
+                    TargetService = item.TargetService,
+                    TargetMethod = item.TargetMethod,
+                    PayloadTemplate = string.IsNullOrWhiteSpace(item.PayloadTemplate) ? "{}" : item.PayloadTemplate,
+                    IntervalMs = Math.Max(10, item.IntervalMs),
+                    MaxFires = item.MaxFires,
+                    BulkCount = Math.Max(1, item.BulkCount),
+                    BulkParallel = item.BulkParallel,
+                    MatchService = item.MatchService ?? string.Empty,
+                    MatchMethod = item.MatchMethod ?? string.Empty,
+                    MatchJsonPath = item.MatchJsonPath ?? string.Empty,
+                    MatchOperator = item.MatchOperator,
+                    MatchValue = item.MatchValue ?? string.Empty,
+                    Editing = false
+                });
+            }
+
+            _triggersExpanded = true;
+            Snackbar.Add($"시나리오 JSON 불러오기 완료: {payload.Triggers.Count} step 추가", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"시나리오 JSON 불러오기 실패: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private static ScenarioExportItem ToScenarioExportItem(Trigger t) => new()
+    {
+        Name = t.Name,
+        Scenario = t.Scenario,
+        StepOrder = t.StepOrder,
+        Type = t.Type,
+        Enabled = t.Enabled,
+        TargetService = t.TargetService,
+        TargetMethod = t.TargetMethod,
+        PayloadTemplate = t.PayloadTemplate,
+        IntervalMs = t.IntervalMs,
+        MaxFires = t.MaxFires,
+        BulkCount = t.BulkCount,
+        BulkParallel = t.BulkParallel,
+        MatchService = t.MatchService,
+        MatchMethod = t.MatchMethod,
+        MatchJsonPath = t.MatchJsonPath,
+        MatchOperator = t.MatchOperator,
+        MatchValue = t.MatchValue
+    };
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '-' : ch).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "scenario" : cleaned;
+    }
+
+    private sealed class ScenarioExportFile
+    {
+        public int Version { get; set; }
+        public DateTimeOffset ExportedAt { get; set; }
+        public List<ScenarioExportItem> Triggers { get; set; } = [];
+    }
+
+    private sealed class ScenarioExportItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Scenario { get; set; } = string.Empty;
+        public int StepOrder { get; set; }
+        public TriggerType Type { get; set; }
+        public bool Enabled { get; set; }
+        public string TargetService { get; set; } = string.Empty;
+        public string TargetMethod { get; set; } = string.Empty;
+        public string PayloadTemplate { get; set; } = "{}";
+        public int IntervalMs { get; set; } = 1000;
+        public int? MaxFires { get; set; }
+        public int BulkCount { get; set; } = 10;
+        public bool BulkParallel { get; set; }
+        public string MatchService { get; set; } = string.Empty;
+        public string MatchMethod { get; set; } = string.Empty;
+        public string MatchJsonPath { get; set; } = string.Empty;
+        public IncomingMatchOperator MatchOperator { get; set; } = IncomingMatchOperator.Equals;
+        public string MatchValue { get; set; } = string.Empty;
+    }
 
     private static string AgoLabel(DateTime at)
     {

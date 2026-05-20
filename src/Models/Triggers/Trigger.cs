@@ -7,6 +7,19 @@ public enum TriggerType
     Bulk            // 수동 발사: N건 (순차/병렬)
 }
 
+public enum IncomingMatchOperator
+{
+    Equals,
+    NotEquals,
+    Contains,
+    StartsWith,
+    EndsWith,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual
+}
+
 /// <summary>
 /// 자동 송신 규칙. 등록만 해 두면 TriggerExecutor가 백그라운드에서 발사.
 /// Stats(TotalFires/Errors/Counter)는 Interlocked로 갱신되므로 field 선언.
@@ -15,6 +28,8 @@ public sealed class Trigger
 {
     public string Id { get; init; } = Guid.NewGuid().ToString("N")[..8];
     public string Name { get; set; } = "";
+    public string Scenario { get; set; } = "";
+    public int StepOrder { get; set; } = 1;
     public TriggerType Type { get; set; } = TriggerType.Periodic;
     public bool Enabled { get; set; }
 
@@ -36,6 +51,9 @@ public sealed class Trigger
     // OnIncoming — 빈 문자열이면 임의 매치(전체)
     public string MatchService { get; set; } = "";
     public string MatchMethod { get; set; } = "";
+    public string MatchJsonPath { get; set; } = "";
+    public IncomingMatchOperator MatchOperator { get; set; } = IncomingMatchOperator.Equals;
+    public string MatchValue { get; set; } = "";
 
     // ── Stats (Interlocked 접근용 field) ──────────────────────────────────
     public long TotalFires;
