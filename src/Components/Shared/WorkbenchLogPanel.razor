@@ -1,0 +1,63 @@
+@using GrpcWorkbench.Models.Ui
+
+<div class="wb-panel wb-panel--major pa-3">
+    <div class="d-flex align-center mb-1" style="gap:8px;">
+        <MudIconButton Icon="@(Expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                       Size="Size.Small" OnClick="OnToggle" />
+        <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
+        <div>
+            <div class="wb-panel-kicker">이벤트</div>
+            <div class="wb-panel-heading">세션 / 시스템 로그</div>
+        </div>
+        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@LogCount</MudChip>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small"
+                       title="로그 비우기" OnClick="OnClear" />
+    </div>
+    @if (Expanded)
+    {
+        <div class="wb-code wb-scroll" style="max-height:200px;">
+            @if (Logs.Count == 0)
+            {
+                <span style="color:var(--mud-palette-text-disabled);">로그 없음</span>
+            }
+            else
+            {
+                @for (var index = Logs.Count - 1; index >= 0; index--)
+                {
+                    var log = Logs[index];
+                    <div class="d-flex" style="gap:8px;align-items:flex-start;line-height:1.7;">
+                        <MudIcon Icon="@LogIcon(log.Level)" Size="Size.Small"
+                                 Style="@($"font-size:14px;color:{LogColorVar(log.Level)};flex:none;")" />
+                        <span style="color:var(--mud-palette-text-disabled);">@log.Time.ToString("HH:mm:ss")</span>
+                        <span style="color:@LogColorVar(log.Level);">@log.Text</span>
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool Expanded { get; set; }
+    [Parameter] public int LogCount { get; set; }
+    [Parameter] public IReadOnlyList<LogEntry> Logs { get; set; } = Array.Empty<LogEntry>();
+    [Parameter] public EventCallback OnToggle { get; set; }
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    private static string LogColorVar(LogLevel level) => level switch
+    {
+        LogLevel.Success => "var(--mud-palette-success)",
+        LogLevel.Warn => "var(--mud-palette-warning)",
+        LogLevel.Error => "var(--mud-palette-error)",
+        _ => "var(--mud-palette-text-secondary)"
+    };
+
+    private static string LogIcon(LogLevel level) => level switch
+    {
+        LogLevel.Success => Icons.Material.Filled.CheckCircle,
+        LogLevel.Warn => Icons.Material.Filled.Warning,
+        LogLevel.Error => Icons.Material.Filled.Error,
+        _ => Icons.Material.Filled.Info
+    };
+}

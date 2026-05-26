@@ -69,7 +69,7 @@ public class WorkbenchStateService : IDisposable
     private const int MaxStreamRecv = 500;
     private const int MaxOutboundEntries = 5000;
     private const int MaxRpcAggregates = 256;
-    private static readonly TimeSpan IncomingUiRefreshInterval = TimeSpan.FromMilliseconds(16);
+    private static readonly TimeSpan IncomingUiRefreshInterval = TimeSpan.FromMilliseconds(8);
     private static readonly TimeSpan ActiveDisplayHold = TimeSpan.FromMilliseconds(1200);
     private static readonly TimeSpan ActiveStaleTimeout = TimeSpan.FromSeconds(8);
     private static readonly long IncomingUiRefreshIntervalMs = (long)IncomingUiRefreshInterval.TotalMilliseconds;
@@ -180,7 +180,7 @@ public class WorkbenchStateService : IDisposable
             // 기본 모드에서도 최근 일부 프레임은 남겨 상세 확인이 가능해야 한다.
             var cap = agg.BufferMode ? MaxFramesBuffered : DefaultFramesPerCall;
             if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
-            call.Frames.Add(new FrameVm(e.FrameIndex, e.Data));
+            call.Frames.Add(new FrameVm(e.FrameIndex, e.Data, now));
             call.LastActivityAt = now;
 
             agg.TotalFrames++;
@@ -491,7 +491,7 @@ public class WorkbenchStateService : IDisposable
 
             var cap = agg.BufferMode ? MaxFramesBuffered : DefaultFramesPerCall;
             if (call.Frames.Count >= cap) call.Frames.RemoveAt(0);
-            call.Frames.Add(new FrameVm(call.Frames.Count + 1, json));
+            call.Frames.Add(new FrameVm(call.Frames.Count + 1, json, now));
             call.LastActivityAt = now;
 
             agg.TotalFrames++;

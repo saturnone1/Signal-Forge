@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 using GrpcWorkbench.Models.Api;
 using GrpcWorkbench.Models.Session;
 using GrpcWorkbench.Models.Triggers;
@@ -95,12 +96,25 @@ public class TriggerExecutor : IHostedService, IDisposable
     {
         try
         {
+            var stopwatch = Stopwatch.StartNew();
+            long nextDueMs = 0;
+
             while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(Math.Max(10, t.IntervalMs), ct);
+                var intervalMs = Math.Max(10, t.IntervalMs);
+                nextDueMs += intervalMs;
+                var delayMs = Math.Max(0, nextDueMs - stopwatch.ElapsedMilliseconds);
+                if (delayMs > 0)
+                    await Task.Delay((int)delayMs, ct);
+
                 if (ct.IsCancellationRequested) break;
                 if (!t.Enabled) break;
+
                 await FireOnce(t, incomingJson: null);
+
+                if (stopwatch.ElapsedMilliseconds - nextDueMs > intervalMs * 4L)
+                    nextDueMs = stopwatch.ElapsedMilliseconds;
+
                 if (t.MaxFires.HasValue && Interlocked.Read(ref t.TotalFires) >= t.MaxFires.Value)
                 {
                     t.Enabled = false;

@@ -134,7 +134,7 @@ public class GenericGrpcReceiverMiddleware
         var totalBytes = 0;
         var notifiedCount = 0;
         long lastNotifyMs = -1000;
-        const int NotifyMinIntervalMs = 16; // ≈60 notify/s/call — UDS 왕복 지연 체감 최소화
+        const int NotifyMinIntervalMs = 8; // ≈125 notify/s/call — 20ms trigger cadence가 UI에 덜 밀리도록 완화
         byte[]? pendingPayload = null;
         var pendingLen = 0;
         var pendingIndex = 0;
