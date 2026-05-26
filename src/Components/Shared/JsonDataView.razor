@@ -1,0 +1,240 @@
+@using System.Text.Json
+
+@if (!string.IsNullOrWhiteSpace(_parseError))
+{
+    <pre class="wb-code wb-scroll wb-code--accent">@Json</pre>
+}
+else if (_hasValue)
+{
+    @if (_value.ValueKind == JsonValueKind.Object)
+    {
+        <div class="wb-json-node @(Depth == 0 ? "is-root" : null)">
+            @if (Depth > 0)
+            {
+                <button type="button" class="wb-json-toggle" @onclick="ToggleExpanded">
+                    <span class="wb-json-toggle-icon">@(_isExpanded ? "-" : "+")</span>
+                    <span class="wb-json-toggle-label">object</span>
+                    <span class="wb-json-toggle-meta">@ObjectSummary(_value)</span>
+                </button>
+            }
+            @if (_isExpanded)
+            {
+                <table class="wb-json-table">
+                    <tbody>
+                        @foreach (var property in VisibleObjectProperties())
+                        {
+                            <tr>
+                                <th>@property.Name</th>
+                                <td>
+                                    <JsonDataView Element="property.Value" Depth="@(Depth + 1)" AutoExpandDepth="@AutoExpandDepth" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (CanShowMoreObjectProperties())
+                {
+                    <button type="button" class="wb-json-more" @onclick="ShowMoreObjectProperties">
+                        @($"{ObjectLength() - VisibleObjectPropertyCount()}개 더 보기")
+                    </button>
+                }
+            }
+            else if (Depth > 0)
+            {
+                <div class="wb-json-inline-summary">@ObjectSummary(_value)</div>
+            }
+        </div>
+    }
+    else if (_value.ValueKind == JsonValueKind.Array)
+    {
+        <div class="wb-json-node @(Depth == 0 ? "is-root" : null)">
+            @if (Depth > 0)
+            {
+                <button type="button" class="wb-json-toggle" @onclick="ToggleExpanded">
+                    <span class="wb-json-toggle-icon">@(_isExpanded ? "-" : "+")</span>
+                    <span class="wb-json-toggle-label">array</span>
+                    <span class="wb-json-toggle-meta">@ArraySummary(_value)</span>
+                </button>
+            }
+            @if (_isExpanded)
+            {
+                <div class="wb-json-array">
+                    @for (var index = 0; index < VisibleArrayCount(); index++)
+                    {
+                        var item = _value[index];
+                        <div class="wb-json-array-item">
+                            <div class="wb-json-array-index">[@index]</div>
+                            <div class="wb-json-array-value">
+                                <JsonDataView Element="item" Depth="@(Depth + 1)" AutoExpandDepth="@AutoExpandDepth" />
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (CanShowMoreArrayItems())
+                {
+                    <button type="button" class="wb-json-more" @onclick="ShowMoreArrayItems">
+                        @($"{_value.GetArrayLength() - VisibleArrayCount()}개 더 보기")
+                    </button>
+                }
+            }
+            else
+            {
+                <div class="wb-json-inline-summary">@ArraySummary(_value)</div>
+            }
+        </div>
+    }
+    else
+    {
+        <span class="wb-json-scalar @ScalarCss(_value)">@FormatScalar(_value)</span>
+    }
+}
+
+@code {
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public JsonElement? Element { get; set; }
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public int AutoExpandDepth { get; set; } = 0;
+
+    private JsonElement _value;
+    private bool _hasValue;
+    private string? _parseError;
+    private bool _isExpanded;
+    private string? _expansionToken;
+    private int _visibleArrayCount;
+    private int _visibleObjectPropertyCount;
+
+    private const int InitialArrayRenderCount = 50;
+    private const int ArrayRenderBatchSize = 100;
+    private const int InitialObjectRenderCount = 25;
+    private const int ObjectRenderBatchSize = 50;
+
+    protected override void OnParametersSet()
+    {
+        _parseError = null;
+        _hasValue = false;
+
+        if (Element is JsonElement element)
+        {
+            _value = element;
+            _hasValue = true;
+        }
+
+        else if (!string.IsNullOrWhiteSpace(Json))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(Json);
+                _value = doc.RootElement.Clone();
+                _hasValue = true;
+            }
+            catch (Exception ex)
+            {
+                _parseError = ex.Message;
+            }
+        }
+
+        if (_hasValue)
+        {
+            var expansionToken = BuildExpansionToken(_value, Depth);
+            if (!string.Equals(_expansionToken, expansionToken, StringComparison.Ordinal))
+            {
+                _expansionToken = expansionToken;
+                _isExpanded = Depth <= AutoExpandDepth;
+                _visibleArrayCount = _value.ValueKind == JsonValueKind.Array
+                    ? Math.Min(_value.GetArrayLength(), InitialArrayRenderCount)
+                    : 0;
+                _visibleObjectPropertyCount = _value.ValueKind == JsonValueKind.Object
+                    ? Math.Min(ObjectLength(), InitialObjectRenderCount)
+                    : 0;
+            }
+        }
+    }
+
+    private void ToggleExpanded()
+    {
+        _isExpanded = !_isExpanded;
+    }
+
+    private int VisibleArrayCount()
+        => _value.ValueKind == JsonValueKind.Array
+            ? Math.Min(_value.GetArrayLength(), Math.Max(_visibleArrayCount, InitialArrayRenderCount))
+            : 0;
+
+    private int ObjectLength()
+        => _value.ValueKind == JsonValueKind.Object
+            ? _value.EnumerateObject().Count()
+            : 0;
+
+    private int VisibleObjectPropertyCount()
+        => _value.ValueKind == JsonValueKind.Object
+            ? Math.Min(ObjectLength(), Math.Max(_visibleObjectPropertyCount, InitialObjectRenderCount))
+            : 0;
+
+    private IEnumerable<JsonProperty> VisibleObjectProperties()
+        => _value.ValueKind == JsonValueKind.Object
+            ? _value.EnumerateObject().Take(VisibleObjectPropertyCount())
+            : [];
+
+    private bool CanShowMoreArrayItems()
+        => _value.ValueKind == JsonValueKind.Array && VisibleArrayCount() < _value.GetArrayLength();
+
+    private bool CanShowMoreObjectProperties()
+        => _value.ValueKind == JsonValueKind.Object && VisibleObjectPropertyCount() < ObjectLength();
+
+    private void ShowMoreArrayItems()
+    {
+        if (_value.ValueKind != JsonValueKind.Array)
+            return;
+
+        _visibleArrayCount = Math.Min(_value.GetArrayLength(), VisibleArrayCount() + ArrayRenderBatchSize);
+    }
+
+    private void ShowMoreObjectProperties()
+    {
+        if (_value.ValueKind != JsonValueKind.Object)
+            return;
+
+        _visibleObjectPropertyCount = Math.Min(ObjectLength(), VisibleObjectPropertyCount() + ObjectRenderBatchSize);
+    }
+
+    private static string BuildExpansionToken(JsonElement value, int depth)
+    {
+        var size = value.ValueKind switch
+        {
+            JsonValueKind.Object => value.EnumerateObject().Count(),
+            JsonValueKind.Array => value.GetArrayLength(),
+            _ => value.ToString().Length
+        };
+
+        return string.Concat(depth, ":", value.ValueKind, ":", size);
+    }
+
+    private static string ObjectSummary(JsonElement value)
+        => $"{value.EnumerateObject().Count()} fields";
+
+    private static string ArraySummary(JsonElement value)
+        => $"{value.GetArrayLength()} items";
+
+    private static string FormatScalar(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.ToString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Null => "null",
+            _ => value.ToString()
+        };
+
+    private static string ScalarCss(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => "is-string",
+            JsonValueKind.Number => "is-number",
+            JsonValueKind.True or JsonValueKind.False => "is-bool",
+            JsonValueKind.Null => "is-null",
+            _ => string.Empty
+        };
+}

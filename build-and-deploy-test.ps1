@@ -23,6 +23,11 @@ if ($Teardown) {
 
 if (-not $SkipBuild) {
     Write-Host ""
+    Write-Host "Validating Docker package allowlist..." -ForegroundColor Cyan
+    & .\validate-docker-package-allowlist.ps1
+    if ($LASTEXITCODE -ne 0) { throw "Docker package allowlist validation failed" }
+
+    Write-Host ""
     Write-Host "Building grpc-workbench:test image (no-cache)..." -ForegroundColor Cyan
     docker build --no-cache -t grpc-workbench:test .
     if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }

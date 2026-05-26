@@ -1,6 +1,6 @@
 namespace GrpcWorkbench.Models.Ui;
 
-public sealed record FrameVm(int Index, string Data);
+public sealed record FrameVm(int Index, string Data, DateTime Time);
 
 public sealed class IncomingCallVm(string callId, string service, string method, string type, string? sessionId = null)
 {
