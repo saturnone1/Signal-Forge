@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds-ambassador-config>
+  <dds>
+    <qos_library name="AmbassadorProfiles">
+      <qos_profile name="DefaultProfile" is_default_qos="true"/>
+    </qos_library>
+  </dds>
+  <topics>
+    <topic>
+      <topic_name>PositionTopic</topic_name>
+      <type_name>STRUCT::Position8</type_name>
+      <direction>Both</direction>
+      <qos_profile>DefaultProfile</qos_profile>
+    </topic>
+  </topics>
+</dds-ambassador-config>

@@ -1,16 +1,20 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
 @using GrpcWorkbench.Models.Dds
 @using GrpcWorkbench.Models.Session
+@using GrpcWorkbench.Models.Ui
 @using GrpcWorkbench.Services
 @using GrpcWorkbench.Dds
 @inject IDdsSessionService DdsSessions
 @inject DdsStateService DdsState
 @inject WorkbenchStateService GrpcState
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 @implements IDisposable
 
 @if (Session == null)
 {
-    <div class="wb-empty"><div>DDS ÏÑ∏ÏÖòÏù¥ ÏÑ†ÌÉùÎêòÏßÄ ÏïäÏïòÏäµÎãàÎã§</div></div>
+    <div class="wb-empty"><div>DDS ººº«¿Ã º±≈√µ«¡ˆ æ æ“Ω¿¥œ¥Ÿ</div></div>
 }
 else
 {
@@ -18,108 +22,167 @@ else
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="Color.Success" />
             <div>
-                <div class="wb-panel-kicker">DDS ÏÑ∏ÏÖò</div>
-                <div class="wb-panel-heading">@Session.Name ¬∑ domain @Session.Transport.DomainId</div>
+                <div class="wb-panel-kicker">DDS ººº«</div>
+                <div class="wb-panel-heading">@Session.Name °§ domain @Session.Transport.DomainId</div>
             </div>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count ÌÜ†ÌîΩ</MudChip>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count ÌÉÄÏûÖ</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count ≈‰«»</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count ≈∏¿‘</MudChip>
             @if (Session.QosProfiles.Count > 0)
             {
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">QoS: @string.Join(",", Session.QosProfiles)</MudChip>
             }
         </div>
 
-        <div class="wb-topbar-grid">
-            <MudSelect T="string"
-                       Label="ÌÜ†ÌîΩ"
-                       Value="@_selectedTopicName"
-                       ValueChanged="OnTopicChanged"
-                       Class="wb-select wb-select--comfortable wb-select--ellipsis"
-                       Variant="Variant.Outlined"
-                       Margin="Margin.Dense">
-                @foreach (var t in Session.Topics)
-                {
-                    <MudSelectItem T="string" Value="@t.TopicName">
-                        @($"{t.TopicName} ¬∑ {t.TypeName} ¬∑ {t.Direction} ¬∑ {t.QosProfileName}")
-                    </MudSelectItem>
-                }
-            </MudSelect>
+        <div class="wb-subpanel mb-3 pa-3">
+            <div class="wb-panel-kicker">±‚∫ª ¡§∫∏</div>
+            <div class="wb-home-form mt-2">
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">ººº« ID</span><br />
+                    <span class="wb-mono">@Session.SessionId</span>
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">ª˝º∫ Ω√∞¢</span><br />
+                    @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">Domain ID</span><br />
+                    @Session.Transport.DomainId
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">∏÷∆ºƒ≥Ω∫∆Æ</span><br />
+                    @(string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "(πÃº≥¡§)" : Session.Transport.MulticastAddress)
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">Allow Interfaces</span><br />
+                    @(Session.Transport.AllowInterfaces.Count == 0 ? "(æ¯¿Ω)" : string.Join(", ", Session.Transport.AllowInterfaces))
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">Deny Interfaces</span><br />
+                    @(Session.Transport.DenyInterfaces.Count == 0 ? "(æ¯¿Ω)" : string.Join(", ", Session.Transport.DenyInterfaces))
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">º€Ω≈/ºˆΩ≈ πˆ∆€</span><br />
+                    @(Session.Transport.SendBufferSize?.ToString() ?? "default") / @(Session.Transport.ReceiveBufferSize?.ToString() ?? "default")
+                </div>
+                <div class="wb-code" style="font-size:.74rem;">
+                    <span style="color:var(--mud-palette-text-secondary);">æ˜∑ŒµÂ XML</span><br />
+                    @(string.IsNullOrWhiteSpace(Session.TypesXmlFileName) ? "types.xml πÃ±‚∑œ" : Session.TypesXmlFileName) °§
+                    @(string.IsNullOrWhiteSpace(Session.ConfigXmlFileName) ? "dds-config.xml πÃ±‚∑œ" : Session.ConfigXmlFileName)
+                </div>
+            </div>
 
-            <div>
-                @if (_selectedTopic != null)
+            <div class="mt-3">
+                <div class="d-flex align-center" style="gap:8px;">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                        DDSSim XML @(Session.TypesXmlContent?.Length ?? 0) bytes
+                    </MudChip>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Visibility"
+                               OnClick="@(() => _showTypesXml = !_showTypesXml)">
+                        @(_showTypesXml ? "º˚±‚±‚" : "≥ªøÎ ∫∏±‚")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Download"
+                               OnClick="DownloadTypesXml"
+                               Disabled="@(Session.TypesXmlContent == null)">
+                        ¿˙¿Â
+                    </MudButton>
+                </div>
+                @if (_showTypesXml)
                 {
-                    <div class="wb-code" style="font-size:.74rem;">
-                        <span style="color:var(--mud-palette-text-secondary);">ÏÑ†ÌÉù ÌÜ†ÌîΩ</span><br />
-                        @($"type: {_selectedTopic.TypeName} ¬∑ qos: {_selectedTopic.QosProfileName} ¬∑ dir: {_selectedTopic.Direction}")
-                    </div>
-                    var match = FindGrpcMatch(_selectedTopic.TopicName);
-                    @if (match != null)
-                    {
-                        <div class="d-flex align-center mt-1" style="gap:6px;">
-                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
-                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                                ambassador Îß§Ïπ≠: @match
-                            </MudChip>
-                        </div>
-                    }
+                    <MudTextField Value="@GetTypesXmlText()" ReadOnly="true" Lines="8"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Label="DDSSim XML" />
                 }
-                else
+            </div>
+
+            <div class="mt-2">
+                <div class="d-flex align-center" style="gap:8px;">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                        dds-config XML @(Session.ConfigXmlContent?.Length ?? 0) bytes
+                    </MudChip>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Visibility"
+                               OnClick="@(() => _showConfigXml = !_showConfigXml)">
+                        @(_showConfigXml ? "º˚±‚±‚" : "≥ªøÎ ∫∏±‚")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Download"
+                               OnClick="DownloadConfigXml"
+                               Disabled="@(Session.ConfigXmlContent == null)">
+                        ¿˙¿Â
+                    </MudButton>
+                </div>
+                @if (_showConfigXml)
                 {
-                    <div class="wb-inline-note">ÌÜ†ÌîΩÏùÑ ÏÑ†ÌÉùÌïòÏÑ∏Ïöî</div>
+                    <MudTextField Value="@GetConfigXmlText()" ReadOnly="true" Lines="8"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Label="dds-config XML" />
                 }
             </div>
         </div>
+
     </div>
-
-    @if (_selectedTopic != null)
-    {
-        var canSub = _selectedTopic.Direction != DdsTopicDirection.Publish;
-        var canPub = _selectedTopic.Direction != DdsTopicDirection.Subscribe;
-        var activeSubForTopic = DdsState.SnapshotSubscriptions(Session.SessionId)
-            .FirstOrDefault(s => s.TopicName == _selectedTopic.TopicName);
-
-        <MudGrid Spacing="2">
+    <MudGrid Spacing="2">
             <MudItem xs="12" md="6">
                 <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
                     <div class="d-flex align-center mb-2" style="gap:8px;">
                         <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Info" />
                         <div>
-                            <div class="wb-panel-kicker">Íµ¨ÎèÖ</div>
-                            <div class="wb-panel-heading">ÏàòÏã† ÏÉòÌîå</div>
+                            <div class="wb-panel-kicker">ºˆΩ≈</div>
+                            <div class="wb-panel-heading">±∏µ∂ ª˘«√</div>
                         </div>
-                        @if (activeSubForTopic != null)
+                        <MudSelect T="string"
+                                   Label="ºˆΩ≈ ≈‰«»"
+                                   Value="@_subscriptionTopicName"
+                                   ValueChanged="OnSubscriptionTopicChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Class="wb-select wb-select--comfortable wb-select--ellipsis"
+                                   Style="min-width:260px;">
+                            @foreach (var t in Session.Topics)
+                            {
+                                <MudSelectItem T="string" Value="@t.TopicName">
+                                    @($"{t.TopicName} °§ {t.TypeName} °§ {t.Direction}")
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                        @if (CurrentSubscription != null)
                         {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">ÌôúÏÑ±</MudChip>
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@activeSubForTopic.ReceivedCount ÏàòÏã†</MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">»∞º∫</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@CurrentSubscription.ReceivedCount ºˆΩ≈</MudChip>
                         }
                         <MudSpacer />
-                        @if (canSub)
+                        @if (CanSubscribeCurrentTopic)
                         {
-                            @if (activeSubForTopic == null)
+                            @if (CurrentSubscription == null)
                             {
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
                                            StartIcon="@Icons.Material.Filled.PlayArrow"
-                                           OnClick="StartSubscribe">Íµ¨ÎèÖ</MudButton>
+                                           OnClick="StartSubscribe">±∏µ∂</MudButton>
                             }
                             else
                             {
                                 <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
                                            StartIcon="@Icons.Material.Filled.Stop"
-                                           OnClick="@(() => StopSubscribe(activeSubForTopic.SubscriptionId))">Ï§ëÏßÄ</MudButton>
+                                           OnClick="@(() => StopSubscribe(CurrentSubscription.SubscriptionId))">¡ﬂ¡ˆ</MudButton>
                             }
                         }
                         else
                         {
-                            <div class="wb-inline-note">Î∞©Ìñ•Ïù¥ Publish Ï†ÑÏö©Ïù¥Îùº Íµ¨ÎèÖ Î∂àÍ∞Ä</div>
+                            <div class="wb-inline-note">ºˆΩ≈ ∞°¥…«— ≈‰«»¿ª º±≈√«œººø‰</div>
                         }
                     </div>
 
-                    @if (activeSubForTopic != null)
+                    @if (_subscriptionTopic != null)
                     {
-                        var samples = DdsState.SnapshotSamples(activeSubForTopic.SubscriptionId, 50);
+                        <div class="wb-inline-note mb-2">@($"type: {_subscriptionTopic.TypeName} °§ qos: {_subscriptionTopic.QosProfileName} °§ dir: {_subscriptionTopic.Direction}")</div>
+                    }
+
+                    @if (CurrentSubscription != null)
+                    {
+                        var samples = DdsState.SnapshotSamples(CurrentSubscription.SubscriptionId, 50);
                         @if (samples.Count == 0)
                         {
-                            <div class="wb-empty"><div>ÏïÑÏßÅ ÏàòÏã†Îêú ÏÉòÌîå ÏóÜÏùå</div></div>
+                            <div class="wb-empty"><div>æ∆¡˜ ºˆΩ≈µ» ª˘«√ æ¯¿Ω</div></div>
                         }
                         else
                         {
@@ -144,132 +207,633 @@ else
                             </div>
                         }
                     }
+                    else
+                    {
+                        <div class="wb-empty"><div>º±≈√«— ≈‰«»¿« ºˆΩ≈ ª˘«√¿Ã æ∆¡˜ æ¯Ω¿¥œ¥Ÿ</div></div>
+                    }
                 </div>
             </MudItem>
 
             <MudItem xs="12" md="6">
                 <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
                     <div class="d-flex align-center mb-2" style="gap:8px;">
-                        <MudIcon Icon="@Icons.Material.Filled.Upload" Size="Size.Small" Color="Color.Primary" />
+                        <MudIcon Icon="@Icons.Material.Filled.AutoMode" Size="Size.Small" Color="Color.Primary" />
                         <div>
-                            <div class="wb-panel-kicker">Î∞úÌñâ</div>
-                            <div class="wb-panel-heading">JSON ÌéòÏù¥Î°úÎìú Ï†ÑÏÜ°</div>
+                            <div class="wb-panel-kicker">DDS ¿⁄µø»≠</div>
+                            <div class="wb-panel-heading">∆Æ∏Æ∞≈øÕ Ω√≥™∏Æø¿∏¶ «— »Â∏ß¿∏∑Œ ±∏º∫</div>
                         </div>
-                        <MudSpacer />
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Description"
-                                   OnClick="LoadTemplate">Îπà ÌÖúÌîåÎ¶ø</MudButton>
+                    </div>
+                    <DdsTriggerPanel Session="Session" Embedded="true" />
+
+                    <div class="wb-subpanel pa-3">
+                        <div class="d-flex align-center mb-2" style="gap:8px;">
+                            <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Size="Size.Small" Color="Color.Secondary" />
+                            <div>
+                                <div class="wb-panel-kicker">Ω√≥™∏Æø¿</div>
+                                <div class="wb-panel-heading">≈‰«» º±≈√∞˙ ∏ﬁΩ√¡ˆ ∆Ì¡˝¿ª ø©±‚º≠ √≥∏Æ</div>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.ScenarioSteps.Count ¥‹∞Ë</MudChip>
+                            <MudSpacer />
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Description"
+                                       OnClick="LoadScenarioDraftTemplate"
+                                       Disabled="_scenarioDraftTopic == null">±‚∫ª∞™ ∫“∑Øø¿±‚</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Add"
+                                       OnClick="AddScenarioStep"
+                                       Disabled="@(!CanPublishScenarioDraft)">¥‹∞Ë √ﬂ∞°</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   OnClick="RunScenario"
+                                   Disabled="@(Session.ScenarioSteps.Count == 0 || _runningScenario)">
+                            Ω««‡
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Stop"
+                                   OnClick="StopScenario"
+                                   Disabled="@(!_runningScenario)">
+                            ¡ﬂ¥‹
+                        </MudButton>
                     </div>
 
-                    @if (!canPub)
+                    <div class="wb-home-form mb-2">
+                        <MudSelect T="string" Label="Ω√≥™∏Æø¿ ¥ÎªÛ ≈‰«»"
+                                   Value="@_scenarioDraftTopicName"
+                                   ValueChanged="OnScenarioDraftTopicChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Class="wb-select wb-select--comfortable wb-select--ellipsis">
+                            @foreach (var t in Session.Topics)
+                            {
+                                <MudSelectItem T="string" Value="@t.TopicName">
+                                    @($"{t.TopicName} °§ {t.TypeName} °§ {t.Direction} °§ {t.QosProfileName}")
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                        <div class="wb-code" style="font-size:.74rem;">
+                            <span style="color:var(--mud-palette-text-secondary);">º±≈√ ≈‰«»</span><br />
+                            @if (_scenarioDraftTopic != null)
+                            {
+                                @($"type: {_scenarioDraftTopic.TypeName} °§ qos: {_scenarioDraftTopic.QosProfileName} °§ dir: {_scenarioDraftTopic.Direction}")
+                            }
+                            else
+                            {
+                                <text>≈‰«»¿ª º±≈√«œººø‰</text>
+                            }
+                        </div>
+                    </div>
+
+                    @if (_scenarioDraftTopic != null && FindGrpcMatch(_scenarioDraftTopic.TopicName) is string match)
                     {
-                        <div class="wb-inline-note">Î∞©Ìñ•Ïù¥ Subscribe Ï†ÑÏö©Ïù¥Îùº Î∞úÌñâ Î∂àÍ∞Ä</div>
+                        <div class="d-flex align-center mb-2" style="gap:6px;">
+                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
+                                ambassador ∏≈ƒ™: @match
+                            </MudChip>
+                        </div>
+                    }
+
+                    @if (!CanPublishScenarioDraft)
+                    {
+                        <div class="wb-inline-note mb-2">πﬂ«‡ ∞°¥…«— ≈‰«»¿ª Ω√≥™∏Æø¿ ¥ÎªÛ¿∏∑Œ º±≈√«œººø‰</div>
+                    }
+                    else if (_scenarioDraftSchemaFields.Count == 0)
+                    {
+                        <MudTextField @bind-Value="_scenarioDraftJson" Lines="8" Variant="Variant.Outlined"
+                                      Label="Ω√≥™∏Æø¿ Payload JSON" Margin="Margin.Dense" />
                     }
                     else
                     {
-                        <MudTextField @bind-Value="_publishJson" Lines="10" Variant="Variant.Outlined"
-                                      Label="JSON" Margin="Margin.Dense" />
-                        <div class="d-flex align-center mt-2" style="gap:8px;">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.Send"
-                                       OnClick="Publish" Disabled="_publishing">
-                                @if (_publishing) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
-                                <text>1Ìöå Î∞úÌñâ</text>
-                            </MudButton>
-                            @if (!string.IsNullOrEmpty(_publishError))
-                            {
-                                <span class="wb-inline-note" style="color:var(--mud-palette-error);">@_publishError</span>
-                            }
+                        <div class="d-flex flex-wrap align-center mb-2" style="gap:8px;">
+                            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);margin:0;">
+                                Ω√≥™∏Æø¿ Payload ∆Ì¡˝
+                            </MudText>
+                            <MudSpacer />
+                            <MudToggleGroup T="bool" Value="_scenarioDraftRawJsonMode" ValueChanged="OnScenarioDraftRawModeChanged"
+                                            Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                            SelectionMode="SelectionMode.SingleSelection">
+                                <MudToggleItem Value="false" Text="∞Ë√˛" />
+                                <MudToggleItem Value="true" Text="JSON" />
+                            </MudToggleGroup>
                         </div>
 
-                        var outbound = DdsState.SnapshotOutbound(Session.SessionId, 10);
-                        @if (outbound.Count > 0)
+                        @if (!_scenarioDraftRawJsonMode)
                         {
-                            <div class="wb-subpanel mt-3">
-                                <div class="wb-panel-kicker">Î∞úÌñâ Ïù¥Î†•</div>
-                                <div class="wb-scroll" style="max-height:200px;">
-                                    @foreach (var o in outbound)
-                                    {
-                                        <div class="wb-scenario-step mb-2">
-                                            <div class="wb-scenario-step-top">
-                                                <div class="wb-scenario-step-title">@o.TopicName</div>
-                                                <MudChip T="string" Size="Size.Small"
-                                                         Color="@(o.Success ? Color.Success : Color.Error)"
-                                                         Variant="Variant.Text" Class="ma-0">
-                                                    @(o.Success ? "OK" : "Ïã§Ìå®")
-                                                </MudChip>
-                                            </div>
-                                            <div class="wb-scenario-step-meta">
-                                                <div>
-                                                    <span class="wb-scenario-label">ÏãúÍ∞Å</span>
-                                                    <span class="wb-scenario-value">@o.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                                                </div>
-                                                @if (!o.Success)
-                                                {
-                                                    <div>
-                                                        <span class="wb-scenario-label">Ïò§Î•ò</span>
-                                                        <span class="wb-scenario-value">@o.Error</span>
-                                                    </div>
-                                                }
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
+                            <div class="wb-scroll mt-2" style="max-height:34vh;overflow-y:auto;">
+                                @foreach (var field in _scenarioDraftSchemaFields)
+                                {
+                                    <div class="mb-2">
+                                        <SchemaFormField Field="field" OnChanged="BuildScenarioDraftJsonFromForm" />
+                                    </div>
+                                }
                             </div>
                         }
+                        else
+                        {
+                            <MudTextField @bind-Value="_scenarioDraftJson" Label="Ω√≥™∏Æø¿ Payload JSON"
+                                          Variant="Variant.Outlined" Lines="10" FullWidth="true"
+                                          Class="mt-2 wb-mono" Style="font-size:.8rem;" />
+                        }
+                    }
+
+                    <div class="wb-home-form mb-2">
+                        <MudNumericField @bind-Value="Session.ScenarioOptions.CycleCount" Label="π›∫π »∏ºˆ"
+                                         Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudNumericField @bind-Value="Session.ScenarioOptions.DefaultStepDelayMs" Label="±‚∫ª ¥‹∞Ë ¡ˆø¨(ms)"
+                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudCheckBox @bind-Value="Session.ScenarioOptions.StopOnError" Label="ø¿∑˘ Ω√ ¡ÔΩ√ ¡ﬂ¥‹" Color="Color.Warning" />
+                    </div>
+
+                    <div class="d-flex align-center mb-2" style="gap:8px;">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Download"
+                                   OnClick="ExportScenarioJson"
+                                   Disabled="@(Session.ScenarioSteps.Count == 0)">¿˙¿Â</MudButton>
+                        <MudFileUpload T="IBrowserFile" FilesChanged="ImportScenarioJson" Accept=".json">
+                            <ActivatorContent>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.UploadFile">∫“∑Øø¿±‚</MudButton>
+                            </ActivatorContent>
+                        </MudFileUpload>
+                    </div>
+
+                    @if (Session.ScenarioSteps.Count == 0)
+                    {
+                        <div class="wb-empty"><div>µÓ∑œµ» Ω√≥™∏Æø¿ ¥‹∞Ë æ¯¿Ω</div></div>
+                    }
+                    else
+                    {
+                        <div class="wb-scroll" style="max-height:320px;">
+                            @for (var i = 0; i < Session.ScenarioSteps.Count; i++)
+                            {
+                                var step = Session.ScenarioSteps[i];
+                                <div class="wb-scenario-step mb-2">
+                                    <div class="wb-scenario-step-top">
+                                        <div>
+                                            <div class="wb-scenario-step-order">Step @(i + 1)</div>
+                                            <div class="wb-scenario-step-title">@step.TopicName</div>
+                                        </div>
+                                        <div class="wb-chip-row">
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@step.TypeName</MudChip>
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error"
+                                                           OnClick="@(() => RemoveScenarioStep(i))" title="¥‹∞Ë ªË¡¶" />
+                                        </div>
+                                    </div>
+                                    <div class="wb-home-form">
+                                        <MudSelect T="string" Label="≈‰«»" Value="@step.TopicName"
+                                                   ValueChanged="@((string topicName) => OnScenarioStepTopicChanged(step, topicName))"
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                   Class="wb-select wb-select--comfortable wb-select--ellipsis">
+                                            @foreach (var t in Session.Topics)
+                                            {
+                                                <MudSelectItem T="string" Value="@t.TopicName">
+                                                    @($"{t.TopicName} °§ {t.TypeName}")
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        <MudNumericField @bind-Value="step.RepeatCount" Label="π›∫π"
+                                                         Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudNumericField @bind-Value="step.DelayAfterMs" Label="¿Ã ¥‹∞Ë »ƒ ¡ˆø¨(ms)"
+                                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                    </div>
+                                    <MudTextField @bind-Value="step.JsonPayload" Lines="3" Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense" Label="JSON" />
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="wb-subpanel mt-3 pa-3">
+                        <div class="d-flex align-center mb-2" style="gap:8px;">
+                            <div>
+                                <div class="wb-panel-kicker">º€Ω≈ ∏Ò∑œ</div>
+                                <div class="wb-panel-heading">√÷±Ÿ DDS πﬂ«‡ ∞·∞˙</div>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@RecentOutbound.Count</MudChip>
+                        </div>
+
+                        @if (RecentOutbound.Count == 0)
+                        {
+                            <div class="wb-empty"><div>æ∆¡˜ º€Ω≈µ» DDS ∏ﬁΩ√¡ˆ æ¯¿Ω</div></div>
+                        }
+                        else
+                        {
+                            <div class="wb-scroll" style="max-height:200px;">
+                                @foreach (var o in RecentOutbound)
+                                {
+                                    <div class="wb-scenario-step mb-2">
+                                        <div class="wb-scenario-step-top">
+                                            <div class="wb-scenario-step-title">@o.TopicName</div>
+                                            <MudChip T="string" Size="Size.Small"
+                                                     Color="@(o.Success ? Color.Success : Color.Error)"
+                                                     Variant="Variant.Text" Class="ma-0">@(o.Success ? "OK" : "Ω«∆–")</MudChip>
+                                        </div>
+                                        <div class="wb-scenario-step-meta">
+                                            <div>
+                                                <span class="wb-scenario-label">Ω√∞¢</span>
+                                                <span class="wb-scenario-value">@o.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                            </div>
+                                            @if (!o.Success)
+                                            {
+                                                <div>
+                                                    <span class="wb-scenario-label">ø¿∑˘</span>
+                                                    <span class="wb-scenario-value">@o.Error</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+                </div>
+            </MudItem>
+
+            <MudItem xs="12">
+                <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+                    <div class="d-flex align-center mb-2" style="gap:8px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Feed" Size="Size.Small" Color="Color.Info" />
+                        <div>
+                            <div class="wb-panel-kicker">ººº« / Ω√Ω∫≈€ ∑Œ±◊</div>
+                            <div class="wb-panel-heading">ººº« π¸¿ß øµº” ∑Œ±◊</div>
+                        </div>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.LogEntries.Count</MudChip>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.CleaningServices"
+                                   OnClick="ClearLogs">∑Œ±◊ ∫ÒøÏ±‚</MudButton>
+                    </div>
+
+                    @if (Session.LogEntries.Count == 0)
+                    {
+                        <div class="wb-empty"><div>∑Œ±◊ æ¯¿Ω</div></div>
+                    }
+                    else
+                    {
+                        <div class="wb-scroll" style="max-height:260px;">
+                            @foreach (var entry in Session.LogEntries)
+                            {
+                                <div class="wb-call-row wb-message-row mb-1">
+                                    <div class="wb-message-row-main">
+                                        <span class="wb-mono">@entry.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="@LogColor(entry.Level)" Variant="Variant.Text" Class="ma-0">@entry.Level</MudChip>
+                                        <span class="wb-inline-note">@entry.Scope</span>
+                                    </div>
+                                    <div style="font-size:.8rem;">@entry.Message</div>
+                                </div>
+                            }
+                        </div>
                     }
                 </div>
             </MudItem>
         </MudGrid>
-
-        <DdsTriggerPanel Session="Session" />
-    }
 }
 
 @code {
     [Parameter] public DdsSession? Session { get; set; }
 
-    private string _selectedTopicName = "";
-    private DdsTopicConfig? _selectedTopic;
+    private string _subscriptionTopicName = "";
+    private DdsTopicConfig? _subscriptionTopic;
     private long _selectedSampleSeq = 0;
 
-    private string _publishJson = "{}";
-    private bool _publishing;
-    private string? _publishError;
+    private string _scenarioDraftTopicName = "";
+    private DdsTopicConfig? _scenarioDraftTopic;
+    private string _scenarioDraftJson = "{}";
+    private bool _scenarioDraftRawJsonMode;
+    private List<SchemaField> _scenarioDraftSchemaFields = [];
+
+    private bool _showTypesXml;
+    private bool _showConfigXml;
+
+    private bool _runningScenario;
+    private CancellationTokenSource? _scenarioCts;
+
+    private const int MaxLogEntries = 500;
+
+    private DdsSubscriptionInfo? CurrentSubscription
+        => Session == null || _subscriptionTopic == null
+            ? null
+            : DdsState.SnapshotSubscriptions(Session.SessionId).FirstOrDefault(s => s.TopicName == _subscriptionTopic.TopicName);
+
+    private bool CanSubscribeCurrentTopic
+        => _subscriptionTopic != null && _subscriptionTopic.Direction != DdsTopicDirection.Publish;
+
+    private bool CanPublishScenarioDraft
+        => _scenarioDraftTopic != null && _scenarioDraftTopic.Direction != DdsTopicDirection.Subscribe;
+
+    private IReadOnlyList<DdsOutboundEntry> RecentOutbound
+        => Session == null ? [] : DdsState.SnapshotOutbound(Session.SessionId, 10);
 
     protected override void OnInitialized()
     {
         DdsState.StateChanged += OnDdsStateChanged;
+        DdsState.SampleReceived += OnSampleReceived;
     }
 
     protected override void OnParametersSet()
     {
-        if (Session != null && _selectedTopic == null && Session.Topics.Count > 0)
+        if (Session == null) return;
+
+        if (_subscriptionTopic == null && Session.Topics.Count > 0)
         {
-            _selectedTopicName = Session.Topics[0].TopicName;
-            _selectedTopic = Session.Topics[0];
+            _subscriptionTopicName = Session.Topics[0].TopicName;
+            _subscriptionTopic = Session.Topics[0];
+        }
+        if (_scenarioDraftTopic == null && Session.Topics.Count > 0)
+        {
+            var publishable = Session.Topics.FirstOrDefault(t => t.Direction != DdsTopicDirection.Subscribe) ?? Session.Topics[0];
+            _scenarioDraftTopicName = publishable.TopicName;
+            _scenarioDraftTopic = publishable;
+        }
+        BuildScenarioDraftSchemaForTopic();
+
+        Session.ScenarioOptions.CycleCount = Math.Max(1, Session.ScenarioOptions.CycleCount);
+        Session.ScenarioOptions.DefaultStepDelayMs = Math.Max(0, Session.ScenarioOptions.DefaultStepDelayMs);
+    }
+
+    private void BuildScenarioDraftSchemaForTopic()
+    {
+        if (Session == null || _scenarioDraftTopic == null)
+        {
+            _scenarioDraftSchemaFields = [];
+            _scenarioDraftJson = "{}";
+            return;
+        }
+
+        if (!Session.Types.TryGetValue(_scenarioDraftTopic.TypeName, out var typeDef) || typeDef.Kind != DdsTypeKind.Struct)
+        {
+            _scenarioDraftSchemaFields = [];
+            _scenarioDraftJson = "{}";
+            return;
+        }
+
+        var next = new List<SchemaField>();
+        foreach (var member in typeDef.Members)
+        {
+            next.Add(BuildSchemaField(member));
+        }
+
+        _scenarioDraftSchemaFields = next;
+        _scenarioDraftRawJsonMode = false;
+        BuildScenarioDraftJsonFromForm();
+    }
+
+    private SchemaField BuildSchemaField(DdsTypeMember member)
+    {
+        if (member.IsArray || member.IsSequence)
+        {
+            return new SchemaField
+            {
+                Name = member.Name,
+                Type = "array",
+                Value = "[]",
+                ItemTemplate = BuildArrayItemTemplate(member),
+            };
+        }
+
+        if (Session != null && Session.Types.TryGetValue(member.TypeName, out var nestedType))
+        {
+            if (nestedType.Kind == DdsTypeKind.Enum)
+            {
+                return new SchemaField
+                {
+                    Name = member.Name,
+                    Type = "enum",
+                    EnumValues = nestedType.EnumValues.Keys.ToArray(),
+                    Value = nestedType.EnumValues.Keys.FirstOrDefault() ?? string.Empty,
+                };
+            }
+
+            if (nestedType.Kind == DdsTypeKind.Struct)
+            {
+                return new SchemaField
+                {
+                    Name = member.Name,
+                    Type = "object",
+                    Value = "{}",
+                    Children = nestedType.Members.Select(BuildSchemaField).ToList(),
+                };
+            }
+        }
+
+        return new SchemaField
+        {
+            Name = member.Name,
+            Type = MapPrimitiveType(member.TypeName),
+            Value = DefaultValueForPrimitive(member.TypeName),
+            BoolValue = false,
+        };
+    }
+
+    private SchemaField BuildArrayItemTemplate(DdsTypeMember member)
+    {
+        if (Session != null && Session.Types.TryGetValue(member.TypeName, out var nestedType))
+        {
+            if (nestedType.Kind == DdsTypeKind.Struct)
+            {
+                return new SchemaField
+                {
+                    Name = "0",
+                    Type = "object",
+                    Value = "{}",
+                    Children = nestedType.Members.Select(BuildSchemaField).ToList(),
+                };
+            }
+
+            if (nestedType.Kind == DdsTypeKind.Enum)
+            {
+                return new SchemaField
+                {
+                    Name = "0",
+                    Type = "enum",
+                    EnumValues = nestedType.EnumValues.Keys.ToArray(),
+                    Value = nestedType.EnumValues.Keys.FirstOrDefault() ?? string.Empty,
+                };
+            }
+        }
+
+        return new SchemaField
+        {
+            Name = "0",
+            Type = MapPrimitiveType(member.TypeName),
+            Value = DefaultValueForPrimitive(member.TypeName),
+        };
+    }
+
+    private static string MapPrimitiveType(string typeName)
+    {
+        var normalized = typeName.ToLowerInvariant();
+        return normalized switch
+        {
+            "boolean" or "bool" => "boolean",
+            "int8" or "int16" or "int32" or "int64" or "uint8" or "uint16" or "uint32" or "uint64" or "long" or "ulong" or "short" or "ushort" => "integer",
+            "float" or "float32" or "float64" or "double" => "number",
+            _ => "string",
+        };
+    }
+
+    private static string DefaultValueForPrimitive(string typeName)
+    {
+        var primitive = MapPrimitiveType(typeName);
+        return primitive switch
+        {
+            "integer" or "number" => "0",
+            _ => string.Empty,
+        };
+    }
+
+    private void OnScenarioDraftRawModeChanged(bool raw)
+    {
+        _scenarioDraftRawJsonMode = raw;
+        if (_scenarioDraftSchemaFields.Count == 0)
+            return;
+
+        if (raw)
+            BuildScenarioDraftJsonFromForm();
+        else
+            TryPopulatePublishFieldsFromJson(_scenarioDraftJson);
+    }
+
+    private void BuildScenarioDraftJsonFromForm()
+    {
+        _scenarioDraftJson = JsonSerializer.Serialize(
+            BuildJsonObject(_scenarioDraftSchemaFields),
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static Dictionary<string, object?> BuildJsonObject(List<SchemaField> fields)
+    {
+        var obj = new Dictionary<string, object?>();
+        foreach (var field in fields)
+            obj[field.Name] = BuildFieldValue(field);
+        return obj;
+    }
+
+    private static object? BuildFieldValue(SchemaField field) => field.Type switch
+    {
+        "boolean" => field.BoolValue,
+        "integer" => long.TryParse(field.Value, out var longValue) ? longValue : 0L,
+        "number" => double.TryParse(field.Value, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var doubleValue) ? doubleValue : 0.0,
+        "object" when field.Children.Count > 0 => BuildJsonObject(field.Children),
+        "object" => TryParseRaw(field.Value),
+        "array" when field.ItemTemplate != null => field.ArrayItems.Select(BuildFieldValue).ToArray(),
+        "array" => TryParseRaw(field.Value),
+        _ => (object?)field.Value
+    };
+
+    private static object? TryParseRaw(string value)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            return value;
         }
     }
 
-    private void OnTopicChanged(string topicName)
+    private void TryPopulatePublishFieldsFromJson(string? json)
     {
-        _selectedTopicName = topicName;
-        _selectedTopic = Session?.Topics.FirstOrDefault(t => t.TopicName == topicName);
+        if (_scenarioDraftSchemaFields.Count == 0 || string.IsNullOrWhiteSpace(json)) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return;
+
+            ApplyObjectToFields(_scenarioDraftSchemaFields, doc.RootElement);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ApplyObjectToFields(List<SchemaField> fields, JsonElement element)
+    {
+        foreach (var field in fields)
+        {
+            if (!element.TryGetProperty(field.Name, out var value))
+                continue;
+            ApplyJsonToField(field, value);
+        }
+    }
+
+    private static void ApplyJsonToField(SchemaField field, JsonElement value)
+    {
+        switch (field.Type)
+        {
+            case "boolean":
+                field.BoolValue = value.ValueKind == JsonValueKind.True || (value.ValueKind == JsonValueKind.False ? false : field.BoolValue);
+                break;
+            case "integer":
+            case "number":
+            case "string":
+            case "enum":
+                field.Value = value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
+                break;
+            case "object":
+                if (field.Children.Count > 0 && value.ValueKind == JsonValueKind.Object)
+                    ApplyObjectToFields(field.Children, value);
+                else
+                    field.Value = value.GetRawText();
+                break;
+            case "array":
+                if (field.ItemTemplate != null && value.ValueKind == JsonValueKind.Array)
+                {
+                    field.ArrayItems.Clear();
+                    var index = 0;
+                    foreach (var item in value.EnumerateArray())
+                    {
+                        var clone = field.ItemTemplate.DeepClone(index.ToString());
+                        ApplyJsonToField(clone, item);
+                        field.ArrayItems.Add(clone);
+                        index++;
+                    }
+                }
+                else
+                {
+                    field.Value = value.GetRawText();
+                }
+                break;
+            default:
+                field.Value = value.ToString();
+                break;
+        }
+    }
+
+    private void OnSubscriptionTopicChanged(string topicName)
+    {
+        _subscriptionTopicName = topicName;
+        _subscriptionTopic = Session?.Topics.FirstOrDefault(t => t.TopicName == topicName);
         _selectedSampleSeq = 0;
+    }
+
+    private void OnScenarioDraftTopicChanged(string topicName)
+    {
+        _scenarioDraftTopicName = topicName;
+        _scenarioDraftTopic = Session?.Topics.FirstOrDefault(t => t.TopicName == topicName);
+        BuildScenarioDraftSchemaForTopic();
     }
 
     private void StartSubscribe()
     {
-        if (Session == null || _selectedTopic == null) return;
+        if (Session == null || _subscriptionTopic == null) return;
         try
         {
             DdsState.StartSubscription(
-                Session.SessionId, _selectedTopic.TopicName, _selectedTopic.TypeName, _selectedTopic.QosProfileName);
-            Snackbar.Add($"Íµ¨ÎèÖ ÏãúÏûë: {_selectedTopic.TopicName}", Severity.Success);
+                Session.SessionId, _subscriptionTopic.TopicName, _subscriptionTopic.TypeName, _subscriptionTopic.QosProfileName);
+            Snackbar.Add($"±∏µ∂ Ω√¿€: {_subscriptionTopic.TopicName}", Severity.Success);
+            AppendLog("session", "INFO", $"±∏µ∂ Ω√¿€: {_subscriptionTopic.TopicName}");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Íµ¨ÎèÖ Ïã§Ìå®: {ex.Message}", Severity.Error);
+            Snackbar.Add($"±∏µ∂ Ω«∆–: {ex.Message}", Severity.Error);
+            AppendLog("system", "ERROR", $"±∏µ∂ Ω«∆–: {ex.Message}");
         }
     }
 
@@ -277,48 +841,219 @@ else
     {
         DdsState.StopSubscription(subId);
         _selectedSampleSeq = 0;
+        AppendLog("session", "INFO", $"±∏µ∂ ¡ﬂ¡ˆ: {subId[..Math.Min(8, subId.Length)]}");
     }
 
-    private void LoadTemplate()
+    private void LoadScenarioDraftTemplate()
     {
-        if (Session == null || _selectedTopic == null) return;
+        if (Session == null || _scenarioDraftTopic == null) return;
         try
         {
             var host = DdsSessions.GetHost(Session.SessionId);
             if (host == null) return;
-            using var sample = host.CreateSample(_selectedTopic.TypeName);
-            _publishJson = DdsJsonConverter.ToJson(sample, pretty: true);
+            using var sample = host.CreateSample(_scenarioDraftTopic.TypeName);
+            _scenarioDraftJson = DdsJsonConverter.ToJson(sample, pretty: true);
+            TryPopulatePublishFieldsFromJson(_scenarioDraftJson);
+            BuildScenarioDraftJsonFromForm();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"ÌÖúÌîåÎ¶ø ÏÉùÏÑ± Ïã§Ìå®: {ex.Message}", Severity.Warning);
+            Snackbar.Add($"≈€«√∏¥ ª˝º∫ Ω«∆–: {ex.Message}", Severity.Warning);
+            AppendLog("system", "WARN", $"≈€«√∏¥ ª˝º∫ Ω«∆–: {ex.Message}");
         }
     }
 
-    private async Task Publish()
+    private void AddScenarioStep()
     {
-        if (Session == null || _selectedTopic == null) return;
-        _publishing = true;
-        _publishError = null;
+        if (Session == null || _scenarioDraftTopic == null) return;
+        if (_scenarioDraftTopic.Direction == DdsTopicDirection.Subscribe)
+        {
+            Snackbar.Add("Subscribe ¿¸øÎ ≈‰«»¿∫ Ω√≥™∏Æø¿ πﬂ«‡ ¥‹∞Ë∑Œ √ﬂ∞°«“ ºˆ æ¯Ω¿¥œ¥Ÿ.", Severity.Warning);
+            return;
+        }
+        if (!_scenarioDraftRawJsonMode && _scenarioDraftSchemaFields.Count > 0)
+            BuildScenarioDraftJsonFromForm();
+
+        Session.ScenarioSteps.Add(new DdsScenarioStep
+        {
+            TopicName = _scenarioDraftTopic.TopicName,
+            TypeName = _scenarioDraftTopic.TypeName,
+            QosProfileName = _scenarioDraftTopic.QosProfileName,
+            JsonPayload = _scenarioDraftJson,
+            RepeatCount = 1,
+            DelayAfterMs = 0,
+        });
+        AppendLog("session", "INFO", $"Ω√≥™∏Æø¿ ¥‹∞Ë √ﬂ∞°: {_scenarioDraftTopic.TopicName}");
+    }
+
+    private void OnScenarioStepTopicChanged(DdsScenarioStep step, string topicName)
+    {
+        if (Session == null) return;
+
+        step.TopicName = topicName;
+        var topic = Session.Topics.FirstOrDefault(t => t.TopicName == topicName);
+        if (topic == null) return;
+
+        step.TypeName = topic.TypeName;
+        step.QosProfileName = topic.QosProfileName;
+    }
+
+    private void RemoveScenarioStep(int index)
+    {
+        if (Session == null) return;
+        if (index < 0 || index >= Session.ScenarioSteps.Count) return;
+        var removed = Session.ScenarioSteps[index];
+        Session.ScenarioSteps.RemoveAt(index);
+        AppendLog("session", "INFO", $"Ω√≥™∏Æø¿ ¥‹∞Ë ªË¡¶: {removed.TopicName}");
+    }
+
+    private async Task RunScenario()
+    {
+        if (Session == null || Session.ScenarioSteps.Count == 0 || _runningScenario) return;
+
+        _runningScenario = true;
+        _scenarioCts = new CancellationTokenSource();
+        var ct = _scenarioCts.Token;
+        var options = Session.ScenarioOptions;
+
+        AppendLog("session", "INFO", $"Ω√≥™∏Æø¿ Ω««‡ Ω√¿€: {Session.ScenarioSteps.Count} step, cycle {options.CycleCount}");
+
         try
         {
-            var result = await Task.Run(() => DdsState.Publish(
-                Session.SessionId, _selectedTopic.TopicName, _selectedTopic.TypeName,
-                _selectedTopic.QosProfileName, _publishJson));
-            if (!result.Success)
+            for (var cycle = 1; cycle <= Math.Max(1, options.CycleCount); cycle++)
             {
-                _publishError = result.Error;
-                Snackbar.Add($"Î∞úÌñâ Ïã§Ìå®: {result.Error}", Severity.Error);
+                for (var i = 0; i < Session.ScenarioSteps.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var step = Session.ScenarioSteps[i];
+
+                    for (var repeat = 1; repeat <= Math.Max(1, step.RepeatCount); repeat++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var result = await Task.Run(() => DdsState.Publish(
+                            Session.SessionId,
+                            step.TopicName,
+                            step.TypeName,
+                            step.QosProfileName,
+                            step.JsonPayload), ct);
+
+                        if (!result.Success)
+                        {
+                            AppendLog("system", "ERROR", $"cycle {cycle} step {i + 1}/{Session.ScenarioSteps.Count} Ω«∆–: {result.Error}");
+                            if (options.StopOnError)
+                            {
+                                AppendLog("system", "WARN", "ø¿∑˘ πﬂª˝¿∏∑Œ Ω√≥™∏Æø¿ ¡ﬂ¥‹");
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            AppendLog("session", "INFO", $"cycle {cycle} step {i + 1}/{Session.ScenarioSteps.Count} repeat {repeat}/{Math.Max(1, step.RepeatCount)} º∫∞¯");
+                        }
+                    }
+
+                    var delayMs = step.DelayAfterMs > 0 ? step.DelayAfterMs : Math.Max(0, options.DefaultStepDelayMs);
+                    if (delayMs > 0)
+                        await Task.Delay(delayMs, ct);
+                }
             }
-            else
-            {
-                Snackbar.Add($"Î∞úÌñâ: {_selectedTopic.TopicName}", Severity.Success);
-            }
+
+            Snackbar.Add("DDS Ω√≥™∏Æø¿ Ω««‡ øœ∑·", Severity.Success);
+            AppendLog("session", "INFO", "Ω√≥™∏Æø¿ Ω««‡ øœ∑·");
+        }
+        catch (OperationCanceledException)
+        {
+            Snackbar.Add("DDS Ω√≥™∏Æø¿ Ω««‡ ¡ﬂ¥‹", Severity.Warning);
+            AppendLog("system", "WARN", "ªÁøÎ¿⁄ ø‰√ª¿∏∑Œ Ω√≥™∏Æø¿ ¡ﬂ¥‹");
         }
         finally
         {
-            _publishing = false;
+            _runningScenario = false;
+            _scenarioCts?.Dispose();
+            _scenarioCts = null;
         }
+    }
+
+    private void StopScenario()
+    {
+        _scenarioCts?.Cancel();
+    }
+
+    private async Task ExportScenarioJson()
+    {
+        if (Session == null || Session.ScenarioSteps.Count == 0)
+        {
+            Snackbar.Add("¿˙¿Â«“ Ω√≥™∏Æø¿ ¥‹∞Ë∞° æ¯Ω¿¥œ¥Ÿ.", Severity.Warning);
+            return;
+        }
+
+        var payload = new DdsScenarioExportFile
+        {
+            Version = 1,
+            ExportedAt = DateTimeOffset.Now,
+            Options = Session.ScenarioOptions,
+            Steps = Session.ScenarioSteps.ToList(),
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("workbench.downloadText", $"dds-scenario-{SanitizeFileName(Session.Name)}.json", json, "application/json");
+        Snackbar.Add($"DDS Ω√≥™∏Æø¿ ¿˙¿Â øœ∑·: {Session.ScenarioSteps.Count} step", Severity.Success);
+        AppendLog("session", "INFO", $"Ω√≥™∏Æø¿ ¿˙¿Â: {Session.ScenarioSteps.Count} step");
+    }
+
+    private async Task ImportScenarioJson(IBrowserFile? file)
+    {
+        if (Session == null || file == null) return;
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            var payload = JsonSerializer.Deserialize<DdsScenarioExportFile>(json);
+
+            if (payload?.Steps == null || payload.Steps.Count == 0)
+            {
+                Snackbar.Add("∫“∑Øø√ DDS Ω√≥™∏Æø¿ step¿Ã æ¯Ω¿¥œ¥Ÿ.", Severity.Warning);
+                return;
+            }
+
+            Session.ScenarioSteps = payload.Steps
+                .Where(step => !string.IsNullOrWhiteSpace(step.TopicName) && !string.IsNullOrWhiteSpace(step.TypeName))
+                .Select(step => new DdsScenarioStep
+                {
+                    TopicName = step.TopicName,
+                    TypeName = step.TypeName,
+                    QosProfileName = step.QosProfileName,
+                    JsonPayload = string.IsNullOrWhiteSpace(step.JsonPayload) ? "{}" : step.JsonPayload,
+                    RepeatCount = Math.Max(1, step.RepeatCount),
+                    DelayAfterMs = Math.Max(0, step.DelayAfterMs),
+                })
+                .ToList();
+
+            Session.ScenarioOptions = payload.Options ?? new DdsScenarioRunOptions();
+            Session.ScenarioOptions.CycleCount = Math.Max(1, Session.ScenarioOptions.CycleCount);
+            Session.ScenarioOptions.DefaultStepDelayMs = Math.Max(0, Session.ScenarioOptions.DefaultStepDelayMs);
+
+            Snackbar.Add($"DDS Ω√≥™∏Æø¿ ∫“∑Øø¿±‚ øœ∑·: {Session.ScenarioSteps.Count} step", Severity.Success);
+            AppendLog("session", "INFO", $"Ω√≥™∏Æø¿ ∫“∑Øø¿±‚: {Session.ScenarioSteps.Count} step");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"DDS Ω√≥™∏Æø¿ ∫“∑Øø¿±‚ Ω«∆–: {ex.Message}", Severity.Error);
+            AppendLog("system", "ERROR", $"Ω√≥™∏Æø¿ ∫“∑Øø¿±‚ Ω«∆–: {ex.Message}");
+        }
+    }
+
+    private void ClearLogs()
+    {
+        Session?.LogEntries.Clear();
+    }
+
+    private void OnSampleReceived(DdsSubscriptionInfo info, DdsSampleEntry sample)
+    {
+        if (Session == null || info.SessionId != Session.SessionId) return;
+        AppendLog("session", "INFO", $"ºˆΩ≈: {info.TopicName} #{sample.SequenceNumber}");
     }
 
     private async void OnDdsStateChanged()
@@ -326,15 +1061,69 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
+    private void AppendLog(string scope, string level, string message)
+    {
+        if (Session == null) return;
+
+        Session.LogEntries.Insert(0, new DdsSessionLogEntry
+        {
+            TimestampUtc = DateTime.UtcNow,
+            Scope = scope,
+            Level = level,
+            Message = message,
+        });
+
+        if (Session.LogEntries.Count > MaxLogEntries)
+        {
+            Session.LogEntries.RemoveRange(MaxLogEntries, Session.LogEntries.Count - MaxLogEntries);
+        }
+    }
+
+    private static Color LogColor(string level) => level switch
+    {
+        "ERROR" => Color.Error,
+        "WARN" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private string GetTypesXmlText()
+    {
+        if (Session?.TypesXmlContent == null) return string.Empty;
+        return System.Text.Encoding.UTF8.GetString(Session.TypesXmlContent);
+    }
+
+    private string GetConfigXmlText()
+    {
+        if (Session?.ConfigXmlContent == null) return string.Empty;
+        return System.Text.Encoding.UTF8.GetString(Session.ConfigXmlContent);
+    }
+
+    private async Task DownloadTypesXml()
+    {
+        if (Session?.TypesXmlContent == null) return;
+        var fileName = string.IsNullOrWhiteSpace(Session.TypesXmlFileName)
+            ? "DDSSim.xml"
+            : Session.TypesXmlFileName;
+        await JS.InvokeVoidAsync("workbench.downloadText", fileName, GetTypesXmlText(), "application/xml");
+    }
+
+    private async Task DownloadConfigXml()
+    {
+        if (Session?.ConfigXmlContent == null) return;
+        var fileName = string.IsNullOrWhiteSpace(Session.ConfigXmlFileName)
+            ? "dds-config.xml"
+            : Session.ConfigXmlFileName;
+        await JS.InvokeVoidAsync("workbench.downloadText", fileName, GetConfigXmlText(), "application/xml");
+    }
+
     public void Dispose()
     {
         DdsState.StateChanged -= OnDdsStateChanged;
+        DdsState.SampleReceived -= OnSampleReceived;
+        _scenarioCts?.Cancel();
+        _scenarioCts?.Dispose();
     }
 
-    /// <summary>
-    /// ambassador Ïª®Î≤§ÏÖò (gRPC method name == DDS topic name) Í∏∞Î∞ò Îß§Ïπ≠ ÌÉêÏßÄ.
-    /// ÌôúÏÑ± gRPC ÏÑ∏ÏÖòÏóê ÎèôÏùº Ïù¥Î¶Ñ Î©îÏÑúÎìúÍ∞Ä ÏûàÏúºÎ©¥ "service.method" ÎùºÎ≤® Î∞òÌôò.
-    /// </summary>
     private string? FindGrpcMatch(string topicName)
     {
         foreach (var svc in GrpcState.Services)
@@ -347,5 +1136,20 @@ else
         }
         return null;
     }
-}
 
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '-' : ch).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "dds-scenario" : cleaned;
+    }
+
+    private sealed class DdsScenarioExportFile
+    {
+        public int Version { get; set; }
+        public DateTimeOffset ExportedAt { get; set; }
+        public DdsScenarioRunOptions? Options { get; set; }
+        public List<DdsScenarioStep> Steps { get; set; } = [];
+    }
+
+}

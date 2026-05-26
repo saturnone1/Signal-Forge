@@ -14,6 +14,8 @@ public sealed class DdsTriggerService : IAsyncDisposable
 
     private readonly ConcurrentDictionary<string, DdsTrigger> _triggers = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _periodicCts = new();
+    private readonly ConcurrentDictionary<string, DateTime> _lastOnIncomingFireAt = new();
+    private readonly ConcurrentDictionary<string, Queue<DateTime>> _onIncomingFireWindow = new();
 
     public event Action? Changed;
 
@@ -125,6 +127,7 @@ public sealed class DdsTriggerService : IAsyncDisposable
 
     private void OnSampleReceived(DdsSubscriptionInfo info, DdsSampleEntry sample)
     {
+        var now = DateTime.UtcNow;
         foreach (var t in _triggers.Values)
         {
             if (!t.Enabled || t.Type != DdsTriggerType.OnIncoming) continue;
@@ -132,7 +135,39 @@ public sealed class DdsTriggerService : IAsyncDisposable
             if (!string.IsNullOrEmpty(t.MatchTopicName) &&
                 !string.Equals(t.MatchTopicName, info.TopicName, StringComparison.Ordinal))
                 continue;
+
+            if (t.BlockSelfTopicLoop && string.Equals(t.TopicName, info.TopicName, StringComparison.Ordinal))
+                continue;
+
+            if (t.MinFireIntervalMs > 0 &&
+                _lastOnIncomingFireAt.TryGetValue(t.Id, out var lastAt) &&
+                (now - lastAt).TotalMilliseconds < t.MinFireIntervalMs)
+                continue;
+
+            if (t.MaxFiresPerMinute > 0)
+            {
+                var q = _onIncomingFireWindow.GetOrAdd(t.Id, _ => new Queue<DateTime>());
+                lock (q)
+                {
+                    while (q.Count > 0 && (now - q.Peek()).TotalSeconds > 60)
+                        q.Dequeue();
+                    if (q.Count >= t.MaxFiresPerMinute)
+                        continue;
+                }
+            }
+
             Publish(t);
+            _lastOnIncomingFireAt[t.Id] = now;
+            if (t.MaxFiresPerMinute > 0)
+            {
+                var q = _onIncomingFireWindow.GetOrAdd(t.Id, _ => new Queue<DateTime>());
+                lock (q)
+                {
+                    q.Enqueue(now);
+                    while (q.Count > 0 && (now - q.Peek()).TotalSeconds > 60)
+                        q.Dequeue();
+                }
+            }
             Changed?.Invoke();
         }
     }
@@ -166,6 +201,8 @@ public sealed class DdsTriggerService : IAsyncDisposable
         _dds.SampleReceived -= OnSampleReceived;
         foreach (var id in _periodicCts.Keys.ToList())
             StopPeriodic(id);
+        _lastOnIncomingFireAt.Clear();
+        _onIncomingFireWindow.Clear();
         await Task.CompletedTask;
     }
 }
