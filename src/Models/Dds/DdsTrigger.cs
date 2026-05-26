@@ -35,6 +35,9 @@ public sealed class DdsTrigger
 
     // OnIncoming — 매칭할 source topic (DDS)
     public string? MatchTopicName { get; set; }
+    public bool BlockSelfTopicLoop { get; set; } = true;
+    public int MinFireIntervalMs { get; set; } = 0;
+    public int MaxFiresPerMinute { get; set; } = 0;
 
     // 통계
     public long TotalFires;

@@ -1,8 +1,10 @@
 @using GrpcWorkbench.Models.Dds
 @using GrpcWorkbench.Services
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Hosting
 @inject IDdsSessionService DdsSessions
 @inject ISnackbar Snackbar
+@inject IWebHostEnvironment WebHostEnv
 
 <div class="wb-panel wb-panel--contain pa-3">
     <div class="wb-panel-kicker">새 DDS 세션</div>
@@ -108,15 +110,16 @@
     private async Task Submit()
     {
         _error = null;
-        if (_typesBytes == null) { _error = "타입 정의 XML이 필요합니다"; return; }
-        if (_configBytes == null) { _error = "토픽/QoS 설정 XML이 필요합니다"; return; }
-        if (string.IsNullOrWhiteSpace(_name)) { _error = "세션 이름을 입력하세요"; return; }
 
         _creating = true;
         try
         {
-            var typesXml = System.Text.Encoding.UTF8.GetString(_typesBytes);
-            var configXml = System.Text.Encoding.UTF8.GetString(_configBytes);
+            var (typesXml, typesFileName) = await ResolveTypesXmlAsync();
+            var (configXml, configFileName) = await ResolveConfigXmlAsync();
+            var sessionName = string.IsNullOrWhiteSpace(_name)
+                ? $"DDSSim domain {_domainId}"
+                : _name.Trim();
+
             var transport = new DdsTransportSettings
             {
                 DomainId = _domainId,
@@ -126,12 +129,12 @@
             };
             var session = await Task.Run(() => DdsSessions.Create(new DdsSessionCreateRequest
             {
-                Name = _name.Trim(),
+                Name = sessionName,
                 Transport = transport,
                 TypesXmlContent = typesXml,
-                TypesXmlFileName = _typesFileName,
+                TypesXmlFileName = typesFileName,
                 ConfigXmlContent = configXml,
-                ConfigXmlFileName = _configFileName,
+                ConfigXmlFileName = configFileName,
             }));
             Snackbar.Add($"DDS 세션 생성: {session.Name}", Severity.Success);
             await OnCreated.InvokeAsync(session);
@@ -144,6 +147,79 @@
         {
             _creating = false;
         }
+    }
+
+        private async Task<(string Xml, string FileName)> ResolveTypesXmlAsync()
+        {
+                if (_typesBytes is { Length: > 0 })
+                        return (System.Text.Encoding.UTF8.GetString(_typesBytes), _typesFileName ?? "DDSSim.xml");
+
+            var filePath = ResolvePreferredDefaultPath("definitions", "DDSSim.xml");
+                if (File.Exists(filePath))
+                {
+                        var xml = await File.ReadAllTextAsync(filePath);
+                return (xml, Path.GetFileName(filePath));
+                }
+
+                const string fallback = @"<?xml version=""1.0"" encoding=""UTF-8""?>
+<dds>
+    <types>
+        <module name=""STRUCT"">
+            <struct name=""Position8"">
+                <member name=""X"" type=""float64""/>
+                <member name=""Y"" type=""float64""/>
+            </struct>
+        </module>
+    </types>
+</dds>";
+                return (fallback, "DDSSim.default.xml");
+        }
+
+        private async Task<(string Xml, string FileName)> ResolveConfigXmlAsync()
+        {
+                if (_configBytes is { Length: > 0 })
+                        return (System.Text.Encoding.UTF8.GetString(_configBytes), _configFileName ?? "dds-config.xml");
+
+            var filePath = ResolvePreferredDefaultPath("config", "dds-config.xml");
+                if (File.Exists(filePath))
+                {
+                        var xml = await File.ReadAllTextAsync(filePath);
+                return (xml, Path.GetFileName(filePath));
+                }
+
+                const string fallback = @"<?xml version=""1.0"" encoding=""UTF-8""?>
+<dds-ambassador-config>
+    <dds>
+        <qos_library name=""AmbassadorProfiles"">
+            <qos_profile name=""DefaultProfile"" is_default_qos=""true""/>
+        </qos_library>
+    </dds>
+    <topics>
+        <topic>
+            <topic_name>PositionTopic</topic_name>
+            <type_name>STRUCT::Position8</type_name>
+            <direction>Both</direction>
+            <qos_profile>DefaultProfile</qos_profile>
+        </topic>
+    </topics>
+</dds-ambassador-config>";
+                return (fallback, "dds-config.default.xml");
+        }
+
+    private string ResolvePreferredDefaultPath(string folder, string fileName)
+    {
+        var siblingRepoPath = Path.GetFullPath(Path.Combine(WebHostEnv.ContentRootPath, "..", "ddsAmbassador", folder, fileName));
+        if (File.Exists(siblingRepoPath))
+            return siblingRepoPath;
+
+        var localSamplePath = Path.Combine(WebHostEnv.ContentRootPath, "samples", "dds", fileName switch
+        {
+            "DDSSim.xml" => "DDSSim.sample.xml",
+            "dds-config.xml" => "dds-config.sample.xml",
+            _ => fileName,
+        });
+
+        return localSamplePath;
     }
 
     private static List<string> ParseCsv(string s) =>

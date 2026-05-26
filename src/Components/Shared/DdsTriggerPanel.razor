@@ -7,12 +7,12 @@
 
 @if (Session != null)
 {
-    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+    <div class="@(Embedded ? "wb-subpanel mb-3 pa-3" : "wb-panel wb-panel--major wb-panel--contain pa-3 mb-4")">
         <div class="d-flex align-center mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
             <div>
-                <div class="wb-panel-kicker">DDS 자동화</div>
-                <div class="wb-panel-heading">주기 / 다발 / 수신-응답 트리거</div>
+                <div class="wb-panel-kicker">@(Embedded ? "트리거" : "DDS 자동화")</div>
+                <div class="wb-panel-heading">주기 / 다발 / 수신-응답 자동 발행</div>
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_triggers.Count</MudChip>
             <MudSpacer />
@@ -56,6 +56,15 @@
                                 <MudSelectItem T="string" Value="@t.TopicName">@t.TopicName</MudSelectItem>
                             }
                         </MudSelect>
+                        <MudCheckBox @bind-Value="_draft.BlockSelfTopicLoop"
+                                     Label="동일 source/target 토픽 재발행 차단"
+                                     Color="Color.Warning" />
+                        <MudNumericField @bind-Value="_draft.MinFireIntervalMs"
+                                         Label="최소 발행 간격 (ms, 0=해제)"
+                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudNumericField @bind-Value="_draft.MaxFiresPerMinute"
+                                         Label="분당 최대 발행 수 (0=무제한)"
+                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     }
                 </div>
                 <MudTextField @bind-Value="_draft.JsonPayload" Lines="6" Label="JSON 페이로드"
@@ -96,7 +105,11 @@
                                 <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">×@t.BulkCount @(t.BulkParallel ? "parallel" : "seq")</span>
                                 break;
                             case DdsTriggerType.OnIncoming:
-                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">on @(t.MatchTopicName ?? "*")</span>
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
+                                    on @(t.MatchTopicName ?? "*") · guard: @(t.BlockSelfTopicLoop ? "self-block" : "none")
+                                    @(t.MinFireIntervalMs > 0 ? $" · min {t.MinFireIntervalMs}ms" : "")
+                                    @(t.MaxFiresPerMinute > 0 ? $" · max {t.MaxFiresPerMinute}/m" : "")
+                                </span>
                                 break;
                         }
                         <MudSpacer />
@@ -132,6 +145,7 @@
 
 @code {
     [Parameter] public DdsSession? Session { get; set; }
+    [Parameter] public bool Embedded { get; set; }
 
     private IReadOnlyList<DdsTrigger> _triggers = [];
     private bool _showAddForm;

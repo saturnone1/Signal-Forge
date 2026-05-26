@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds>
+  <types>
+    <module name="STRUCT">
+      <struct name="Position8">
+        <member name="X" type="float64"/>
+        <member name="Y" type="float64"/>
+      </struct>
+    </module>
+  </types>
+</dds>
