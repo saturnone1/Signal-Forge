@@ -1,0 +1,351 @@
+@using GrpcWorkbench.Models.Dds
+@using GrpcWorkbench.Models.Session
+@using GrpcWorkbench.Services
+@using GrpcWorkbench.Dds
+@inject IDdsSessionService DdsSessions
+@inject DdsStateService DdsState
+@inject WorkbenchStateService GrpcState
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@if (Session == null)
+{
+    <div class="wb-empty"><div>DDS 세션이 선택되지 않았습니다</div></div>
+}
+else
+{
+    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+        <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+            <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="Color.Success" />
+            <div>
+                <div class="wb-panel-kicker">DDS 세션</div>
+                <div class="wb-panel-heading">@Session.Name · domain @Session.Transport.DomainId</div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count 토픽</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count 타입</MudChip>
+            @if (Session.QosProfiles.Count > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">QoS: @string.Join(",", Session.QosProfiles)</MudChip>
+            }
+        </div>
+
+        <div class="wb-topbar-grid">
+            <MudSelect T="string"
+                       Label="토픽"
+                       Value="@_selectedTopicName"
+                       ValueChanged="OnTopicChanged"
+                       Class="wb-select wb-select--comfortable wb-select--ellipsis"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                @foreach (var t in Session.Topics)
+                {
+                    <MudSelectItem T="string" Value="@t.TopicName">
+                        @($"{t.TopicName} · {t.TypeName} · {t.Direction} · {t.QosProfileName}")
+                    </MudSelectItem>
+                }
+            </MudSelect>
+
+            <div>
+                @if (_selectedTopic != null)
+                {
+                    <div class="wb-code" style="font-size:.74rem;">
+                        <span style="color:var(--mud-palette-text-secondary);">선택 토픽</span><br />
+                        @($"type: {_selectedTopic.TypeName} · qos: {_selectedTopic.QosProfileName} · dir: {_selectedTopic.Direction}")
+                    </div>
+                    var match = FindGrpcMatch(_selectedTopic.TopicName);
+                    @if (match != null)
+                    {
+                        <div class="d-flex align-center mt-1" style="gap:6px;">
+                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
+                                ambassador 매칭: @match
+                            </MudChip>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="wb-inline-note">토픽을 선택하세요</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_selectedTopic != null)
+    {
+        var canSub = _selectedTopic.Direction != DdsTopicDirection.Publish;
+        var canPub = _selectedTopic.Direction != DdsTopicDirection.Subscribe;
+        var activeSubForTopic = DdsState.SnapshotSubscriptions(Session.SessionId)
+            .FirstOrDefault(s => s.TopicName == _selectedTopic.TopicName);
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6">
+                <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                    <div class="d-flex align-center mb-2" style="gap:8px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Info" />
+                        <div>
+                            <div class="wb-panel-kicker">구독</div>
+                            <div class="wb-panel-heading">수신 샘플</div>
+                        </div>
+                        @if (activeSubForTopic != null)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">활성</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@activeSubForTopic.ReceivedCount 수신</MudChip>
+                        }
+                        <MudSpacer />
+                        @if (canSub)
+                        {
+                            @if (activeSubForTopic == null)
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                                           OnClick="StartSubscribe">구독</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Stop"
+                                           OnClick="@(() => StopSubscribe(activeSubForTopic.SubscriptionId))">중지</MudButton>
+                            }
+                        }
+                        else
+                        {
+                            <div class="wb-inline-note">방향이 Publish 전용이라 구독 불가</div>
+                        }
+                    </div>
+
+                    @if (activeSubForTopic != null)
+                    {
+                        var samples = DdsState.SnapshotSamples(activeSubForTopic.SubscriptionId, 50);
+                        @if (samples.Count == 0)
+                        {
+                            <div class="wb-empty"><div>아직 수신된 샘플 없음</div></div>
+                        }
+                        else
+                        {
+                            <div class="wb-message-split">
+                                <div class="wb-scroll wb-message-list">
+                                    @foreach (var s in samples)
+                                    {
+                                        <button type="button"
+                                                class="wb-call-row wb-message-row @(_selectedSampleSeq == s.SequenceNumber ? "is-selected" : null)"
+                                                @onclick="@(() => _selectedSampleSeq = s.SequenceNumber)">
+                                            <div class="wb-message-row-main">
+                                                <span class="wb-mono">@s.ReceivedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                <span>#@s.SequenceNumber</span>
+                                            </div>
+                                        </button>
+                                    }
+                                </div>
+                                <div class="wb-message-content">
+                                    @{ var sel = samples.FirstOrDefault(x => x.SequenceNumber == _selectedSampleSeq) ?? samples.First(); }
+                                    <JsonDataView Json="@sel.JsonData" />
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                    <div class="d-flex align-center mb-2" style="gap:8px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Upload" Size="Size.Small" Color="Color.Primary" />
+                        <div>
+                            <div class="wb-panel-kicker">발행</div>
+                            <div class="wb-panel-heading">JSON 페이로드 전송</div>
+                        </div>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Description"
+                                   OnClick="LoadTemplate">빈 템플릿</MudButton>
+                    </div>
+
+                    @if (!canPub)
+                    {
+                        <div class="wb-inline-note">방향이 Subscribe 전용이라 발행 불가</div>
+                    }
+                    else
+                    {
+                        <MudTextField @bind-Value="_publishJson" Lines="10" Variant="Variant.Outlined"
+                                      Label="JSON" Margin="Margin.Dense" />
+                        <div class="d-flex align-center mt-2" style="gap:8px;">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Send"
+                                       OnClick="Publish" Disabled="_publishing">
+                                @if (_publishing) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                                <text>1회 발행</text>
+                            </MudButton>
+                            @if (!string.IsNullOrEmpty(_publishError))
+                            {
+                                <span class="wb-inline-note" style="color:var(--mud-palette-error);">@_publishError</span>
+                            }
+                        </div>
+
+                        var outbound = DdsState.SnapshotOutbound(Session.SessionId, 10);
+                        @if (outbound.Count > 0)
+                        {
+                            <div class="wb-subpanel mt-3">
+                                <div class="wb-panel-kicker">발행 이력</div>
+                                <div class="wb-scroll" style="max-height:200px;">
+                                    @foreach (var o in outbound)
+                                    {
+                                        <div class="wb-scenario-step mb-2">
+                                            <div class="wb-scenario-step-top">
+                                                <div class="wb-scenario-step-title">@o.TopicName</div>
+                                                <MudChip T="string" Size="Size.Small"
+                                                         Color="@(o.Success ? Color.Success : Color.Error)"
+                                                         Variant="Variant.Text" Class="ma-0">
+                                                    @(o.Success ? "OK" : "실패")
+                                                </MudChip>
+                                            </div>
+                                            <div class="wb-scenario-step-meta">
+                                                <div>
+                                                    <span class="wb-scenario-label">시각</span>
+                                                    <span class="wb-scenario-value">@o.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                </div>
+                                                @if (!o.Success)
+                                                {
+                                                    <div>
+                                                        <span class="wb-scenario-label">오류</span>
+                                                        <span class="wb-scenario-value">@o.Error</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </MudItem>
+        </MudGrid>
+
+        <DdsTriggerPanel Session="Session" />
+    }
+}
+
+@code {
+    [Parameter] public DdsSession? Session { get; set; }
+
+    private string _selectedTopicName = "";
+    private DdsTopicConfig? _selectedTopic;
+    private long _selectedSampleSeq = 0;
+
+    private string _publishJson = "{}";
+    private bool _publishing;
+    private string? _publishError;
+
+    protected override void OnInitialized()
+    {
+        DdsState.StateChanged += OnDdsStateChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Session != null && _selectedTopic == null && Session.Topics.Count > 0)
+        {
+            _selectedTopicName = Session.Topics[0].TopicName;
+            _selectedTopic = Session.Topics[0];
+        }
+    }
+
+    private void OnTopicChanged(string topicName)
+    {
+        _selectedTopicName = topicName;
+        _selectedTopic = Session?.Topics.FirstOrDefault(t => t.TopicName == topicName);
+        _selectedSampleSeq = 0;
+    }
+
+    private void StartSubscribe()
+    {
+        if (Session == null || _selectedTopic == null) return;
+        try
+        {
+            DdsState.StartSubscription(
+                Session.SessionId, _selectedTopic.TopicName, _selectedTopic.TypeName, _selectedTopic.QosProfileName);
+            Snackbar.Add($"구독 시작: {_selectedTopic.TopicName}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"구독 실패: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void StopSubscribe(string subId)
+    {
+        DdsState.StopSubscription(subId);
+        _selectedSampleSeq = 0;
+    }
+
+    private void LoadTemplate()
+    {
+        if (Session == null || _selectedTopic == null) return;
+        try
+        {
+            var host = DdsSessions.GetHost(Session.SessionId);
+            if (host == null) return;
+            using var sample = host.CreateSample(_selectedTopic.TypeName);
+            _publishJson = DdsJsonConverter.ToJson(sample, pretty: true);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"템플릿 생성 실패: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task Publish()
+    {
+        if (Session == null || _selectedTopic == null) return;
+        _publishing = true;
+        _publishError = null;
+        try
+        {
+            var result = await Task.Run(() => DdsState.Publish(
+                Session.SessionId, _selectedTopic.TopicName, _selectedTopic.TypeName,
+                _selectedTopic.QosProfileName, _publishJson));
+            if (!result.Success)
+            {
+                _publishError = result.Error;
+                Snackbar.Add($"발행 실패: {result.Error}", Severity.Error);
+            }
+            else
+            {
+                Snackbar.Add($"발행: {_selectedTopic.TopicName}", Severity.Success);
+            }
+        }
+        finally
+        {
+            _publishing = false;
+        }
+    }
+
+    private async void OnDdsStateChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        DdsState.StateChanged -= OnDdsStateChanged;
+    }
+
+    /// <summary>
+    /// ambassador 컨벤션 (gRPC method name == DDS topic name) 기반 매칭 탐지.
+    /// 활성 gRPC 세션에 동일 이름 메서드가 있으면 "service.method" 라벨 반환.
+    /// </summary>
+    private string? FindGrpcMatch(string topicName)
+    {
+        foreach (var svc in GrpcState.Services)
+        {
+            var m = svc.Methods.FirstOrDefault(x =>
+                string.Equals(x.MethodName, topicName, StringComparison.Ordinal) ||
+                string.Equals(x.MethodName, "Stream" + topicName, StringComparison.Ordinal));
+            if (m != null)
+                return $"{svc.ServiceName.Split('.').Last()}.{m.MethodName}";
+        }
+        return null;
+    }
+}
+

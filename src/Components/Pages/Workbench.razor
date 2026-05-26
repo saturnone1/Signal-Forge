@@ -14,6 +14,12 @@
 @inject UiStateService Ui
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject IDdsSessionService DdsSessions
+@inject DdsStateService DdsState
+@using GrpcWorkbench.Models.Session
+@using GrpcWorkbench.Models.Dds
+@using GrpcWorkbench.Services
+@using GrpcWorkbench.Dds
 @implements IDisposable
 
 <PageTitle>gRPC 워크벤치</PageTitle>
@@ -159,6 +165,47 @@
         </div>
     }
 
+    @* ════════ DDS 세션 탭 (gRPC 탭과 별도 영역) ════════ *@
+    <div class="wb-session-shell mb-4">
+        <div class="wb-session-tabs">
+            @foreach (var dds in _ddsSessionTabs)
+            {
+                <div class="wb-session-tab @(_activeDdsSession?.SessionId == dds.SessionId ? "is-active" : null)">
+                    <button type="button" class="wb-session-tab-main"
+                            @onclick="@(() => ActivateDdsSession(dds.SessionId))">
+                        <span class="wb-session-tab-title">[DDS] @dds.Name</span>
+                        <span class="wb-session-tab-note">domain @dds.Transport.DomainId · @dds.SessionId[..8]</span>
+                    </button>
+                    <button type="button" class="wb-session-tab-close" title="DDS 탭 닫기"
+                            @onclick:stopPropagation="true"
+                            @onclick="@(async () => await CloseDdsSession(dds.SessionId))">
+                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                    </button>
+                </div>
+            }
+            <button type="button"
+                    class="wb-session-tab wb-session-tab--new @(_showDdsCreateForm ? "is-active" : null)"
+                    @onclick="ToggleDdsCreateForm">
+                <span class="wb-session-tab-title">새 DDS 세션</span>
+                <span class="wb-session-tab-note">탭 추가</span>
+            </button>
+        </div>
+        @if (_showDdsCreateForm)
+        {
+            <div class="mt-3">
+                <DdsSessionCreateForm
+                    OnCreated="OnDdsSessionCreated"
+                    OnCancelled="@(() => _showDdsCreateForm = false)" />
+            </div>
+        }
+    </div>
+
+    @if (_activeDdsSession != null)
+    {
+        <DdsSessionPanel Session="_activeDdsSession" />
+    }
+    else
+    {
     <div class="wb-hero mb-4">
         <div>
             <div class="wb-panel-kicker">gRPC 워크벤치</div>
@@ -1263,6 +1310,7 @@
                 </div>
             </div>
     }
+    } @* end @if (_activeDdsSession == null) else *@
 </div>
 
 @code {
@@ -1292,6 +1340,9 @@
     private string? _loadedProtoFileName;
     private bool _showNewSessionForm;
     private List<GrpcSession> _sessionTabs = [];
+    private List<DdsSession> _ddsSessionTabs = [];
+    private DdsSession? _activeDdsSession;
+    private bool _showDdsCreateForm;
     private Trigger? _editingTrigger;
     private readonly Dictionary<string, string> _localStreamSyntheticCallIds = [];
 
@@ -1363,6 +1414,7 @@
             ?? Configuration["GrpcWorkbench:UdsSocketPath"]
             ?? "(설정 없음)";
         RefreshSessionTabs();
+        RefreshDdsSessionTabs();
         if (_sessionTabs.Count > 0)
             await ActivateSessionTab(_sessionTabs[0].SessionId);
         else
@@ -1512,6 +1564,59 @@
         _sessionTabs = SessionService.GetAllSessions()
             .OrderBy(s => s.CreatedAt)
             .ToList();
+    }
+
+    // ── DDS 세션 관리 ─────────────────────────────────────────────
+    private void RefreshDdsSessionTabs()
+    {
+        _ddsSessionTabs = DdsSessions.GetAll()
+            .OrderBy(s => s.CreatedAt)
+            .ToList();
+    }
+
+    private void ToggleDdsCreateForm()
+    {
+        _showDdsCreateForm = !_showDdsCreateForm;
+    }
+
+    private async Task OnDdsSessionCreated(DdsSession session)
+    {
+        _showDdsCreateForm = false;
+        RefreshDdsSessionTabs();
+        await ActivateDdsSession(session.SessionId);
+    }
+
+    private async Task ActivateDdsSession(string sessionId)
+    {
+        var session = DdsSessions.Get(sessionId);
+        if (session == null)
+        {
+            RefreshDdsSessionTabs();
+            return;
+        }
+
+        // DDS 활성 시 gRPC 활성 상태를 비워서 본문이 DdsSessionPanel로 분기되도록.
+        _activeDdsSession = session;
+        _activeSessionId = null;
+        State.SetSession(null);
+        State.SetSelected(null, null);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CloseDdsSession(string sessionId)
+    {
+        await DdsSessions.DeleteAsync(sessionId);
+        RefreshDdsSessionTabs();
+        if (_activeDdsSession?.SessionId == sessionId)
+        {
+            _activeDdsSession = null;
+            // gRPC 세션이 남아 있으면 첫 번째로 복귀
+            if (_sessionTabs.Count > 0)
+                await ActivateSessionTab(_sessionTabs[0].SessionId);
+            else if (_ddsSessionTabs.Count > 0)
+                await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private string FormatSessionTabLabel(GrpcSession session)
@@ -1715,6 +1820,7 @@
 
         _activeSessionId = session.SessionId;
         _showNewSessionForm = false;
+        _activeDdsSession = null; // gRPC 활성화 시 DDS 패널은 닫음
         State.SetSession(session);
         State.SetServices(session.Services);
         _loadedProtoFileName = session.ProtoFileName;

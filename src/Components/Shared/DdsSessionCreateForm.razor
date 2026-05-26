@@ -1,0 +1,151 @@
+@using GrpcWorkbench.Models.Dds
+@using GrpcWorkbench.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDdsSessionService DdsSessions
+@inject ISnackbar Snackbar
+
+<div class="wb-panel wb-panel--contain pa-3">
+    <div class="wb-panel-kicker">새 DDS 세션</div>
+    <div class="wb-panel-heading">DDSSim.xml + dds-config.xml 업로드 + 도메인 ID</div>
+
+    <div class="wb-home-form mt-3">
+        <MudTextField @bind-Value="_name" Label="세션 이름" Placeholder="예: DDSSim domain 0"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudNumericField @bind-Value="_domainId" Label="Domain ID" Min="0" Max="232"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField @bind-Value="_multicast" Label="멀티캐스트 주소 (선택)" Placeholder="239.255.0.1"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField @bind-Value="_allowInterfaces" Label="Allow Interfaces (쉼표 구분, 선택)"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField @bind-Value="_denyInterfaces" Label="Deny Interfaces (쉼표 구분, 선택)"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </div>
+
+    <div class="wb-home-form mt-3">
+        <div>
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnTypesFileSelected" Accept=".xml">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.UploadFile">
+                        타입 정의 XML (DDSSim.xml)
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <div class="wb-inline-note mt-1">@(_typesFileName ?? "선택 안 됨")</div>
+        </div>
+        <div>
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnConfigFileSelected" Accept=".xml">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.UploadFile">
+                        토픽/QoS 설정 XML (dds-config.xml)
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <div class="wb-inline-note mt-1">@(_configFileName ?? "선택 안 됨")</div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="wb-inline-note mt-2" style="color:var(--mud-palette-error);">@_error</div>
+    }
+
+    <div class="d-flex mt-3" style="gap:8px;">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="Submit" Disabled="_creating"
+                   StartIcon="@Icons.Material.Filled.AddLink">
+            @if (_creating)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <text>생성 중…</text>
+            }
+            else
+            {
+                <text>DDS 세션 생성</text>
+            }
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="OnCancelled">취소</MudButton>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<DdsSession> OnCreated { get; set; }
+    [Parameter] public EventCallback OnCancelled { get; set; }
+
+    private string _name = "";
+    private int _domainId = 0;
+    private string _multicast = "";
+    private string _allowInterfaces = "";
+    private string _denyInterfaces = "";
+
+    private byte[]? _typesBytes;
+    private string? _typesFileName;
+    private byte[]? _configBytes;
+    private string? _configFileName;
+
+    private bool _creating;
+    private string? _error;
+
+    private async Task OnTypesFileSelected(IBrowserFile? file)
+    {
+        if (file == null) return;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: 16 * 1024 * 1024).CopyToAsync(ms);
+        _typesBytes = ms.ToArray();
+        _typesFileName = file.Name;
+    }
+
+    private async Task OnConfigFileSelected(IBrowserFile? file)
+    {
+        if (file == null) return;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: 4 * 1024 * 1024).CopyToAsync(ms);
+        _configBytes = ms.ToArray();
+        _configFileName = file.Name;
+    }
+
+    private async Task Submit()
+    {
+        _error = null;
+        if (_typesBytes == null) { _error = "타입 정의 XML이 필요합니다"; return; }
+        if (_configBytes == null) { _error = "토픽/QoS 설정 XML이 필요합니다"; return; }
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "세션 이름을 입력하세요"; return; }
+
+        _creating = true;
+        try
+        {
+            var typesXml = System.Text.Encoding.UTF8.GetString(_typesBytes);
+            var configXml = System.Text.Encoding.UTF8.GetString(_configBytes);
+            var transport = new DdsTransportSettings
+            {
+                DomainId = _domainId,
+                MulticastAddress = string.IsNullOrWhiteSpace(_multicast) ? null : _multicast.Trim(),
+                AllowInterfaces = ParseCsv(_allowInterfaces),
+                DenyInterfaces = ParseCsv(_denyInterfaces),
+            };
+            var session = await Task.Run(() => DdsSessions.Create(new DdsSessionCreateRequest
+            {
+                Name = _name.Trim(),
+                Transport = transport,
+                TypesXmlContent = typesXml,
+                TypesXmlFileName = _typesFileName,
+                ConfigXmlContent = configXml,
+                ConfigXmlFileName = _configFileName,
+            }));
+            Snackbar.Add($"DDS 세션 생성: {session.Name}", Severity.Success);
+            await OnCreated.InvokeAsync(session);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private static List<string> ParseCsv(string s) =>
+        s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+}

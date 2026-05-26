@@ -18,6 +18,11 @@
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.9.2" />
     <PackageReference Include="MudBlazor" Version="7.15.0" />
+
+    <!-- RTI Connext DDS (rti/nupkg/에 .nupkg 4개; DDS 탭이 DynamicData로 사용) -->
+    <PackageReference Include="Rti.ConnextDds" Version="7.3.1" />
+    <PackageReference Include="Rti.ConnextDds.Extra" Version="7.3.1" />
+    <PackageReference Include="Rti.ConnextDds.Native" Version="7.3.1" />
   </ItemGroup>
 
   <ItemGroup>

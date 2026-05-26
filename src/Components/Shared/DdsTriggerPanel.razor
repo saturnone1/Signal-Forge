@@ -1,0 +1,225 @@
+@using GrpcWorkbench.Models.Dds
+@using GrpcWorkbench.Models.Session
+@using GrpcWorkbench.Services
+@inject DdsTriggerService Triggers
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@if (Session != null)
+{
+    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+        <div class="d-flex align-center mb-2" style="gap:8px;">
+            <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
+            <div>
+                <div class="wb-panel-kicker">DDS 자동화</div>
+                <div class="wb-panel-heading">주기 / 다발 / 수신-응답 트리거</div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_triggers.Count</MudChip>
+            <MudSpacer />
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="ToggleAddForm">Trigger 추가</MudButton>
+        </div>
+
+        @if (_showAddForm)
+        {
+            <div class="wb-subpanel mt-2 pa-3">
+                <div class="wb-panel-kicker">새 트리거</div>
+                <div class="wb-home-form mt-2">
+                    <MudTextField @bind-Value="_draft.Name" Label="이름" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudSelect T="DdsTriggerType" @bind-Value="_draft.Type" Label="타입" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="DdsTriggerType.Periodic">주기 (Periodic)</MudSelectItem>
+                        <MudSelectItem Value="DdsTriggerType.Bulk">다발 (Bulk)</MudSelectItem>
+                        <MudSelectItem Value="DdsTriggerType.OnIncoming">수신-응답 (OnIncoming)</MudSelectItem>
+                    </MudSelect>
+                    <MudSelect T="string" Label="대상 토픽" Value="_draft.TopicName" ValueChanged="OnDraftTopicChanged"
+                               Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var t in Session.Topics)
+                        {
+                            <MudSelectItem T="string" Value="@t.TopicName">@t.TopicName · @t.TypeName</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_draft.Type == DdsTriggerType.Periodic)
+                    {
+                        <MudNumericField @bind-Value="_draft.IntervalMs" Label="주기 (ms)" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+                    @if (_draft.Type == DdsTriggerType.Bulk)
+                    {
+                        <MudNumericField @bind-Value="_draft.BulkCount" Label="개수" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+                    @if (_draft.Type == DdsTriggerType.OnIncoming)
+                    {
+                        <MudSelect T="string" @bind-Value="_draft.MatchTopicName" Label="매칭 source 토픽"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense">
+                            @foreach (var t in Session.Topics)
+                            {
+                                <MudSelectItem T="string" Value="@t.TopicName">@t.TopicName</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </div>
+                <MudTextField @bind-Value="_draft.JsonPayload" Lines="6" Label="JSON 페이로드"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+                <div class="d-flex align-center mt-3" style="gap:8px;">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="SaveDraft">저장</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ToggleAddForm">취소</MudButton>
+                </div>
+            </div>
+        }
+
+        @if (_triggers.Count == 0)
+        {
+            <div class="wb-empty mt-3">
+                <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
+                <div>등록된 DDS 트리거 없음</div>
+            </div>
+        }
+        else
+        {
+            foreach (var t in _triggers)
+            {
+                <div @key="t.Id" class="wb-panel pa-2 mb-2 wb-trigger-card">
+                    <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                        <MudSwitch T="bool" Value="t.Enabled"
+                                   ValueChanged="@((bool v) => Triggers.SetEnabled(t.Id, v))"
+                                   Color="Color.Success" Size="Size.Small" />
+                        <MudChip T="string" Size="Size.Small" Color="@TriggerColor(t.Type)" Variant="Variant.Filled" Class="ma-0">@t.Type</MudChip>
+                        <span style="font-weight:600;">@(string.IsNullOrEmpty(t.Name) ? t.Id[..8] : t.Name)</span>
+                        <span class="wb-mono" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">→ @t.TopicName</span>
+                        @switch (t.Type)
+                        {
+                            case DdsTriggerType.Periodic:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">every @t.IntervalMs ms @(t.MaxFires.HasValue ? $"· max {t.MaxFires}" : "")</span>
+                                break;
+                            case DdsTriggerType.Bulk:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">×@t.BulkCount @(t.BulkParallel ? "parallel" : "seq")</span>
+                                break;
+                            case DdsTriggerType.OnIncoming:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">on @(t.MatchTopicName ?? "*")</span>
+                                break;
+                        }
+                        <MudSpacer />
+                        <span style="font-size:.7rem;">실행 @t.TotalFires 회</span>
+                        @if (t.Errors > 0)
+                        {
+                            <MudTooltip Text="@(t.LastError ?? "")">
+                                <span style="font-size:.7rem;color:var(--mud-palette-error);">오류 @t.Errors</span>
+                            </MudTooltip>
+                        }
+                        @if (t.LastFiredAt.HasValue)
+                        {
+                            <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">@t.LastFiredAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                        }
+                        @if (t.Type == DdsTriggerType.Bulk)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Size="Size.Small" Color="Color.Success"
+                                           OnClick="@(() => FireBulk(t))" title="@($"Bulk 발사 ({t.BulkCount}건)")" />
+                        }
+                        else
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                           OnClick="@(() => FireOnce(t))" title="1회 발사" />
+                        }
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error"
+                                       OnClick="@(() => Remove(t))" title="삭제" />
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public DdsSession? Session { get; set; }
+
+    private IReadOnlyList<DdsTrigger> _triggers = [];
+    private bool _showAddForm;
+    private DdsTrigger _draft = new() { SessionId = "" };
+
+    protected override void OnInitialized()
+    {
+        Triggers.Changed += OnTriggersChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        if (Session != null)
+            _triggers = Triggers.Snapshot(Session.SessionId);
+    }
+
+    private void ToggleAddForm()
+    {
+        _showAddForm = !_showAddForm;
+        if (_showAddForm && Session != null)
+        {
+            _draft = new DdsTrigger { SessionId = Session.SessionId };
+            if (Session.Topics.Count > 0)
+            {
+                _draft.TopicName = Session.Topics[0].TopicName;
+                _draft.TypeName = Session.Topics[0].TypeName;
+                _draft.QosProfileName = Session.Topics[0].QosProfileName;
+            }
+        }
+    }
+
+    private void OnDraftTopicChanged(string topicName)
+    {
+        _draft.TopicName = topicName;
+        if (Session != null)
+        {
+            var t = Session.Topics.FirstOrDefault(x => x.TopicName == topicName);
+            if (t != null) { _draft.TypeName = t.TypeName; _draft.QosProfileName = t.QosProfileName; }
+        }
+    }
+
+    private void SaveDraft()
+    {
+        if (Session == null) return;
+        if (string.IsNullOrWhiteSpace(_draft.TopicName)) { Snackbar.Add("토픽을 선택하세요", Severity.Warning); return; }
+        Triggers.Add(_draft);
+        Snackbar.Add("DDS 트리거 추가", Severity.Success);
+        _showAddForm = false;
+    }
+
+    private void FireOnce(DdsTrigger t)
+    {
+        var r = Triggers.FireOnce(t.Id);
+        if (!r.Success) Snackbar.Add($"발사 실패: {r.Error}", Severity.Error);
+    }
+
+    private void FireBulk(DdsTrigger t)
+    {
+        Triggers.FireBulk(t.Id);
+        Snackbar.Add($"Bulk 발사: {t.BulkCount}건", Severity.Info);
+    }
+
+    private void Remove(DdsTrigger t)
+    {
+        Triggers.Remove(t.Id);
+    }
+
+    private async void OnTriggersChanged()
+    {
+        Refresh();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static Color TriggerColor(DdsTriggerType type) => type switch
+    {
+        DdsTriggerType.Periodic => Color.Info,
+        DdsTriggerType.Bulk => Color.Warning,
+        DdsTriggerType.OnIncoming => Color.Secondary,
+        _ => Color.Default,
+    };
+
+    public void Dispose()
+    {
+        Triggers.Changed -= OnTriggersChanged;
+    }
+}

@@ -37,3 +37,10 @@ README.md
 # A repo should track its own README/LICENSE (VS template wrongly ignores them)
 !/README.md
 !/LICENSE
+
+# RTI Connext (상용) — nupkg와 라이선스는 추적하지 않음. 각자 RTI 설치본에서 복사.
+# (packages/는 air-gapped offline build를 위해 vendored — 추적 유지)
+rti/nupkg/*.nupkg
+rti/license/
+*.rtipkg
+*.run
