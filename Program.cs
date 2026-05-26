@@ -1,3 +1,4 @@
+using GrpcWorkbench.Dds;
 using GrpcWorkbench.Grpc;
 using GrpcWorkbench.Services;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -52,6 +53,12 @@ builder.Services.AddSingleton<WorkbenchStateService>();
 builder.Services.AddSingleton<TriggerExecutor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TriggerExecutor>());
 builder.Services.AddScoped<UiStateService>();
+
+// DDS (RTI Connext) — DDS 탭에서 사용
+builder.Services.AddSingleton<DdsParticipantHostFactory>();
+builder.Services.AddSingleton<IDdsSessionService, DdsSessionService>();
+builder.Services.AddSingleton<DdsStateService>();
+builder.Services.AddSingleton<DdsTriggerService>();
 
 builder.Services.AddCors(options =>
 {
