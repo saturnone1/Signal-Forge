@@ -1,5 +1,44 @@
 /* gRPC Workbench — dark-first dev-tool design layer.
    Built on MudBlazor CSS variables so everything follows the active theme. */
+
+@font-face {
+  font-family: "AppSans";
+  src:
+    url("/fonts/NotoSansKR-VF.ttf") format("truetype"),
+    local("Noto Sans KR"),
+    local("NotoSansKR"),
+    local("Noto Sans CJK KR"),
+    local("Malgun Gothic"),
+    local("Apple SD Gothic Neo"),
+    local("Segoe UI");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --wb-sans: "AppSans", "Noto Sans KR", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Roboto", "Helvetica Neue", "Arial", sans-serif;
+  --wb-mono: "AppSans", "Noto Sans KR", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Roboto", "Helvetica Neue", "Arial", sans-serif;
+}
+
+html,
+body,
+button,
+input,
+textarea,
+select,
+.mud-typography,
+.mud-button-root,
+.mud-input,
+.mud-input-label,
+.mud-chip,
+.mud-tab,
+.mud-table,
+.mud-dialog,
+.mud-list,
+.mud-popover,
+.mud-tooltip {
+  font-family: var(--wb-sans);
 }
 
 .wb-section-order-4 {

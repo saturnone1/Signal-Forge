@@ -22,7 +22,7 @@
 @using GrpcWorkbench.Dds
 @implements IDisposable
 
-<PageTitle>gRPC 워크벤치</PageTitle>
+<PageTitle>Signal Forge</PageTitle>
 
 <div class="wb-page pa-3">
     @{
@@ -60,7 +60,7 @@
                 <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Warning" />
                 <div style="flex:1 1 320px;min-width:0;">
                     <div class="wb-panel-heading">다른 탭이 현재 활성입니다</div>
-                    <div class="wb-inline-note">이 배너는 경고만 표시합니다. 편집과 확인은 계속 할 수 있고, 이 탭을 다시 활성로 가져오려면 오른쪽 버튼을 누르세요.</div>
+                    <div class="wb-inline-note">경고 배너만 표시 중이에요. 편집과 확인은 계속 가능하고, 이 탭을 다시 앞으로 가져오려면 오른쪽 버튼을 누르면 돼요.</div>
                 </div>
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning"
                            StartIcon="@Icons.Material.Filled.Refresh"
@@ -109,8 +109,8 @@
                 <div class="wb-session-tab @(IsDdsSessionActive(dds.SessionId) ? "is-active" : null)">
                     <button type="button" class="wb-session-tab-main"
                             @onclick="@(() => ActivateDdsSession(dds.SessionId))">
-                        <span class="wb-session-tab-title">[DDS] @dds.Name</span>
-                        <span class="wb-session-tab-note">domain @dds.Transport.DomainId · @dds.SessionId[..8]</span>
+                        <span class="wb-session-tab-title">@FormatDdsSessionTabLabel(dds)</span>
+                        <span class="wb-session-tab-note">@FormatDdsSessionTabNote(dds)</span>
                     </button>
                     <button type="button" class="wb-session-tab-close" title="DDS 탭 닫기"
                             @onclick:stopPropagation="true"
@@ -132,7 +132,7 @@
             <div class="wb-panel wb-panel--contain pa-4 mt-3">
                 <div class="wb-panel-kicker">새 탭</div>
                 <div class="wb-panel-heading">먼저 열 작업 공간 하나를 고르세요</div>
-                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 추가로 여는 작업입니다." : "열린 탭이 아직 없습니다. 관찰용 gRPC 탭, 연결형 gRPC 탭, DDS 작업 탭 중 하나로 시작하세요.")</div>
+                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 나란히 여는 용도예요." : "아직 열린 탭이 없어요. 관찰용 gRPC 탭, 연결형 gRPC 탭, DDS 작업 탭 가운데 하나부터 열어 보세요.")</div>
 
                 <div class="wb-mode-strip mt-3">
                     <button type="button"
@@ -140,21 +140,21 @@
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcListener))">
                         <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Small" Color="Color.Info" />
                         <div class="wb-mode-title">gRPC 수신 탭</div>
-                        <div class="wb-mode-note">연결 없이 수신 RPC와 이벤트 로그만 관찰합니다.</div>
+                        <div class="wb-mode-note">연결 없이 수신 RPC와 이벤트 로그만 확인</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Primary" />
                         <div class="wb-mode-title">gRPC 세션 탭</div>
-                        <div class="wb-mode-note">소켓 하나에 연결해 호출, 스트림, proto를 세션 단위로 다룹니다.</div>
+                        <div class="wb-mode-note">소켓 하나에 연결해 호출, 스트림, proto를 세션 단위로 관리</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.DdsSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.DdsSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Secondary" />
                         <div class="wb-mode-title">DDS 세션 탭</div>
-                        <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행을 엽니다.</div>
+                        <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행 시작</div>
                     </button>
                 </div>
 
@@ -163,7 +163,7 @@
                     <div class="wb-subpanel mt-3">
                         <div class="wb-panel-kicker">gRPC 수신 탭</div>
                         <div class="wb-panel-heading">세션 없이 관찰 전용 탭 열기</div>
-                        <div class="wb-inline-note mt-2">디버깅, 수신 감시, 이벤트 확인처럼 “먼저 보기”가 목적일 때 가장 가볍게 시작할 수 있습니다.</div>
+                        <div class="wb-inline-note mt-2">디버깅, 수신 감시, 이벤트 확인처럼 “먼저 보기”가 목적일 때 가장 가볍게 시작할 수 있어요.</div>
                         <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.AddToPhotos"
                                    OnClick="OpenListenerTab">
@@ -181,10 +181,10 @@
                                           Label="탭 이름" Placeholder="예: B 피어 테스트"
                                           Variant="Variant.Outlined" Margin="Margin.Dense" />
                             <MudTextField @bind-Value="_socketPath"
-                                          Label="연결할 소켓 경로" Placeholder="현재 워크벤치 수신 소켓"
+                                          Label="연결할 소켓 경로" Placeholder="현재 인스턴스 수신 소켓"
                                           Variant="Variant.Outlined" Margin="Margin.Dense"
                                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Shortcut"
-                                          AdornmentAriaLabel="현재 워크벤치 수신 소켓 경로" OnAdornmentClick="FillWorkbenchSocketPath" />
+                                          AdornmentAriaLabel="현재 인스턴스 수신 소켓 경로" OnAdornmentClick="FillWorkbenchSocketPath" />
                             <MudNumericField @bind-Value="_timeoutSeconds" Label="타임아웃 (초)"
                                              Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="300" />
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
@@ -201,7 +201,7 @@
                                 }
                             </MudButton>
                         </div>
-                        <div class="wb-inline-note mt-3">탭 이름은 비워도 됩니다. 소켓 경로나 세션 ID를 기준으로 자동 이름을 붙입니다. 내 소켓: @_mySocketPath</div>
+                        <div class="wb-inline-note mt-3">탭 이름은 비워도 괜찮아요. 소켓 경로나 세션 ID를 기준으로 자동 이름을 붙여요. 내 소켓: @_mySocketPath</div>
                     </div>
                 }
                 else
@@ -229,7 +229,7 @@
             <MudIcon Icon="@Icons.Material.Filled.RssFeed" Size="Size.Small" Color="Color.Info" />
             <div>
                 <div class="wb-panel-kicker">수신 전용 탭</div>
-                <div class="wb-panel-heading">세션 연결 없이 관찰과 기록에 집중합니다</div>
+                <div class="wb-panel-heading">세션 연결 없이 관찰과 기록에 집중</div>
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">listener-only</MudChip>
             <MudSpacer />
@@ -243,7 +243,7 @@
         <div class="wb-listener-summary-grid">
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">현재 listener 범위</span><br />
-                <text>모든 수신 RPC와 이벤트 로그를 세션 필터 없이 표시합니다.</text>
+                <text>모든 수신 RPC와 이벤트 로그를 세션 필터 없이 표시</text>
             </div>
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">관찰 요약</span><br />
@@ -251,7 +251,7 @@
             </div>
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">세션 탭과 차이</span><br />
-                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리, 자동 송신, 송신 이력을 숨깁니다.</text>
+                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리, 자동 송신, 송신 이력을 숨김</text>
             </div>
         </div>
     </div>
@@ -506,7 +506,7 @@
                                         <div class="wb-panel-kicker">상세</div>
                                         <div class="d-flex align-center" style="gap:6px;">
                                             <div class="wb-panel-heading">수신 스트림/호출</div>
-                                            <MudTooltip Text="수신 집계는 Service.Method 기준으로 정리되고, 펼쳤을 때만 프레임 상세를 보여줍니다. 오래된 유휴 RPC는 정리할 수 있고, 전체 스냅샷은 파일로 저장할 수 있습니다.">
+                                            <MudTooltip Text="수신 집계는 Service.Method 기준으로 정리해 두고, 펼쳤을 때만 프레임 상세를 보여줘요. 오래된 유휴 RPC 정리와 전체 스냅샷 저장도 여기서 할 수 있어요.">
                                                 <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                             </MudTooltip>
                                         </div>
@@ -653,7 +653,7 @@
 
                 @if (_triggersExpanded)
                 {
-                    <div class="wb-inline-note mb-3">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오가 생성됩니다. 모든 단계는 시나리오 안에서만 관리하고, 여기서는 `수동 전체 실행`, `자동 단계 시작`, `전체 시작`으로 시나리오를 제어합니다.</div>
+                    <div class="wb-inline-note mb-3">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오를 만들어요. 모든 단계는 시나리오 안에서만 관리하고, 여기서는 `수동 전체 실행`, `자동 단계 시작`, `전체 시작`으로 시나리오를 제어해요.</div>
                     var scenarioGroups = BuildScenarioGroups(triggerSnapshot);
                     @if (scenarioGroups.Count > 0)
                     {
@@ -661,7 +661,7 @@
                             <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
                                 <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Info" />
                                 <span class="wb-panel-title">시나리오 단계</span>
-                                <MudTooltip Text="수동 전체 실행은 모든 단계를 순서대로 한 번 수행합니다. 자동 단계 시작은 이 시나리오의 모든 단계를 켭니다. 전체 시작은 수동 실행 뒤 자동 단계를 유지합니다.">
+                                <MudTooltip Text="수동 전체 실행은 모든 단계를 순서대로 한 번 수행해요. 자동 단계 시작은 이 시나리오의 자동 단계를 켜고, 전체 시작은 수동 실행 뒤 자동 단계를 이어서 유지해요.">
                                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                 </MudTooltip>
                                 <MudSpacer />
@@ -694,7 +694,7 @@
                                                 <MudChip T="string" Size="Size.Small" Color="@(group.OrderedSteps.Any(step => step.Enabled) ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">@group.OrderedSteps.Count(step => step.Enabled) 동작 중</MudChip>
                                             </div>
                                         </div>
-                                        <div class="wb-inline-note mt-2">수동 전체 실행은 모든 단계를 순서대로 한 번 보냅니다. 자동 단계 시작은 이 시나리오의 모든 단계를 백그라운드에서 유지합니다.</div>
+                                        <div class="wb-inline-note mt-2">수동 전체 실행은 모든 단계를 순서대로 한 번 보내요. 자동 단계 시작은 이 시나리오의 자동 단계를 백그라운드에서 계속 유지해요.</div>
                                         <div class="wb-scenario-step-actions mt-2">
                                             <MudButton Variant="Variant.Text" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.Add"
@@ -962,7 +962,7 @@
                         <div>
                             <div class="wb-panel-kicker d-flex align-center" style="gap:6px;">
                                 <span>트리거 편집기</span>
-                                <MudTooltip Text="대상 서비스·메서드, payload, 수동 발사를 여기서 처리합니다. 스트리밍 RPC는 로컬 스트림 기준에 따라 열린 스트림을 재사용하거나 발사 시 자동으로 엽니다.">
+                                <MudTooltip Text="대상 서비스·메서드, payload, 수동 발사는 여기서 다뤄요. 스트리밍 RPC는 로컬 스트림 기준에 따라 열린 스트림을 재사용하거나 발사 시 자동으로 열어요.">
                                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                 </MudTooltip>
                             </div>
@@ -977,7 +977,7 @@
                                           Margin="Margin.Dense" Variant="Variant.Outlined" />
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            <div class="wb-inline-note" style="margin-top:12px;">시나리오 @NormalizeScenarioName(editor.Scenario) 안의 단계입니다. 순서는 카드의 위/아래 버튼으로만 바꿉니다.</div>
+                            <div class="wb-inline-note" style="margin-top:12px;">시나리오 @NormalizeScenarioName(editor.Scenario) 안의 단계예요. 순서는 카드의 위/아래 버튼으로만 바꿔 주세요.</div>
                         </MudItem>
                         <MudItem xs="12" sm="6">
                             <MudSelect T="TriggerType" Value="editor.Type"
@@ -1066,7 +1066,7 @@
                             {
                                 <div class="d-flex align-center" style="margin-top:4px;min-height:56px;gap:8px;">
                                     <span class="wb-inline-note">열린 로컬 스트림 재사용 방식</span>
-                                    <MudTooltip Text="트리거는 아래에서 열린 로컬 스트림을 골라 재사용하거나, 설정된 로컬 스트림 기준에 따라 발사 시 자동으로 엽니다.">
+                                    <MudTooltip Text="트리거는 아래에서 열린 로컬 스트림을 골라 재사용하거나, 설정된 로컬 스트림 기준에 따라 발사 시 자동으로 열어요.">
                                         <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                     </MudTooltip>
                                 </div>
@@ -1088,7 +1088,7 @@
                                 </MudSelect>
                                 @if (compatibleOpenLocalStreams.Count == 0)
                                 {
-                                    <div class="wb-inline-note" style="margin-top:4px;">현재 호환되는 열린 로컬 스트림이 없어서 이 드롭다운은 비활성입니다.</div>
+                                    <div class="wb-inline-note" style="margin-top:4px;">지금은 호환되는 열린 로컬 스트림이 없어서 이 드롭다운이 비활성 상태예요.</div>
                                 }
                             }
                         </MudItem>
@@ -1583,6 +1583,7 @@
     private void ActivateAddTab()
     {
         _activeTabKind = WorkbenchTabKind.Add;
+        Ui.SetWorkspace("새 탭", "gRPC / DDS 작업 선택");
     }
 
     private void SelectNewTabKind(WorkbenchNewTabKind kind)
@@ -1607,6 +1608,7 @@
         State.SetSession(null);
         State.SetSelected(null, null);
         Ui.SetConnection(false, null);
+        Ui.SetWorkspace("gRPC 수신 탭", "수신 RPC 관찰 전용");
         RefreshSelectedLocalStream();
         await InvokeAsync(StateHasChanged);
     }
@@ -1670,6 +1672,8 @@
         _activeSessionId = null;
         State.SetSession(null);
         State.SetSelected(null, null);
+        Ui.SetConnection(false, null);
+        Ui.SetWorkspace(FormatDdsSessionTabLabel(session), FormatDdsSessionTabNote(session));
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1688,19 +1692,37 @@
 
     private string FormatSessionTabLabel(GrpcSession session)
     {
+        var shortId = session.SessionId[..4];
         if (!string.IsNullOrWhiteSpace(session.DisplayName))
-            return session.DisplayName.Trim();
+            return AppendTabIdentity(session.DisplayName.Trim(), shortId);
 
         var path = session.UnixSocketPath?.Trim();
         if (string.IsNullOrWhiteSpace(path))
-            return $"세션 {session.SessionId[..8]}";
+            return $"세션 {shortId}";
 
         var normalized = path.Replace('\\', '/').TrimEnd('/');
         var last = normalized.Split('/').LastOrDefault();
         return string.IsNullOrWhiteSpace(last)
-            ? $"세션 {session.SessionId[..8]}"
-            : last;
+            ? $"세션 {shortId}"
+            : AppendTabIdentity(last, shortId);
     }
+
+    private string FormatDdsSessionTabLabel(DdsSession session)
+    {
+        var baseLabel = string.IsNullOrWhiteSpace(session.Name)
+            ? $"DDS d{session.Transport.DomainId}"
+            : session.Name.Trim();
+
+        return AppendTabIdentity(baseLabel, session.SessionId[..4]);
+    }
+
+    private static string FormatDdsSessionTabNote(DdsSession session)
+        => $"DDS · domain {session.Transport.DomainId}";
+
+    private static string AppendTabIdentity(string label, string shortId)
+        => label.Contains(shortId, StringComparison.OrdinalIgnoreCase)
+            ? label
+            : $"{label} · {shortId}";
 
     private string CurrentProtoLabel()
     {
@@ -1837,12 +1859,12 @@
     private string SelectedStreamMethodNote()
     {
         if (_selectedMethod == null)
-            return "서비스와 메서드를 고르면 이 세션에서 로컬 스트림을 미리 열 수 있습니다.";
+            return "서비스와 메서드를 고르면 이 세션에서 로컬 스트림을 미리 열 수 있어요.";
 
         return _selectedMethod.RpcType switch
         {
-            "ClientStreaming" or "BidirectionalStreaming" => "스트림을 열어 두면 이 세션의 트리거, 시나리오, 수동 1회 발사에서 선택 후 재사용할 수 있습니다.",
-            _ => "이 메서드는 스트리밍 RPC가 아니라 미리 열린 로컬 스트림 대상으로 사용할 수 없습니다."
+            "ClientStreaming" or "BidirectionalStreaming" => "스트림을 열어 두면 이 세션의 트리거, 시나리오, 수동 1회 발사에서 골라 다시 쓸 수 있어요.",
+            _ => "이 메서드는 스트리밍 RPC가 아니라 미리 열린 로컬 스트림 대상으로는 쓸 수 없어요."
         };
     }
 
@@ -1895,6 +1917,7 @@
         State.SetSelected(null, null);
         _socketPath = session.UnixSocketPath ?? _socketPath;
         Ui.SetConnection(true, session.UnixSocketPath);
+        Ui.SetWorkspace(FormatSessionTabLabel(session), "gRPC 세션");
         RefreshSelectedLocalStream();
         await SaveToLocalStorage();
     }
@@ -2906,7 +2929,7 @@
 
         if (visibleCalls.Count == 0)
         {
-            Snackbar.Add("내보낼 Incoming 데이터가 없습니다.", Severity.Warning);
+            Snackbar.Add("내보낼 Incoming 데이터가 없어요.", Severity.Warning);
             return;
         }
 
@@ -2954,7 +2977,7 @@
         var removed = State.TrimIncomingAggregates(32);
         Snackbar.Add(removed > 0
             ? $"Idle Incoming RPC {removed}건 정리 완료"
-            : "정리할 idle Incoming RPC가 없습니다.",
+            : "정리할 idle Incoming RPC가 없어요.",
             removed > 0 ? Severity.Success : Severity.Info);
     }
 
@@ -2963,7 +2986,7 @@
         var outbound = VisibleOutboundMessages();
         if (outbound.Count == 0)
         {
-            Snackbar.Add("내보낼 Outbound 이력이 없습니다.", Severity.Warning);
+            Snackbar.Add("내보낼 Outbound 이력이 없어요.", Severity.Warning);
             return;
         }
 
@@ -2984,7 +3007,7 @@
         var removed = State.TrimOutbound(500);
         Snackbar.Add(removed > 0
             ? $"Outbound 오래된 이력 {removed}건 정리 완료"
-            : "정리할 Outbound 이력이 없습니다.",
+            : "정리할 Outbound 이력이 없어요.",
             removed > 0 ? Severity.Success : Severity.Info);
     }
 
@@ -3004,7 +3027,7 @@
     {
         if (triggers.Count == 0)
         {
-            Snackbar.Add("내보낼 시나리오가 없습니다.", Severity.Warning);
+            Snackbar.Add("내보낼 시나리오가 없어요.", Severity.Warning);
             return;
         }
 
@@ -3030,7 +3053,7 @@
             var payload = JsonSerializer.Deserialize<ScenarioExportFile>(json);
             if (payload?.Triggers == null || payload.Triggers.Count == 0)
             {
-                Snackbar.Add("불러올 gRPC 시나리오 단계가 없습니다.", Severity.Warning);
+                Snackbar.Add("불러올 gRPC 시나리오 단계가 없어요.", Severity.Warning);
                 return;
             }
 
@@ -3302,19 +3325,19 @@
     private string TriggerLocalStreamPolicyNote(Trigger t)
     {
         if (!TriggerUsesStreamingRpc(t))
-            return "Unary / ServerStreaming 대상은 로컬 스트림 정책을 쓰지 않습니다.";
+            return "Unary / ServerStreaming 대상에는 로컬 스트림 정책을 쓰지 않아요.";
         if (!string.IsNullOrWhiteSpace(t.InboundTargetCallId))
-            return "inbound 스트림 대상을 지정하면 로컬 스트림 정책보다 inbound 응답 스트림 전송이 우선합니다.";
+            return "inbound 스트림 대상을 지정하면 로컬 스트림 정책보다 inbound 응답 스트림 전송을 먼저 써요.";
 
         return t.LocalStreamMode switch
         {
             TriggerLocalStreamMode.RequireCompatibleOpen => TriggerMatchesCurrentOpenLocalStream(t)
-                ? "현재 열린 로컬 스트림이 이 트리거 대상과 호환되므로 그 스트림에 씁니다."
-                : "같은 세션, 서비스, 메서드, RPC 타입이 모두 일치하는 열린 로컬 스트림이 필요합니다.",
-            TriggerLocalStreamMode.AlwaysOpenNew => "발사할 때마다 새 로컬 스트림을 열고 payload 전송 후 닫습니다.",
+                ? "현재 열린 로컬 스트림이 이 트리거 대상과 호환돼서 그 스트림에 바로 써요."
+                : "같은 세션, 서비스, 메서드, RPC 타입이 모두 일치하는 열린 로컬 스트림이 필요해요.",
+            TriggerLocalStreamMode.AlwaysOpenNew => "발사할 때마다 새 로컬 스트림을 열고 payload 전송 뒤 닫아요.",
             _ => TriggerMatchesCurrentOpenLocalStream(t)
-                ? "현재 열린 호환 로컬 스트림이 있으므로 재사용합니다. 없으면 자동으로 새 스트림을 열고 닫습니다."
-                : "호환되는 열린 로컬 스트림이 없으면 발사 시 자동으로 새 스트림을 열고 닫습니다."
+                ? "현재 열린 호환 로컬 스트림이 있어서 그대로 재사용해요. 없으면 자동으로 새 스트림을 열고 닫아요."
+                : "호환되는 열린 로컬 스트림이 없으면 발사 시 자동으로 새 스트림을 열고 닫아요."
         };
     }
 

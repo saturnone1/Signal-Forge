@@ -13,28 +13,36 @@
                Style="border-bottom:1px solid var(--mud-palette-lines-default);">
         <MudIcon Icon="@Icons.Material.Filled.Hub" Color="Color.Primary" Class="mr-2" />
         <MudText Typo="Typo.subtitle1" Style="font-weight:700;letter-spacing:.02em;">
-            gRPC 워크벤치
+            Signal Forge
         </MudText>
         <MudText Typo="Typo.caption" Class="ml-3 d-none d-sm-flex"
                  Style="color:var(--mud-palette-text-disabled);">
-            UDS 기반 양방향 gRPC
+            gRPC · DDS 메시지 스튜디오
         </MudText>
 
         <MudSpacer />
 
-        @* Live connection status *@
-        <div class="d-flex align-center mr-3" style="gap:8px;">
-            <span class="wb-dot @(Ui.IsConnected ? "wb-dot--on" : "wb-dot--off")"></span>
-            <MudText Typo="Typo.caption" Style="font-weight:600;">
-                @(Ui.IsConnected ? "연결됨" : "연결 안 됨")
-            </MudText>
-            @if (Ui.IsConnected && !string.IsNullOrEmpty(Ui.SocketPath))
+        <div class="d-flex align-center mr-3" style="gap:10px;">
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Ui.WorkspaceLabel</MudChip>
+            @if (!string.IsNullOrWhiteSpace(Ui.WorkspaceDetail))
             {
-                <MudText Typo="Typo.caption" Class="wb-mono d-none d-md-flex"
-                         Style="color:var(--mud-palette-text-secondary);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                    @Ui.SocketPath
+                <MudText Typo="Typo.caption" Style="font-weight:600;">
+                    @Ui.WorkspaceDetail
                 </MudText>
             }
+            <div class="d-flex align-center" style="gap:8px;">
+                <span class="wb-dot @(Ui.IsConnected ? "wb-dot--on" : "wb-dot--off")"></span>
+                <MudText Typo="Typo.caption" Style="font-weight:600;">
+                    @(Ui.IsConnected ? "gRPC 연결됨" : "gRPC 미연결")
+                </MudText>
+                @if (Ui.IsConnected && !string.IsNullOrEmpty(Ui.SocketPath))
+                {
+                    <MudText Typo="Typo.caption" Class="wb-mono d-none d-md-flex"
+                             Style="color:var(--mud-palette-text-secondary);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        @Ui.SocketPath
+                    </MudText>
+                }
+            </div>
         </div>
 
         <MudTooltip Text="@(Ui.IsDarkMode ? "라이트 모드" : "다크 모드")">
@@ -82,12 +90,12 @@
             DefaultBorderRadius = "8px",
             AppbarHeight = "52px"
         },
-        // 폐쇄망: 외부 폰트 다운로드 없이 OS 기본 sans 스택 사용
+        // 폐쇄망: 외부 폰트 다운로드 없이 로컬 설치 글꼴 우선 사용
         // (타입명은 MudBlazor 버전마다 달라 중첩 초기자로 기존 Default 인스턴스만 수정)
         Typography = new Typography
         {
-            Default = { FontFamily = ["-apple-system", "BlinkMacSystemFont", "Segoe UI",
-                                      "Roboto", "Helvetica Neue", "Arial", "sans-serif"] }
+            Default = { FontFamily = ["AppSans", "Noto Sans KR", "Segoe UI", "Malgun Gothic",
+                                      "Apple SD Gothic Neo", "Roboto", "Helvetica Neue", "Arial", "sans-serif"] }
         },
         PaletteDark = new PaletteDark
         {
