@@ -1,23 +1,16 @@
-# GrpcWorkbench local test: two full workbench instances
+# GrpcWorkbench local test: single workbench instance
 #
-# Each instance runs BOTH:
+# The pod runs:
 #   - Web UI  (browser access)
-#   - Built-in gRPC server (UDS — receives and displays incoming calls in its own UI)
+#   - Built-in gRPC server (UDS — receives and displays incoming calls in its UI)
 #
-# Socket layout (matches production path /var/run/dds-ambassador/grpc.sock):
-#   grpc-socket-a  →  mounted at /var/run/dds-ambassador       (own server socket)
-#                  →  mounted at /var/run/dds-ambassador-peer   (B's view of A)
-#   grpc-socket-b  →  mounted at /var/run/dds-ambassador       (own server socket)
-#                  →  mounted at /var/run/dds-ambassador-peer   (A's view of B)
+# Socket layout:
+#   grpc-socket  →  mounted at /var/run/dds-ambassador
 #
 # Test flow:
-#   Open http://localhost:30226  (workbench-a)
-#     → create session with socket path: /var/run/dds-ambassador-peer/grpc.sock  (→ B)
-#     → upload proto → send a request
-#     → workbench-b's UI at http://localhost:30227 shows the incoming call
-#
-#   Open http://localhost:30227  (workbench-b)
-#     → create session with socket path: /var/run/dds-ambassador-peer/grpc.sock  (→ A)
+#   Open http://localhost:30226
+#     → create session with socket path: /var/run/dds-ambassador/grpc.sock
+#     → upload proto → send a request to the built-in receiver
 #
 # Build:  docker build -t grpc-workbench:test .
 # Deploy: kubectl apply -f k8s/local-test-pod.yaml
@@ -30,8 +23,7 @@ metadata:
     app: grpc-workbench-test
 spec:
   containers:
-    # ── Workbench A ──────────────────────────────────────────────────────────
-    - name: grpc-workbench-a
+    - name: grpc-workbench
       image: grpc-workbench:test
       imagePullPolicy: Never
       env:
@@ -40,13 +32,11 @@ spec:
         - name: ASPNETCORE_URLS
           value: "http://+:5226"
       ports:
-        - name: http-a
+        - name: http
           containerPort: 5226
       volumeMounts:
-        - name: grpc-socket-a
-          mountPath: /var/run/dds-ambassador          # 내 서버 소켓
-        - name: grpc-socket-b
-          mountPath: /var/run/dds-ambassador-peer     # 상대방(B) 소켓
+        - name: grpc-socket
+          mountPath: /var/run/dds-ambassador
       readinessProbe:
         httpGet:
           path: /health
@@ -55,35 +45,8 @@ spec:
         periodSeconds: 3
         failureThreshold: 20
 
-    # ── Workbench B ──────────────────────────────────────────────────────────
-    - name: grpc-workbench-b
-      image: grpc-workbench:test
-      imagePullPolicy: Never
-      env:
-        - name: UDS_SOCKET_PATH
-          value: /var/run/dds-ambassador/grpc.sock
-        - name: ASPNETCORE_URLS
-          value: "http://+:5227"
-      ports:
-        - name: http-b
-          containerPort: 5227
-      volumeMounts:
-        - name: grpc-socket-b
-          mountPath: /var/run/dds-ambassador          # 내 서버 소켓
-        - name: grpc-socket-a
-          mountPath: /var/run/dds-ambassador-peer     # 상대방(A) 소켓
-      readinessProbe:
-        httpGet:
-          path: /health
-          port: 5227
-        initialDelaySeconds: 5
-        periodSeconds: 3
-        failureThreshold: 20
-
   volumes:
-    - name: grpc-socket-a
-      emptyDir: {}
-    - name: grpc-socket-b
+    - name: grpc-socket
       emptyDir: {}
 
   restartPolicy: Always
@@ -98,11 +61,7 @@ spec:
   selector:
     app: grpc-workbench-test
   ports:
-    - name: workbench-a
+    - name: workbench
       port: 5226
       targetPort: 5226
       nodePort: 30226
-    - name: workbench-b
-      port: 5227
-      targetPort: 5227
-      nodePort: 30227

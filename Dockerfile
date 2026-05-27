@@ -13,7 +13,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 # Restore first (offline, from ./packages) for layer caching.
-COPY nuget.config ./
+COPY NuGet.Config ./
 COPY packages/ ./packages/
 COPY rti/ ./rti/
 COPY GrpcWorkbench.csproj ./
