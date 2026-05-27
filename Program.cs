@@ -72,6 +72,10 @@ var app = builder.Build();
 // Register .proto MIME type so UseStaticFiles serves it (ASP.NET blocks unknown extensions by default)
 var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
 provider.Mappings[".proto"] = "text/plain; charset=utf-8";
+provider.Mappings[".ttf"] = "font/ttf";
+provider.Mappings[".otf"] = "font/otf";
+provider.Mappings[".woff"] = "font/woff";
+provider.Mappings[".woff2"] = "font/woff2";
 app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 {
     ContentTypeProvider = provider,

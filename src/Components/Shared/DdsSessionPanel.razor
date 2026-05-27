@@ -65,7 +65,7 @@ else
             </div>
 
             <div class="wb-inline-note mt-3">
-                이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 우선입니다. 원본 파일명과 네트워크 설정만 남기고 미리보기 기능은 제거했습니다.
+                이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 중심이에요. 원본 파일명과 네트워크 설정만 남기고 미리보기는 뺐어요.
             </div>
         </div>
 
@@ -113,7 +113,7 @@ else
                             <div class="d-flex flex-wrap" style="gap:8px;">
                                 @if (SelectedReceivableTopicCount == 0)
                                 {
-                                    <div class="wb-inline-note">선택된 수신 토픽이 없습니다. "수신 토픽 선택" 버튼을 눌러 고르세요.</div>
+                                    <div class="wb-inline-note">선택된 수신 토픽이 없어요. "수신 토픽 선택" 버튼으로 먼저 골라 주세요.</div>
                                 }
                                 else
                                 {
@@ -256,7 +256,7 @@ else
                         <MudIcon Icon="@Icons.Material.Filled.AutoMode" Size="Size.Small" Color="Color.Primary" />
                         <div>
                             <div class="wb-panel-kicker">DDS 자동화</div>
-                            <div class="wb-panel-heading">메시지 단계 하나에 수동 실행과 자동 조건을 함께 정의</div>
+                            <div class="wb-panel-heading">시나리오 안에서 수동 단계와 자동 단계를 함께 운용</div>
                         </div>
                     </div>
 
@@ -265,7 +265,7 @@ else
                             <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Size="Size.Small" Color="Color.Secondary" />
                             <div>
                                 <div class="wb-panel-kicker">시나리오 단계</div>
-                                <div class="wb-panel-heading">시나리오를 만들고 그 안에서 단계 순서와 자동화를 구성합니다</div>
+                                <div class="wb-panel-heading">시나리오를 만들고 그 안에서 단계 순서와 자동화를 구성</div>
                             </div>
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.ScenarioSteps.Count 단계</MudChip>
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">시나리오 @BuildScenarioGroups().Count</MudChip>
@@ -276,7 +276,7 @@ else
                                        Disabled="@(DefaultPublishTopic == null)">시나리오 추가</MudButton>
                         </div>
 
-                        <div class="wb-inline-note mb-2">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오가 생성됩니다. 각 시나리오 안에서 단계 추가, 수동 전체 실행, 자동 단계 시작, 전체 시작을 따로 제어합니다.</div>
+                        <div class="wb-inline-note mb-2">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오를 만들어요. 각 시나리오 안에서 단계 추가, 수동 전체 실행, 자동 단계 시작, 전체 시작을 따로 제어해 보세요.</div>
 
                         <div class="d-flex align-center mb-2" style="gap:8px;">
                             <MudButton Variant="Variant.Outlined" Size="Size.Small"
@@ -312,7 +312,7 @@ else
                                                 <MudChip T="string" Size="Size.Small" Color="@(IsScenarioAutomationRunning(group.Name) ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">@(IsScenarioAutomationRunning(group.Name) ? "자동화 동작 중" : "자동화 대기")</MudChip>
                                             </div>
                                         </div>
-                                        <div class="wb-inline-note mt-2">수동 단계 전체 실행은 이 시나리오의 수동 단계만 순서대로 보냅니다. 자동 단계 시작은 주기, 다발, 수신 반응 단계를 이 시나리오 범위에서 유지합니다.</div>
+                                        <div class="wb-inline-note mt-2">수동 단계 전체 실행은 이 시나리오의 수동 단계만 순서대로 보내요. 자동 단계 시작은 주기, 다발, 수신 반응 단계를 이 시나리오 범위에서 계속 유지해요.</div>
                                         <div class="wb-scenario-step-actions mt-2">
                                             <MudButton Variant="Variant.Text" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.Add"
@@ -459,7 +459,7 @@ else
                         <div>
                             <div class="wb-panel-kicker d-flex align-center" style="gap:6px;">
                                 <span>DDS 단계 편집기</span>
-                                <MudTooltip Text="토픽, 실행 방식, payload, 자동 조건을 여기서 함께 편집합니다. 전체 순차 실행은 현재 단계 순서대로 그대로 동작합니다.">
+                                <MudTooltip Text="토픽, 실행 방식, payload, 자동 조건은 여기서 함께 편집해요. 전체 순차 실행은 현재 단계 순서대로 그대로 따라가요.">
                                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                 </MudTooltip>
                             </div>
@@ -573,7 +573,7 @@ else
                             <div class="d-flex flex-wrap align-center" style="gap:8px;">
                                 <div class="d-flex align-center" style="gap:6px;min-width:0;">
                                     <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);margin:0;">Payload 편집</MudText>
-                                    <MudTooltip Text="DDS 단계는 필드 입력 또는 JSON 원문으로 payload를 편집할 수 있습니다.">
+                                    <MudTooltip Text="DDS 단계 payload는 필드 입력이나 JSON 원문으로 편집할 수 있어요.">
                                         <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                     </MudTooltip>
                                 </div>
@@ -1130,7 +1130,7 @@ else
 
         if (topicsToStart.Count == 0)
         {
-            Snackbar.Add("수신 시작할 토픽이 없습니다.", Severity.Info);
+            Snackbar.Add("수신 시작할 토픽이 없어요.", Severity.Info);
             return;
         }
 
@@ -1162,7 +1162,7 @@ else
 
         if (targets.Count == 0)
         {
-            Snackbar.Add("중지할 수신 토픽이 없습니다.", Severity.Info);
+            Snackbar.Add("중지할 수신 토픽이 없어요.", Severity.Info);
             return;
         }
 
@@ -1207,7 +1207,7 @@ else
         var publishTopic = DefaultPublishTopic;
         if (publishTopic == null)
         {
-            Snackbar.Add("발행 가능한 토픽이 없습니다.", Severity.Warning);
+            Snackbar.Add("발행 가능한 토픽이 없어요.", Severity.Warning);
             return;
         }
 
@@ -1268,7 +1268,7 @@ else
             _editingScenarioStep = null;
         Session.ScenarioSteps.Remove(removed);
         _scenarioStepSchemaFields.Remove(removed.Id);
-        Snackbar.Add("메시지 단계를 삭제했습니다.", Severity.Info);
+        Snackbar.Add("메시지 단계를 삭제했어요.", Severity.Info);
         AppendLog("session", "INFO", $"메시지 단계 삭제: {NormalizeScenarioName(removed.Scenario)} · {removed.TopicName}");
         SyncScenarioAutomationTriggers();
     }
@@ -1440,7 +1440,7 @@ else
         _activeAutomationScenarios.Add(scenarioName);
         _automationRunning = _activeAutomationScenarios.Count > 0;
         SyncScenarioAutomationTriggers();
-        Snackbar.Add($"DDS 자동화를 시작했습니다: {scenarioName}", Severity.Success);
+        Snackbar.Add($"DDS 자동화를 시작했어요: {scenarioName}", Severity.Success);
         AppendLog("session", "INFO", $"자동화 시작: {scenarioName} · {stepCount} step");
     }
 
@@ -1457,8 +1457,8 @@ else
         _automationRunning = _activeAutomationScenarios.Count > 0;
         SyncScenarioAutomationTriggers();
         Snackbar.Add(string.IsNullOrWhiteSpace(scenario)
-            ? "DDS 자동화를 중지했습니다."
-            : $"DDS 자동화를 중지했습니다: {NormalizeScenarioName(scenario)}", Severity.Info);
+            ? "DDS 자동화를 멈췄어요."
+            : $"DDS 자동화를 멈췄어요: {NormalizeScenarioName(scenario)}", Severity.Info);
         AppendLog("session", "INFO", string.IsNullOrWhiteSpace(scenario)
             ? "자동화 중지"
             : $"자동화 중지: {NormalizeScenarioName(scenario)}");
@@ -1580,7 +1580,7 @@ else
     {
         if (Session == null || Session.ScenarioSteps.Count == 0)
         {
-            Snackbar.Add("내보낼 DDS 시나리오가 없습니다.", Severity.Warning);
+            Snackbar.Add("내보낼 DDS 시나리오가 없어요.", Severity.Warning);
             return;
         }
 
@@ -1610,7 +1610,7 @@ else
 
             if (payload?.Steps == null || payload.Steps.Count == 0)
             {
-                Snackbar.Add("불러올 DDS 시나리오 단계가 없습니다.", Severity.Warning);
+                Snackbar.Add("불러올 DDS 시나리오 단계가 없어요.", Severity.Warning);
                 return;
             }
 
@@ -1759,10 +1759,10 @@ else
     private static string ScenarioStepModeGuidance(DdsStepMode mode)
         => mode switch
         {
-            DdsStepMode.Manual => "이 단계는 `수동 단계 전체 실행`과 `전체 시작`의 앞부분에 포함됩니다. `자동 단계 시작`만으로는 동작하지 않습니다.",
-            DdsStepMode.Periodic => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 주기적으로 계속 발행됩니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
-            DdsStepMode.Bulk => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 다발 발행 규칙으로 동작합니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
-            DdsStepMode.OnIncoming => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 수신 이벤트를 기다렸다가 반응 발행합니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
+            DdsStepMode.Manual => "이 단계는 `수동 단계 전체 실행`과 `전체 시작` 앞부분에 포함돼요. `자동 단계 시작`만으로는 움직이지 않아요.",
+            DdsStepMode.Periodic => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 뒤에 주기적으로 계속 발행돼요. 수동 단계 전체 실행에는 들어가지 않아요.",
+            DdsStepMode.Bulk => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 뒤에 다발 발행 규칙으로 움직여요. 수동 단계 전체 실행에는 들어가지 않아요.",
+            DdsStepMode.OnIncoming => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 뒤에 수신 이벤트를 기다렸다가 반응 발행해요. 수동 단계 전체 실행에는 들어가지 않아요.",
             _ => string.Empty
         };
 

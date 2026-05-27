@@ -9,6 +9,8 @@ public class UiStateService
     public bool IsDarkMode { get; private set; } = true; // dark-first
     public bool IsConnected { get; private set; }
     public string? SocketPath { get; private set; }
+    public string WorkspaceLabel { get; private set; } = "새 탭";
+    public string? WorkspaceDetail { get; private set; } = "작업 공간 선택";
 
     public event Action? Changed;
 
@@ -23,6 +25,13 @@ public class UiStateService
     {
         IsConnected = connected;
         SocketPath = connected ? socketPath : null;
+        Changed?.Invoke();
+    }
+
+    public void SetWorkspace(string label, string? detail = null)
+    {
+        WorkspaceLabel = string.IsNullOrWhiteSpace(label) ? "스튜디오" : label;
+        WorkspaceDetail = string.IsNullOrWhiteSpace(detail) ? null : detail;
         Changed?.Invoke();
     }
 }
