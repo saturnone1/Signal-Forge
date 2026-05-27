@@ -60,7 +60,7 @@ kubectl apply -f k8s/local-test-pod.yaml
 if ($LASTEXITCODE -ne 0) { throw "Deploy failed" }
 
 Write-Host ""
-Write-Host "Waiting for pod ready (workbench-a + workbench-b)..." -ForegroundColor Yellow
+Write-Host "Waiting for pod ready..." -ForegroundColor Yellow
 
 $maxWait = 180; $elapsed = 0; $ready = $false
 while ($elapsed -lt $maxWait) {
@@ -86,12 +86,10 @@ Write-Host ""
 if ($ready) {
     Write-Host "Pod is ready!" -ForegroundColor Green
     Write-Host "----------------------------------------"
-    Write-Host "  Workbench A: http://localhost:30226   (gRPC server: /var/run/dds-ambassador/grpc.sock)"
-    Write-Host "  Workbench B: http://localhost:30227   (gRPC server: /var/run/dds-ambassador/grpc.sock)"
+    Write-Host "  Workbench: http://localhost:30226   (gRPC server: /var/run/dds-ambassador/grpc.sock)"
     Write-Host ""
     Write-Host "  [테스트 방법]"
-    Write-Host "  A에서 B로 요청:  A UI에서 소켓경로 /var/run/dds-ambassador-peer/grpc.sock 로 세션 생성 → 요청 전송 → B UI에 수신 표시"
-    Write-Host "  B에서 A로 요청:  B UI에서 소켓경로 /var/run/dds-ambassador-peer/grpc.sock 로 세션 생성 → 요청 전송 → A UI에 수신 표시"
+    Write-Host "  UI에서 소켓경로 /var/run/dds-ambassador/grpc.sock 로 세션 생성 → proto 업로드 → 요청 전송"
     Write-Host ""
     Write-Host "  Built-in gRPC receiver: 들어오는 모든 호출을 디코딩해 UI에 표시하고 OK를 반환합니다."
     Write-Host "  번들 proto: ddssim.DdsBridge — 16개 양방향 스트리밍 RPC"
@@ -105,7 +103,6 @@ if ($ready) {
 
 Write-Host ""
 Write-Host "Logs:"
-Write-Host "  kubectl logs grpc-workbench-test -c grpc-workbench-a -f"
-Write-Host "  kubectl logs grpc-workbench-test -c grpc-workbench-b -f"
+Write-Host "  kubectl logs grpc-workbench-test -c grpc-workbench -f"
 Write-Host ""
 Write-Host "Teardown: .\build-and-deploy-test.ps1 -Teardown"

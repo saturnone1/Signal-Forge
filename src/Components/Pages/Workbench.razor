@@ -1359,7 +1359,9 @@
     // ── 생명주기 ──────────────────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
-        _mySocketPath = Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
+        _mySocketPath = Environment.GetEnvironmentVariable("DEFAULT_TARGET_UDS_SOCKET_PATH")
+            ?? Configuration["GrpcWorkbench:DefaultTargetUdsSocketPath"]
+            ?? Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
             ?? Configuration["GrpcWorkbench:UdsSocketPath"]
             ?? "(설정 없음)";
         ApplyDefaultSocketPath();
@@ -1521,8 +1523,14 @@
         if (string.IsNullOrWhiteSpace(_mySocketPath) || _mySocketPath == "(설정 없음)")
             return;
 
+        var usesLegacyWorkbenchSocket = string.Equals(
+            _socketPath,
+            "/var/run/grpc-workbench/grpc.sock",
+            StringComparison.Ordinal);
+
         if (force
             || string.IsNullOrWhiteSpace(_socketPath)
+            || usesLegacyWorkbenchSocket
             || string.Equals(_socketPath, PeerSocketPath, StringComparison.Ordinal)
             || string.Equals(_socketPath, "로딩 중...", StringComparison.Ordinal))
         {
