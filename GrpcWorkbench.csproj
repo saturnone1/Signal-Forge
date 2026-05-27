@@ -30,4 +30,11 @@
     <Protobuf Include="DDSSim.proto" GrpcServices="None" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="samples\dds\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

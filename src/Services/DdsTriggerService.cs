@@ -67,6 +67,31 @@ public sealed class DdsTriggerService : IAsyncDisposable
         Changed?.Invoke();
     }
 
+    public void ReplaceSessionTriggers(string sessionId, IReadOnlyList<DdsTrigger> triggers)
+    {
+        var existingIds = _triggers.Values
+            .Where(t => t.SessionId == sessionId)
+            .Select(t => t.Id)
+            .ToList();
+
+        foreach (var triggerId in existingIds)
+        {
+            StopPeriodic(triggerId);
+            _triggers.TryRemove(triggerId, out _);
+            _lastOnIncomingFireAt.TryRemove(triggerId, out _);
+            _onIncomingFireWindow.TryRemove(triggerId, out _);
+        }
+
+        foreach (var trigger in triggers)
+        {
+            _triggers[trigger.Id] = trigger;
+            if (trigger.Enabled && trigger.Type == DdsTriggerType.Periodic)
+                StartPeriodic(trigger);
+        }
+
+        Changed?.Invoke();
+    }
+
     public DdsPublishResult FireOnce(string triggerId)
     {
         if (!_triggers.TryGetValue(triggerId, out var t))

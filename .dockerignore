@@ -27,6 +27,7 @@ packages/*
 !packages/microsoft.aspnetcore.components.forms.8.0.8.nupkg
 !packages/microsoft.aspnetcore.components.web.8.0.8.nupkg
 !packages/microsoft.aspnetcore.metadata.8.0.8.nupkg
+!packages/microsoft.bcl.hashcode.1.1.0.nupkg
 !packages/microsoft.codeanalysis.analyzers.3.3.4.nupkg
 !packages/microsoft.codeanalysis.common.4.9.2.nupkg
 !packages/microsoft.codeanalysis.csharp.4.9.2.nupkg
@@ -42,6 +43,9 @@ packages/*
 !packages/microsoft.jsinterop.8.0.8.nupkg
 !packages/microsoft.visualstudio.azure.containers.tools.targets.1.23.0.nupkg
 !packages/mudblazor.7.15.0.nupkg
+!packages/rti.connextdds.7.3.1.nupkg
+!packages/rti.connextdds.extra.7.3.1.nupkg
+!packages/rti.connextdds.native.7.3.1.nupkg
 !packages/system.collections.immutable.8.0.0.nupkg
 !packages/system.diagnostics.diagnosticsource.6.0.0.nupkg
 !packages/system.io.pipelines.8.0.0.nupkg

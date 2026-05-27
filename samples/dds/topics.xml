@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ── topics: Ambassador 토픽 배포 설정 ──────────────────────────────────────────────
+  RTI rtiddsgen은 이 파일을 사용하지 않습니다. tools/idl2code가 파싱하여
+  dds-config.xml <topics> 섹션을 자동 생성합니다.
+
+  새 MSG 타입을 DDSSim.xml에 추가했다면 이 파일에도 <topic> 항목을 추가하세요.
+  누락된 항목은 idl2code 실행 시 경고와 함께 기본값으로 자동 보완됩니다.
+
+  속성 설명:
+    name        MSG module 구조체 이름 (TopicName으로 사용)
+    qos_profile ReliableRealtime | BestEffort | ReliableTransient | Event | Ownership
+    direction   Both | Publish | Subscribe
+-->
+<topics>
+  <topic name="AirThreatInformation"     qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="MunitionInformation"      qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="GroundVehicleInformation" qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="UplinkInformation"        qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="DownlinkInformation"      qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="TimeTickInformation"      qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="SimulatorStatus"          qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="WeaponFire"               qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="TargetInformation"        qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="TrackNumberInfo"          qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="SetLog"                   qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="SetConfiguration"         qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="SetScenario"              qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="SetSimulation"            qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="Collision"                qos_profile="ReliableRealtime" direction="Both" />
+  <topic name="MunitionDetonation"       qos_profile="ReliableRealtime" direction="Both" />
+</topics>

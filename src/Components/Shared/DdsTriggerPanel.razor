@@ -11,7 +11,7 @@
         <div class="d-flex align-center mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
             <div>
-                <div class="wb-panel-kicker">@(Embedded ? "트리거" : "DDS 자동화")</div>
+                <div class="wb-panel-kicker">@(Embedded ? "자동 실행" : "DDS 자동화")</div>
                 <div class="wb-panel-heading">주기 / 다발 / 수신-응답 자동 발행</div>
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_triggers.Count</MudChip>
@@ -24,7 +24,7 @@
         @if (_showAddForm)
         {
             <div class="wb-subpanel mt-2 pa-3">
-                <div class="wb-panel-kicker">새 트리거</div>
+                <div class="wb-panel-kicker">새 자동 실행</div>
                 <div class="wb-home-form mt-2">
                     <MudTextField @bind-Value="_draft.Name" Label="이름" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudSelect T="DdsTriggerType" @bind-Value="_draft.Type" Label="타입" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -81,7 +81,7 @@
         {
             <div class="wb-empty mt-3">
                 <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
-                <div>등록된 DDS 트리거 없음</div>
+                <div>등록된 DDS 자동 실행 없음</div>
             </div>
         }
         else
@@ -197,7 +197,7 @@
         if (Session == null) return;
         if (string.IsNullOrWhiteSpace(_draft.TopicName)) { Snackbar.Add("토픽을 선택하세요", Severity.Warning); return; }
         Triggers.Add(_draft);
-        Snackbar.Add("DDS 트리거 추가", Severity.Success);
+        Snackbar.Add("DDS 자동 실행 추가", Severity.Success);
         _showAddForm = false;
     }
 
