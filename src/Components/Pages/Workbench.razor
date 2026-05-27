@@ -49,8 +49,14 @@
         var listenerWorkspaceActive = IsListenerWorkspaceActive();
         var protoLabel = CurrentProtoLabel();
         var currentSessionTarget = _session?.UnixSocketPath ?? "연결된 세션 없음";
-        var currentOpenLocalStreamCount = _session == null ? 0 : OpenLocalStreamsForCurrentSession().Count;
-        var selectedLocalStreamLabel = string.IsNullOrWhiteSpace(State.StreamId) ? "미선택" : ShortStreamId(State.StreamId!);
+        var currentOpenLocalStreams = _session == null ? [] : OpenLocalStreamsForCurrentSession();
+        var currentOpenLocalStreamCount = currentOpenLocalStreams.Count;
+        var selectedLocalStream = currentOpenLocalStreams.FirstOrDefault(stream => string.Equals(stream.StreamId, State.StreamId, StringComparison.Ordinal))
+            ?? currentOpenLocalStreams.FirstOrDefault();
+        var selectedLocalStreamLabel = selectedLocalStream == null ? "미선택" : ShortStreamId(selectedLocalStream.StreamId);
+        var selectedLocalStreamSummary = selectedLocalStream == null
+            ? "선택된 스트림 없음"
+            : $"{selectedLocalStream.ServiceName.Split('.').Last()}.{selectedLocalStream.MethodName} · 보냄 {selectedLocalStream.MessagesSent} · 받음 {selectedLocalStream.ReceivedCount}";
     }
 
     @if (_evicted)
@@ -285,6 +291,8 @@
             <div class="wb-code wb-summary-card">
                 <span style="color:var(--mud-palette-text-secondary);">로컬 스트림</span><br />
                 @currentOpenLocalStreamCount 개 열림 · 선택 @selectedLocalStreamLabel
+                <br />
+                @selectedLocalStreamSummary
             </div>
         </div>
 
@@ -379,7 +387,9 @@
                         @for (var index = 0; index < openLocalStreams.Count; index++)
                         {
                             var stream = openLocalStreams[index];
-                            <div class="wb-scenario-step mb-2">
+                               <div class="wb-scenario-step mb-2 @(State.StreamId == stream.StreamId ? "is-selected" : null)"
+                                   style="width:100%;text-align:left;cursor:pointer;"
+                                   @onclick="@(() => SelectLocalStream(stream.StreamId))">
                                 <div class="wb-scenario-step-top">
                                     <div>
                                         <div class="wb-scenario-step-order">#@(index + 1) · @stream.RpcType</div>
