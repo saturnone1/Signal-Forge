@@ -228,13 +228,15 @@ public sealed class DdsParticipantHostFactory
         if (props.Count > 0)
             qos = qos.WithProperty(Property.FromDictionary(props));
 
-        if (!string.IsNullOrWhiteSpace(transport.MulticastAddress))
+        qos = qos.WithDiscovery(d =>
         {
-            qos = qos.WithDiscovery(d =>
-            {
+            d.InitialPeers.Add("udpv4://127.0.0.1");
+            d.InitialPeers.Add("udpv4://localhost");
+
+            if (!string.IsNullOrWhiteSpace(transport.MulticastAddress))
                 d.MulticastReceiveAddresses.Add(transport.MulticastAddress!);
-            });
-        }
+        });
+
         return qos;
     }
 }

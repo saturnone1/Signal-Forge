@@ -65,112 +65,44 @@
         </div>
     }
 
-    @if (connectedSessions.Count == 0)
-    {
-        <div class="wb-home-shell mb-4">
-            <div class="wb-panel wb-panel--major wb-panel--contain pa-4 wb-home-card">
-                <div class="wb-panel-kicker">홈</div>
-                <div class="wb-home-title">이 화면에서 연 로컬 세션이 탭으로 생성됩니다</div>
-                <div class="d-flex align-center mt-2" style="gap:8px;">
-                    <span class="wb-inline-note">세션 탭 안내</span>
-                    <MudTooltip Text="여기서 연 로컬 세션만 탭으로 관리합니다. 반대편에서 먼저 열린 연결은 수신 RPC로만 보이고, 탭은 직접 추가해야 합니다.">
-                        <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
-                    </MudTooltip>
-                </div>
-                <div class="wb-home-form mt-4">
-                    <MudTextField @bind-Value="_socketPath"
-                                  Label="연결할 소켓 경로" Placeholder="/var/run/dds-ambassador-peer/grpc.sock"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense"
-                                  Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Shortcut"
-                                  AdornmentAriaLabel="기본 피어 소켓 경로" OnAdornmentClick="FillPeerSocketPath" />
-                    <MudNumericField @bind-Value="_timeoutSeconds" Label="타임아웃 (초)"
-                                     Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="300" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               OnClick="ConnectSession" Disabled="_connecting"
-                               StartIcon="@Icons.Material.Filled.Link">
-                        @if (_connecting)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                            <text>연결 중…</text>
-                        }
-                        else
-                        {
-                            <text>세션 연결 후 탭 열기</text>
-                        }
-                    </MudButton>
-                </div>
-                <div class="wb-inline-note mt-3">내 소켓: @_mySocketPath</div>
-            </div>
-        </div>
-    }
-    else
-    {
-        <div class="wb-session-shell mb-4">
-            <div class="wb-session-tabs">
-                @foreach (var sessionTab in connectedSessions)
-                {
-                    <div class="wb-session-tab @(_activeSessionId == sessionTab.SessionId ? "is-active" : null)">
-                        <button type="button"
-                                class="wb-session-tab-main"
-                                @onclick="@(() => ActivateSessionTab(sessionTab.SessionId))">
-                            <span class="wb-session-tab-title">@FormatSessionTabLabel(sessionTab)</span>
-                            <span class="wb-session-tab-note">@sessionTab.SessionId[..8]</span>
-                        </button>
-                        <button type="button"
-                                class="wb-session-tab-close"
-                                title="탭 닫기"
-                                @onclick:stopPropagation="true"
-                                @onclick="@(async () => await CloseSessionTab(sessionTab.SessionId))">
-                            <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
-                        </button>
-                    </div>
-                }
-                <button type="button"
-                        class="wb-session-tab wb-session-tab--new @(_showNewSessionForm ? "is-active" : null)"
-                        @onclick="ToggleNewSessionForm">
-                    <span class="wb-session-tab-title">새 세션</span>
-                    <span class="wb-session-tab-note">탭 추가</span>
-                </button>
-            </div>
-
-            @if (_showNewSessionForm)
-            {
-                <div class="wb-panel wb-panel--contain pa-3 mt-3">
-                    <div class="wb-panel-kicker">새 세션</div>
-                    <div class="wb-panel-heading">홈에서 새 연결을 만들고 탭으로 추가</div>
-                    <div class="wb-home-form mt-3">
-                        <MudTextField @bind-Value="_socketPath"
-                                      Label="연결할 소켓 경로" Placeholder="/var/run/dds-ambassador-peer/grpc.sock"
-                                      Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Shortcut"
-                                      AdornmentAriaLabel="기본 피어 소켓 경로" OnAdornmentClick="FillPeerSocketPath" />
-                        <MudNumericField @bind-Value="_timeoutSeconds" Label="타임아웃 (초)"
-                                         Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="300" />
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                   OnClick="ConnectSession" Disabled="_connecting"
-                                   StartIcon="@Icons.Material.Filled.AddLink">
-                            @if (_connecting)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                                <text>연결 중…</text>
-                            }
-                            else
-                            {
-                                <text>새 세션 연결</text>
-                            }
-                        </MudButton>
-                    </div>
-                </div>
-            }
-        </div>
-    }
-
-    @* ════════ DDS 세션 탭 (gRPC 탭과 별도 영역) ════════ *@
     <div class="wb-session-shell mb-4">
         <div class="wb-session-tabs">
+            @if (_listenerTabOpen)
+            {
+                <div class="wb-session-tab @(IsListenerTabActive() ? "is-active" : null)">
+                    <button type="button" class="wb-session-tab-main"
+                            @onclick="ActivateListenerTab">
+                        <span class="wb-session-tab-title">gRPC 수신</span>
+                        <span class="wb-session-tab-note">세션 없이 관찰</span>
+                    </button>
+                    <button type="button" class="wb-session-tab-close" title="gRPC 수신 탭 닫기"
+                            @onclick:stopPropagation="true"
+                            @onclick="CloseListenerTab">
+                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                    </button>
+                </div>
+            }
+            @foreach (var sessionTab in connectedSessions)
+            {
+                <div class="wb-session-tab @(IsGrpcSessionActive(sessionTab.SessionId) ? "is-active" : null)">
+                    <button type="button"
+                            class="wb-session-tab-main"
+                            @onclick="@(() => ActivateSessionTab(sessionTab.SessionId))">
+                        <span class="wb-session-tab-title">@FormatSessionTabLabel(sessionTab)</span>
+                        <span class="wb-session-tab-note">gRPC · @(sessionTab.UnixSocketPath ?? sessionTab.SessionId[..8])</span>
+                    </button>
+                    <button type="button"
+                            class="wb-session-tab-close"
+                            title="gRPC 세션 탭 닫기"
+                            @onclick:stopPropagation="true"
+                            @onclick="@(async () => await CloseSessionTab(sessionTab.SessionId))">
+                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                    </button>
+                </div>
+            }
             @foreach (var dds in _ddsSessionTabs)
             {
-                <div class="wb-session-tab @(_activeDdsSession?.SessionId == dds.SessionId ? "is-active" : null)">
+                <div class="wb-session-tab @(IsDdsSessionActive(dds.SessionId) ? "is-active" : null)">
                     <button type="button" class="wb-session-tab-main"
                             @onclick="@(() => ActivateDdsSession(dds.SessionId))">
                         <span class="wb-session-tab-title">[DDS] @dds.Name</span>
@@ -184,35 +116,115 @@
                 </div>
             }
             <button type="button"
-                    class="wb-session-tab wb-session-tab--new @(_showDdsCreateForm ? "is-active" : null)"
-                    @onclick="ToggleDdsCreateForm">
-                <span class="wb-session-tab-title">새 DDS 세션</span>
-                <span class="wb-session-tab-note">탭 추가</span>
+                    class="wb-session-tab wb-session-tab--new @(IsAddTabActive() ? "is-active" : null)"
+                    @onclick="ActivateAddTab">
+                <span class="wb-session-tab-title">새 탭</span>
+                <span class="wb-session-tab-note">gRPC / DDS 추가</span>
             </button>
         </div>
-        @if (_showDdsCreateForm)
+
+        @if (ShouldShowNewTabPanel())
         {
-            <div class="mt-3">
-                <DdsSessionCreateForm
-                    OnCreated="OnDdsSessionCreated"
-                    OnCancelled="@(() => _showDdsCreateForm = false)" />
+            <div class="wb-panel wb-panel--contain pa-4 mt-3">
+                <div class="wb-panel-kicker">새 탭</div>
+                <div class="wb-panel-heading">브라우저처럼 탭을 열고, 닫고, 전환합니다</div>
+                <div class="wb-inline-note mt-2">gRPC 수신도 홈에 고정하지 않고 별도 탭으로 엽니다. 새 탭 종류를 고른 뒤 바로 열거나 연결을 만드세요.</div>
+
+                <div class="wb-mode-strip mt-3">
+                    <button type="button"
+                            class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcListener ? "is-active" : null)"
+                            @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcListener))">
+                        <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Small" Color="Color.Info" />
+                        <div class="wb-mode-title">gRPC 수신 탭</div>
+                        <div class="wb-mode-note">세션 연결 없이 수신, 송신 이력, 로그만 따로 띄워 둡니다.</div>
+                    </button>
+                    <button type="button"
+                            class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcSession ? "is-active" : null)"
+                            @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
+                        <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Primary" />
+                        <div class="wb-mode-title">gRPC 세션 탭</div>
+                        <div class="wb-mode-note">소켓에 연결한 뒤 메서드 호출과 스트림을 그 세션 전용 탭에서 다룹니다.</div>
+                    </button>
+                    <button type="button"
+                            class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.DdsSession ? "is-active" : null)"
+                            @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.DdsSession))">
+                        <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Secondary" />
+                        <div class="wb-mode-title">DDS 세션 탭</div>
+                        <div class="wb-mode-note">Domain, XML, topic 구성을 가진 DDS 작업 공간을 별도 탭으로 엽니다.</div>
+                    </button>
+                </div>
+
+                @if (_newTabKind == WorkbenchNewTabKind.GrpcListener)
+                {
+                    <div class="wb-subpanel mt-3">
+                        <div class="wb-panel-kicker">gRPC 수신 탭</div>
+                        <div class="wb-panel-heading">세션 없이 관찰 전용 탭 열기</div>
+                        <div class="wb-inline-note mt-2">이 탭은 연결 대상 없이도 수신 RPC, 자동 실행, 송신 이력, 로그를 계속 볼 수 있습니다.</div>
+                        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.AddToPhotos"
+                                   OnClick="OpenListenerTab">
+                            gRPC 수신 탭 열기
+                        </MudButton>
+                    </div>
+                }
+                else if (_newTabKind == WorkbenchNewTabKind.GrpcSession)
+                {
+                    <div class="wb-subpanel mt-3">
+                        <div class="wb-panel-kicker">gRPC 세션 탭</div>
+                        <div class="wb-panel-heading">소켓 연결 후 전용 탭으로 열기</div>
+                        <div class="wb-home-form mt-3">
+                            <MudTextField @bind-Value="_newGrpcSessionName"
+                                          Label="탭 이름" Placeholder="예: B 피어 테스트"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudTextField @bind-Value="_socketPath"
+                                          Label="연결할 소켓 경로" Placeholder="/var/run/dds-ambassador-peer/grpc.sock"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Shortcut"
+                                          AdornmentAriaLabel="기본 피어 소켓 경로" OnAdornmentClick="FillPeerSocketPath" />
+                            <MudNumericField @bind-Value="_timeoutSeconds" Label="타임아웃 (초)"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="300" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       OnClick="ConnectSession" Disabled="_connecting"
+                                       StartIcon="@Icons.Material.Filled.AddLink">
+                                @if (_connecting)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                    <text>연결 중…</text>
+                                }
+                                else
+                                {
+                                    <text>gRPC 세션 탭 열기</text>
+                                }
+                            </MudButton>
+                        </div>
+                        <div class="wb-inline-note mt-3">비워 두면 소켓 경로나 세션 ID 기반 이름을 자동으로 씁니다. 내 소켓: @_mySocketPath</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3">
+                        <DdsSessionCreateForm
+                            OnCreated="OnDdsSessionCreated"
+                            OnCancelled="ActivateAddTab" />
+                    </div>
+                }
             </div>
         }
     </div>
 
-    @if (_activeDdsSession != null)
+    @if (IsDdsPanelActive())
     {
         <DdsSessionPanel Session="_activeDdsSession" />
     }
-    else
+    else if (IsGrpcPanelActive())
     {
     <div class="wb-hero mb-4">
         <div>
             <div class="wb-panel-kicker">gRPC 워크벤치</div>
-            <div class="wb-hero-title">세션 연결 여부와 무관하게 수신과 전송 흐름을 다루는 테스트 콘솔</div>
+            <div class="wb-hero-title">열린 탭 기준으로 수신과 전송 흐름을 다루는 gRPC 작업 공간</div>
             <div class="d-flex align-center mt-2" style="gap:8px;">
-                <span class="wb-inline-note">세션 없이 가능한 작업</span>
-                <MudTooltip Text="세션이 없어도 수신 관찰, 로그 확인, 열린 inbound 스트림 대상 전송은 가능합니다. 새 outbound 호출과 로컬 스트림 시작만 세션이 필요합니다.">
+                <span class="wb-inline-note">탭 기반 작업 안내</span>
+                <MudTooltip Text="gRPC 수신 탭은 세션 없이 수신과 이력을 보여주고, gRPC 세션 탭은 연결된 소켓 기준 호출과 로컬 스트림을 관리합니다.">
                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                 </MudTooltip>
             </div>
@@ -220,8 +232,8 @@
         <div class="wb-hero-metrics">
             <div class="wb-metric-card">
                 <div class="wb-metric-label">활성 탭</div>
-                <div class="wb-metric-value">@(_session == null ? "세션 미연결" : FormatSessionTabLabel(_session))</div>
-                <div class="wb-metric-note">@(_session?.UnixSocketPath ?? "소켓 경로 미연결")</div>
+                <div class="wb-metric-value">@ActiveGrpcTabLabel()</div>
+                <div class="wb-metric-note">@ActiveGrpcTabNote()</div>
             </div>
             <div class="wb-metric-card">
                 <div class="wb-metric-label">메서드</div>
@@ -236,6 +248,42 @@
         </div>
     </div>
 
+    @if (IsListenerWorkspaceActive())
+    {
+    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+        <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+            <MudIcon Icon="@Icons.Material.Filled.RssFeed" Size="Size.Small" Color="Color.Info" />
+            <div>
+                <div class="wb-panel-kicker">수신 전용 탭</div>
+                <div class="wb-panel-heading">세션 연결 없이 관찰과 기록에 집중합니다</div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">listener-only</MudChip>
+            <MudSpacer />
+            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.AddLink"
+                       OnClick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
+                gRPC 세션 탭 추가
+            </MudButton>
+        </div>
+
+        <div class="wb-listener-summary-grid">
+            <div class="wb-code">
+                <span style="color:var(--mud-palette-text-secondary);">현재 listener 범위</span><br />
+                <text>모든 수신 RPC와 송신 이력을 세션 필터 없이 표시합니다.</text>
+            </div>
+            <div class="wb-code">
+                <span style="color:var(--mud-palette-text-secondary);">관찰 요약</span><br />
+                <text>@ListenerTabSummary()</text>
+            </div>
+            <div class="wb-code">
+                <span style="color:var(--mud-palette-text-secondary);">세션 탭과 차이</span><br />
+                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리를 숨깁니다.</text>
+            </div>
+        </div>
+    </div>
+    }
+    else if (IsGrpcSessionWorkspaceActive())
+    {
     <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="@(_session == null ? Color.Default : Color.Success)" />
@@ -407,6 +455,7 @@
             </div>
         }
     </div>
+    }
 
     <MudGrid Spacing="2">
 
@@ -617,7 +666,7 @@
                     <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
                     <div>
                         <div class="wb-panel-kicker">자동화</div>
-                        <div class="wb-panel-heading">트리거와 시나리오</div>
+                        <div class="wb-panel-heading">자동 실행과 메시지 단계</div>
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@triggerSnapshot.Count</MudChip>
                     @if (enabledTriggerCount > 0)
@@ -629,15 +678,15 @@
                     <MudSpacer />
                     <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Add" OnClick="AddNewTrigger">
-                        Trigger 추가
+                        자동 실행 추가
                     </MudButton>
                 </div>
 
                 @if (_triggersExpanded)
                 {
                     <div class="d-flex align-center mb-3" style="gap:8px;">
-                        <span class="wb-inline-note">트리거 편집 안내</span>
-                        <MudTooltip Text="트리거는 여기서 직접 대상 서비스, 메서드, payload를 편집합니다. `활성`을 꺼 두면 자동 실행은 막고 카드의 재생 버튼으로 수동 발사만 할 수 있습니다.">
+                        <span class="wb-inline-note">자동 실행 편집 안내</span>
+                        <MudTooltip Text="자동 실행은 여기서 직접 대상 서비스, 메서드, payload를 편집합니다. `활성`을 꺼 두면 자동 실행은 막고 카드의 재생 버튼으로 수동 발사만 할 수 있습니다.">
                             <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                         </MudTooltip>
                     </div>
@@ -753,7 +802,7 @@
                     {
                         <div class="wb-empty">
                             <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
-                            <div>등록된 트리거가 없습니다 · Periodic / OnIncoming / Bulk 자동 송신 규칙</div>
+                            <div>등록된 자동 실행이 없습니다 · Periodic / OnIncoming / Bulk 자동 송신 규칙</div>
                         </div>
                     }
 
@@ -1310,13 +1359,30 @@
                 </div>
             </div>
     }
-    } @* end @if (_activeDdsSession == null) else *@
+    } @* end gRPC tab workspace *@
 </div>
 
 @code {
+    private enum WorkbenchTabKind
+    {
+        None,
+        Add,
+        GrpcListener,
+        GrpcSession,
+        DdsSession
+    }
+
+    private enum WorkbenchNewTabKind
+    {
+        GrpcListener,
+        GrpcSession,
+        DdsSession
+    }
+
     // ── 회로 로컬 상태 (폼/일회성 UI만; 누적 상태는 WorkbenchStateService) ──
     private string _mySocketPath = "로딩 중...";
     private string _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
+    private string _newGrpcSessionName = string.Empty;
     private int _timeoutSeconds = 30;
     private bool _connecting;
 
@@ -1338,11 +1404,12 @@
     private string? _selectedOutboundId;
     private string? _activeSessionId;
     private string? _loadedProtoFileName;
-    private bool _showNewSessionForm;
     private List<GrpcSession> _sessionTabs = [];
     private List<DdsSession> _ddsSessionTabs = [];
     private DdsSession? _activeDdsSession;
-    private bool _showDdsCreateForm;
+    private WorkbenchTabKind _activeTabKind;
+    private WorkbenchNewTabKind _newTabKind = WorkbenchNewTabKind.GrpcListener;
+    private bool _listenerTabOpen;
     private Trigger? _editingTrigger;
     private readonly Dictionary<string, string> _localStreamSyntheticCallIds = [];
 
@@ -1417,8 +1484,10 @@
         RefreshDdsSessionTabs();
         if (_sessionTabs.Count > 0)
             await ActivateSessionTab(_sessionTabs[0].SessionId);
+        else if (_ddsSessionTabs.Count > 0)
+            await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
         else
-            _showNewSessionForm = true;
+            ActivateAddTab();
 
         // 1-탭 정책: 이 회로가 활성 클라이언트가 됨. 이전 클라이언트(있으면) Evicted.
         _clientId = State.ClaimActive();
@@ -1574,14 +1643,129 @@
             .ToList();
     }
 
-    private void ToggleDdsCreateForm()
+    private bool HasOpenTabs()
+        => _listenerTabOpen || _sessionTabs.Count > 0 || _ddsSessionTabs.Count > 0;
+
+    private bool ShouldShowNewTabPanel()
+        => _activeTabKind == WorkbenchTabKind.Add || !HasOpenTabs();
+
+    private bool IsListenerTabActive()
+        => _activeTabKind == WorkbenchTabKind.GrpcListener;
+
+    private bool IsGrpcSessionActive(string sessionId)
+        => _activeTabKind == WorkbenchTabKind.GrpcSession
+            && string.Equals(_activeSessionId, sessionId, StringComparison.Ordinal);
+
+    private bool IsDdsSessionActive(string sessionId)
+        => _activeTabKind == WorkbenchTabKind.DdsSession
+            && string.Equals(_activeDdsSession?.SessionId, sessionId, StringComparison.Ordinal);
+
+    private bool IsAddTabActive()
+        => _activeTabKind == WorkbenchTabKind.Add;
+
+    private bool IsDdsPanelActive()
+        => _activeTabKind == WorkbenchTabKind.DdsSession && _activeDdsSession != null;
+
+    private bool IsGrpcPanelActive()
+        => _activeTabKind is WorkbenchTabKind.GrpcListener or WorkbenchTabKind.GrpcSession;
+
+    private bool IsListenerWorkspaceActive()
+        => _activeTabKind == WorkbenchTabKind.GrpcListener;
+
+    private bool IsGrpcSessionWorkspaceActive()
+        => _activeTabKind == WorkbenchTabKind.GrpcSession;
+
+    private string ActiveGrpcTabLabel()
+        => _activeTabKind switch
+        {
+            WorkbenchTabKind.GrpcListener => "gRPC 수신 탭",
+            WorkbenchTabKind.GrpcSession when _session != null => FormatSessionTabLabel(_session),
+            _ => "탭 미선택"
+        };
+
+    private string ActiveGrpcTabNote()
+        => _activeTabKind switch
+        {
+            WorkbenchTabKind.GrpcListener => "세션 없이 전체 수신과 이력을 관찰",
+            WorkbenchTabKind.GrpcSession => _session?.UnixSocketPath ?? "소켓 경로 미연결",
+            _ => "새 탭에서 gRPC 수신 또는 세션을 열어 시작하세요"
+        };
+
+    private string ListenerTabSummary()
+        => $"수신 {State.RpcCount}개 RPC · 자동 실행 {State.TriggerCount}개 · 송신 이력 {State.SnapshotOutbound().Count}건";
+
+    private void ActivateAddTab()
     {
-        _showDdsCreateForm = !_showDdsCreateForm;
+        _activeTabKind = WorkbenchTabKind.Add;
+    }
+
+    private void SelectNewTabKind(WorkbenchNewTabKind kind)
+    {
+        _newTabKind = kind;
+        ActivateAddTab();
+    }
+
+    private async Task OpenListenerTab()
+    {
+        _listenerTabOpen = true;
+        await ActivateListenerTab();
+    }
+
+    private async Task ActivateListenerTab()
+    {
+        _listenerTabOpen = true;
+        ResetTriggerEditor();
+        _activeTabKind = WorkbenchTabKind.GrpcListener;
+        _activeDdsSession = null;
+        _activeSessionId = null;
+        State.SetSession(null);
+        State.SetSelected(null, null);
+        Ui.SetConnection(false, null);
+        RefreshSelectedLocalStream();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CloseListenerTab()
+    {
+        _listenerTabOpen = false;
+        if (_activeTabKind == WorkbenchTabKind.GrpcListener)
+        {
+            await ActivatePreferredFallbackTab();
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ActivatePreferredFallbackTab()
+    {
+        RefreshSessionTabs();
+        RefreshDdsSessionTabs();
+
+        if (_listenerTabOpen)
+        {
+            await ActivateListenerTab();
+            return;
+        }
+
+        if (_sessionTabs.Count > 0)
+        {
+            await ActivateSessionTab(_sessionTabs[0].SessionId);
+            return;
+        }
+
+        if (_ddsSessionTabs.Count > 0)
+        {
+            await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
+            return;
+        }
+
+        ActivateAddTab();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnDdsSessionCreated(DdsSession session)
     {
-        _showDdsCreateForm = false;
         RefreshDdsSessionTabs();
         await ActivateDdsSession(session.SessionId);
     }
@@ -1595,7 +1779,7 @@
             return;
         }
 
-        // DDS 활성 시 gRPC 활성 상태를 비워서 본문이 DdsSessionPanel로 분기되도록.
+        _activeTabKind = WorkbenchTabKind.DdsSession;
         _activeDdsSession = session;
         _activeSessionId = null;
         State.SetSession(null);
@@ -1610,17 +1794,17 @@
         if (_activeDdsSession?.SessionId == sessionId)
         {
             _activeDdsSession = null;
-            // gRPC 세션이 남아 있으면 첫 번째로 복귀
-            if (_sessionTabs.Count > 0)
-                await ActivateSessionTab(_sessionTabs[0].SessionId);
-            else if (_ddsSessionTabs.Count > 0)
-                await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
+            await ActivatePreferredFallbackTab();
+            return;
         }
         await InvokeAsync(StateHasChanged);
     }
 
     private string FormatSessionTabLabel(GrpcSession session)
     {
+        if (!string.IsNullOrWhiteSpace(session.DisplayName))
+            return session.DisplayName.Trim();
+
         var path = session.UnixSocketPath?.Trim();
         if (string.IsNullOrWhiteSpace(path))
             return $"세션 {session.SessionId[..8]}";
@@ -1776,9 +1960,6 @@
         };
     }
 
-    private void ToggleNewSessionForm() =>
-        _showNewSessionForm = !_showNewSessionForm;
-
     private async Task OnActiveSessionChanged(string? sessionId)
     {
         if (string.IsNullOrWhiteSpace(sessionId) || string.Equals(sessionId, _activeSessionId, StringComparison.Ordinal))
@@ -1806,11 +1987,12 @@
             if (_sessionTabs.Count == 0)
             {
                 _activeSessionId = null;
-                _showNewSessionForm = true;
+                _activeTabKind = WorkbenchTabKind.None;
                 ResetTriggerEditor();
                 State.SetSession(null);
                 State.SetSelected(null, null);
                 Ui.SetConnection(false, null);
+                await ActivatePreferredFallbackTab();
             }
             return;
         }
@@ -1818,9 +2000,9 @@
         if (_activeSessionId != session.SessionId)
             ResetTriggerEditor();
 
+        _activeTabKind = WorkbenchTabKind.GrpcSession;
         _activeSessionId = session.SessionId;
-        _showNewSessionForm = false;
-        _activeDdsSession = null; // gRPC 활성화 시 DDS 패널은 닫음
+        _activeDdsSession = null;
         State.SetSession(session);
         State.SetServices(session.Services);
         _loadedProtoFileName = session.ProtoFileName;
@@ -1853,10 +2035,11 @@
             if (_sessionTabs.Count == 0)
             {
                 _activeSessionId = null;
-                _showNewSessionForm = true;
                 Ui.SetConnection(false, null);
                 State.SetSession(null);
                 State.SetSelected(null, null);
+                _activeTabKind = WorkbenchTabKind.None;
+                await ActivatePreferredFallbackTab();
             }
             else
             {
@@ -1880,10 +2063,11 @@
         _connecting = true;
         try
         {
-            var session = SessionService.CreateSession(_socketPath);
+            var session = SessionService.CreateSession(_socketPath, _newGrpcSessionName);
             RefreshSessionTabs();
             await ActivateSessionTab(session.SessionId);
             Log($"세션 연결: {session.SessionId[..8]} / {_socketPath}", LogLevel.Success);
+            _newGrpcSessionName = string.Empty;
             await SaveToLocalStorage();
             await UploadDefaultProto();
         }

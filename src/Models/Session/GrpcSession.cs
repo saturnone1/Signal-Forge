@@ -5,6 +5,7 @@ namespace GrpcWorkbench.Models.Session;
 public class GrpcSession
 {
     public string SessionId { get; set; } = string.Empty;
+    public string? DisplayName { get; set; }
     public string? UnixSocketPath { get; set; }
     public byte[]? ProtoContent { get; set; }
     public string? ProtoFileName { get; set; }

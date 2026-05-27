@@ -1,3 +1,4 @@
+@using System.Xml.Linq
 @using GrpcWorkbench.Models.Dds
 @using GrpcWorkbench.Services
 @using Microsoft.AspNetCore.Components.Forms
@@ -16,10 +17,6 @@
         <MudNumericField @bind-Value="_domainId" Label="Domain ID" Min="0" Max="232"
                          Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudTextField @bind-Value="_multicast" Label="멀티캐스트 주소 (선택)" Placeholder="239.255.0.1"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField @bind-Value="_allowInterfaces" Label="Allow Interfaces (쉼표 구분, 선택)"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField @bind-Value="_denyInterfaces" Label="Deny Interfaces (쉼표 구분, 선택)"
                       Variant="Variant.Outlined" Margin="Margin.Dense" />
     </div>
 
@@ -78,8 +75,6 @@
     private string _name = "";
     private int _domainId = 0;
     private string _multicast = "";
-    private string _allowInterfaces = "";
-    private string _denyInterfaces = "";
 
     private byte[]? _typesBytes;
     private string? _typesFileName;
@@ -124,8 +119,6 @@
             {
                 DomainId = _domainId,
                 MulticastAddress = string.IsNullOrWhiteSpace(_multicast) ? null : _multicast.Trim(),
-                AllowInterfaces = ParseCsv(_allowInterfaces),
-                DenyInterfaces = ParseCsv(_denyInterfaces),
             };
             var session = await Task.Run(() => DdsSessions.Create(new DdsSessionCreateRequest
             {
@@ -154,7 +147,14 @@
                 if (_typesBytes is { Length: > 0 })
                         return (System.Text.Encoding.UTF8.GetString(_typesBytes), _typesFileName ?? "DDSSim.xml");
 
-            var filePath = ResolvePreferredDefaultPath("definitions", "DDSSim.xml");
+            var filePath = ResolvePreferredSamplePath("DDSSim.xml");
+            if (File.Exists(filePath))
+            {
+                var xml = await File.ReadAllTextAsync(filePath);
+            return (xml, Path.GetFileName(filePath));
+            }
+
+            filePath = ResolveSiblingRepoPath("definitions", "DDSSim.xml");
                 if (File.Exists(filePath))
                 {
                         var xml = await File.ReadAllTextAsync(filePath);
@@ -180,12 +180,23 @@
                 if (_configBytes is { Length: > 0 })
                         return (System.Text.Encoding.UTF8.GetString(_configBytes), _configFileName ?? "dds-config.xml");
 
-            var filePath = ResolvePreferredDefaultPath("config", "dds-config.xml");
+            var sampleConfig = await TryBuildSampleConfigXmlAsync();
+            if (sampleConfig is not null)
+            return sampleConfig.Value;
+
+            var filePath = ResolvePreferredSamplePath("dds-config.xml");
                 if (File.Exists(filePath))
                 {
                         var xml = await File.ReadAllTextAsync(filePath);
                 return (xml, Path.GetFileName(filePath));
                 }
+
+            filePath = ResolveSiblingRepoPath("config", "dds-config.xml");
+            if (File.Exists(filePath))
+            {
+                var xml = await File.ReadAllTextAsync(filePath);
+            return (xml, Path.GetFileName(filePath));
+            }
 
                 const string fallback = @"<?xml version=""1.0"" encoding=""UTF-8""?>
 <dds-ambassador-config>
@@ -206,22 +217,57 @@
                 return (fallback, "dds-config.default.xml");
         }
 
-    private string ResolvePreferredDefaultPath(string folder, string fileName)
+    private string ResolvePreferredSamplePath(string fileName)
     {
-        var siblingRepoPath = Path.GetFullPath(Path.Combine(WebHostEnv.ContentRootPath, "..", "ddsAmbassador", folder, fileName));
-        if (File.Exists(siblingRepoPath))
-            return siblingRepoPath;
-
-        var localSamplePath = Path.Combine(WebHostEnv.ContentRootPath, "samples", "dds", fileName switch
-        {
-            "DDSSim.xml" => "DDSSim.sample.xml",
-            "dds-config.xml" => "dds-config.sample.xml",
-            _ => fileName,
-        });
+        var localSamplePath = Path.Combine(WebHostEnv.ContentRootPath, "samples", "dds", fileName);
 
         return localSamplePath;
     }
 
-    private static List<string> ParseCsv(string s) =>
-        s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    private string ResolveSiblingRepoPath(string folder, string fileName)
+    {
+        return Path.GetFullPath(Path.Combine(WebHostEnv.ContentRootPath, "..", "ddsAmbassador", folder, fileName));
+    }
+
+    private async Task<(string Xml, string FileName)?> TryBuildSampleConfigXmlAsync()
+    {
+        var sampleRoot = Path.Combine(WebHostEnv.ContentRootPath, "samples", "dds");
+        var qosPath = Path.Combine(sampleRoot, "qos_profiles.xml");
+        var topicsPath = Path.Combine(sampleRoot, "topics.xml");
+
+        if (!File.Exists(qosPath) || !File.Exists(topicsPath))
+            return null;
+
+        var qosXml = await File.ReadAllTextAsync(qosPath);
+        var topicsXml = await File.ReadAllTextAsync(topicsPath);
+
+        var qosElement = XElement.Parse(qosXml);
+        var topicsElement = XElement.Parse(topicsXml);
+        var normalizedTopics = new XElement("topics",
+            topicsElement.Elements("topic")
+                .Select(topic =>
+                {
+                    var topicName = topic.Attribute("name")?.Value?.Trim();
+                    var qosProfile = topic.Attribute("qos_profile")?.Value?.Trim();
+                    var direction = topic.Attribute("direction")?.Value?.Trim();
+
+                    if (string.IsNullOrWhiteSpace(topicName))
+                        return null;
+
+                    return new XElement("topic",
+                        new XElement("topic_name", topicName),
+                        new XElement("type_name", $"MSG::{topicName}"),
+                        new XElement("direction", string.IsNullOrWhiteSpace(direction) ? "Both" : direction),
+                        new XElement("qos_profile", string.IsNullOrWhiteSpace(qosProfile) ? "ReliableRealtime" : qosProfile));
+                })
+                .Where(topic => topic is not null)!);
+
+        var doc = new XDocument(
+            new XDeclaration("1.0", "UTF-8", null),
+            new XElement("dds-ambassador-config",
+                new XElement("dds", qosElement),
+                normalizedTopics));
+
+        return (doc.ToString(), "dds-config.xml");
+    }
 }

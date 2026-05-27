@@ -5,7 +5,7 @@ namespace GrpcWorkbench.Services;
 
 public interface ISessionService
 {
-    GrpcSession CreateSession(string unixSocketPath);
+    GrpcSession CreateSession(string unixSocketPath, string? displayName = null);
     GrpcSession? GetSession(string sessionId);
     Task UpdateSessionProtoAsync(string sessionId, byte[] protoContent, string fileName);
     void DeleteSession(string sessionId);
@@ -26,13 +26,14 @@ public class SessionService : ISessionService
         _logger = logger;
     }
 
-    public GrpcSession CreateSession(string unixSocketPath)
+    public GrpcSession CreateSession(string unixSocketPath, string? displayName = null)
     {
         PruneStaleSessions();
 
         var session = new GrpcSession
         {
             SessionId = Guid.NewGuid().ToString(),
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
             UnixSocketPath = unixSocketPath
         };
 

@@ -15,6 +15,7 @@ WORKDIR /src
 # Restore first (offline, from ./packages) for layer caching.
 COPY nuget.config ./
 COPY packages/ ./packages/
+COPY rti/ ./rti/
 COPY GrpcWorkbench.csproj ./
 RUN dotnet restore GrpcWorkbench.csproj
 
