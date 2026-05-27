@@ -26,7 +26,6 @@ public class DdsSession
 
     // DDS 시나리오 (세션 범위 유지)
     public List<DdsScenarioStep> ScenarioSteps { get; set; } = [];
-    public DdsScenarioRunOptions ScenarioOptions { get; set; } = new();
 
     // 세션/시스템 로그 (세션 범위 유지)
     public List<DdsSessionLogEntry> LogEntries { get; set; } = [];
