@@ -1,71 +1,5 @@
 /* gRPC Workbench — dark-first dev-tool design layer.
    Built on MudBlazor CSS variables so everything follows the active theme. */
-
-:root {
-  --wb-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace,
-             SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --wb-radius: 12px;
-  --wb-radius-lg: 18px;
-}
-
-html, body {
-  margin: 0;
-  background: var(--mud-palette-background);
-  color: var(--mud-palette-text-primary);
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Smooth dark/light transition for surfaces and text */
-.mud-paper, .mud-appbar, .mud-drawer, .mud-card,
-.wb-code, .wb-panel, body {
-  transition: background-color .18s ease, color .18s ease, border-color .18s ease;
-}
-
-.wb-page {
-  max-width: 1680px;
-  margin: 0 auto;
-}
-
-.wb-page .mud-input-control {
-  margin-top: 2px;
-  margin-bottom: 2px;
-}
-
-.wb-page .mud-input-label,
-.wb-page .mud-input-helper-text,
-.wb-page .mud-input-error {
-  font-size: 0.7rem;
-  line-height: 1.25;
-}
-
-.wb-page .mud-input-slot {
-  min-height: 1.2rem;
-}
-
-.wb-page .mud-input > input,
-.wb-page .mud-input > textarea,
-.wb-page .mud-select-input {
-  font-size: 0.78rem;
-}
-
-.wb-page .mud-button-root {
-  line-height: 1.2;
-}
-
-.wb-page .mud-grid-item {
-  min-width: 0;
-}
-
-.wb-section-order-1 {
-  order: 1;
-}
-
-.wb-section-order-2 {
-  order: 2;
-}
-
-.wb-section-order-3 {
-  order: 3;
 }
 
 .wb-section-order-4 {
@@ -493,6 +427,16 @@ html, body {
   gap: 10px;
 }
 
+.wb-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.wb-summary-card {
+  min-height: 72px;
+}
+
 .wb-subpanel-head {
   display: flex;
   align-items: flex-start;
@@ -871,6 +815,12 @@ html, body {
   background: color-mix(in srgb, var(--mud-palette-background) 28%, transparent);
 }
 
+.wb-scenario-group {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--mud-palette-info) 8%, transparent), transparent 56%),
+    color-mix(in srgb, var(--mud-palette-background) 28%, transparent);
+}
+
 .wb-scenario-step-top {
   display: flex;
   align-items: flex-start;
@@ -963,8 +913,7 @@ html, body {
 .wb-detail-pane .wb-panel-heading,
 .wb-detail-pane .wb-panel-kicker,
 .wb-detail-pane .wb-chip-row,
-.wb-chip-row .mud-chip,
-.wb-hero-metrics .mud-chip {
+.wb-chip-row .mud-chip {
   min-width: 0;
 }
 
@@ -1177,14 +1126,6 @@ html, body {
 }
 
 @media (max-width: 1199px) {
-  .wb-hero {
-    grid-template-columns: 1fr;
-  }
-
-  .wb-hero-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .wb-panel--sticky {
     position: static;
   }

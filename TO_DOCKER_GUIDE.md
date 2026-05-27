@@ -33,6 +33,25 @@ docker build -t grpc-workbench:test .
 테스트 흐름: A UI에서 연결할 소켓 경로를 `/var/run/dds-ambassador-peer/grpc.sock`
 으로 세션 생성 → 요청 전송 → B UI 수신 패널에 표시 (반대 방향도 동일).
 
+### Docker Desktop Kubernetes EOF 복구
+
+Docker Desktop 은 떠 있는데 `kubectl get nodes` 가 `EOF` 로 실패할 때는 아래 스크립트로
+live 복구를 시도할 수 있습니다.
+
+```powershell
+.\repair-docker-desktop-k8s.ps1
+```
+
+기본 동작:
+
+- `docker desktop status` 와 `kubectl` 상태를 먼저 확인
+- `docker-desktop` WSL 내부 cgroup 에서 `cpu` / `cpuset` / `io` controller 복구
+- Docker Desktop BackendAPI(named pipe) 로 Kubernetes 를 `disable -> enable`
+- 마지막에 `kubectl get nodes -o wide` 로 정상화 확인
+
+이미 정상인 상태에서는 아무 것도 건드리지 않고 종료합니다. 강제로 같은 절차를 다시 태우려면
+`-Force` 를 사용합니다.
+
 ## 3. 단일 컨테이너 수동 실행 (선택)
 
 ```powershell

@@ -35,81 +35,37 @@ else
         </div>
 
         <div class="wb-subpanel mb-3 pa-3">
-            <div class="wb-panel-kicker">기본 정보</div>
-            <div class="wb-home-form mt-2">
-                <div class="wb-code" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">세션 ID</span><br />
-                    <span class="wb-mono">@Session.SessionId</span>
+            <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                <div>
+                    <div class="wb-panel-kicker">작업 요약</div>
+                    <div class="wb-panel-heading">핵심 연결 정보와 바로 할 일을 먼저 보여줍니다</div>
                 </div>
-                <div class="wb-code" style="font-size:.74rem;">
+                <MudSpacer />
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">세션 @Session.SessionId[..8]</MudChip>
+            </div>
+
+            <div class="wb-summary-grid mt-3">
+                <div class="wb-code wb-summary-card">
                     <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
                     @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
                 </div>
-                <div class="wb-code" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">Domain ID</span><br />
-                    @Session.Transport.DomainId
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">네트워크</span><br />
+                    domain @Session.Transport.DomainId · @(string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "multicast 미설정" : Session.Transport.MulticastAddress)
                 </div>
-                <div class="wb-code" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">멀티캐스트</span><br />
-                    @(string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "(미설정)" : Session.Transport.MulticastAddress)
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">버퍼</span><br />
+                    send @(Session.Transport.SendBufferSize?.ToString() ?? "default") / receive @(Session.Transport.ReceiveBufferSize?.ToString() ?? "default")
                 </div>
-                <div class="wb-code" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">송신/수신 버퍼</span><br />
-                    @(Session.Transport.SendBufferSize?.ToString() ?? "default") / @(Session.Transport.ReceiveBufferSize?.ToString() ?? "default")
-                </div>
-                <div class="wb-code" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">업로드 XML</span><br />
-                    @(string.IsNullOrWhiteSpace(Session.TypesXmlFileName) ? "types.xml 미기록" : Session.TypesXmlFileName) ·
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">로드된 파일</span><br />
+                    @(string.IsNullOrWhiteSpace(Session.TypesXmlFileName) ? "DDSSim.xml 미기록" : Session.TypesXmlFileName)<br />
                     @(string.IsNullOrWhiteSpace(Session.ConfigXmlFileName) ? "dds-config.xml 미기록" : Session.ConfigXmlFileName)
                 </div>
             </div>
 
-            <div class="mt-3">
-                <div class="d-flex align-center" style="gap:8px;">
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                        DDSSim XML @(Session.TypesXmlContent?.Length ?? 0) bytes
-                    </MudChip>
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Visibility"
-                               OnClick="@(() => _showTypesXml = !_showTypesXml)">
-                        @(_showTypesXml ? "숨기기" : "내용 보기")
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Download"
-                               OnClick="DownloadTypesXml"
-                               Disabled="@(Session.TypesXmlContent == null)">
-                        저장
-                    </MudButton>
-                </div>
-                @if (_showTypesXml)
-                {
-                    <MudTextField Value="@GetTypesXmlText()" ReadOnly="true" Lines="8"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" Label="DDSSim XML" />
-                }
-            </div>
-
-            <div class="mt-2">
-                <div class="d-flex align-center" style="gap:8px;">
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                        dds-config XML @(Session.ConfigXmlContent?.Length ?? 0) bytes
-                    </MudChip>
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Visibility"
-                               OnClick="@(() => _showConfigXml = !_showConfigXml)">
-                        @(_showConfigXml ? "숨기기" : "내용 보기")
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Download"
-                               OnClick="DownloadConfigXml"
-                               Disabled="@(Session.ConfigXmlContent == null)">
-                        저장
-                    </MudButton>
-                </div>
-                @if (_showConfigXml)
-                {
-                    <MudTextField Value="@GetConfigXmlText()" ReadOnly="true" Lines="8"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" Label="dds-config XML" />
-                }
+            <div class="wb-inline-note mt-3">
+                이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 우선입니다. 원본 파일명과 네트워크 설정만 남기고 미리보기 기능은 제거했습니다.
             </div>
         </div>
 
@@ -308,195 +264,147 @@ else
                         <div class="d-flex align-center mb-2" style="gap:8px;">
                             <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Size="Size.Small" Color="Color.Secondary" />
                             <div>
-                                <div class="wb-panel-kicker">자동화 단계</div>
-                                <div class="wb-panel-heading">토픽, 메시지, 페이로드, 자동 조건을 한 단계로 편집</div>
+                                <div class="wb-panel-kicker">시나리오 단계</div>
+                                <div class="wb-panel-heading">시나리오를 만들고 그 안에서 단계 순서와 자동화를 구성합니다</div>
                             </div>
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.ScenarioSteps.Count 단계</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">시나리오 @BuildScenarioGroups().Count</MudChip>
                             <MudSpacer />
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
                                        StartIcon="@Icons.Material.Filled.Add"
-                                       OnClick="AddScenarioStep"
-                                       Disabled="@(DefaultPublishTopic == null)">단계 추가</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                                   OnClick="RunScenario"
-                                   Disabled="@(ManualScenarioStepCount == 0 || _runningScenario)">
-                            수동 실행
-                        </MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.AutoMode"
-                                   OnClick="StartAutomation"
-                                   Disabled="@(AutomaticScenarioStepCount == 0 || _automationRunning)">
-                            자동화 시작
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Stop"
-                                   OnClick="StopAutomation"
-                                   Disabled="@(!_automationRunning)">
-                            자동화 중지
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Cancel"
-                                   OnClick="StopScenario"
-                                   Disabled="@(!_runningScenario)">
-                            중단
-                        </MudButton>
-                    </div>
+                                       OnClick="AddScenarioGroup"
+                                       Disabled="@(DefaultPublishTopic == null)">시나리오 추가</MudButton>
+                        </div>
 
-                    <div class="wb-inline-note mb-2">단계 추가를 누르면 새 스텝이 생성됩니다. 수동 단계는 `수동 실행`으로만 보내고, 주기/다발/수신 반응 단계는 `자동화 시작`을 눌렀을 때만 동작합니다.</div>
+                        <div class="wb-inline-note mb-2">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오가 생성됩니다. 각 시나리오 안에서 단계 추가, 수동 전체 실행, 자동 단계 시작, 전체 시작을 따로 제어합니다.</div>
 
-                    <div class="wb-home-form mb-2">
-                        <MudNumericField @bind-Value="Session.ScenarioOptions.CycleCount" Label="전체 실행 반복 횟수"
-                                         Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        <MudCheckBox @bind-Value="Session.ScenarioOptions.StopOnError" Label="오류 시 즉시 중단" Color="Color.Warning" />
-                    </div>
+                        <div class="d-flex align-center mb-2" style="gap:8px;">
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Download"
+                                       OnClick="ExportScenarioJson"
+                                       Disabled="@(Session.ScenarioSteps.Count == 0)">전체 내보내기</MudButton>
+                            <MudFileUpload T="IBrowserFile" FilesChanged="ImportScenarioJson" Accept=".json">
+                                <ActivatorContent>
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.UploadFile">전체 불러오기</MudButton>
+                                </ActivatorContent>
+                            </MudFileUpload>
+                        </div>
 
-                    <div class="d-flex align-center mb-2" style="gap:8px;">
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Download"
-                                   OnClick="ExportScenarioJson"
-                                   Disabled="@(Session.ScenarioSteps.Count == 0)">저장</MudButton>
-                        <MudFileUpload T="IBrowserFile" FilesChanged="ImportScenarioJson" Accept=".json">
-                            <ActivatorContent>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.UploadFile">불러오기</MudButton>
-                            </ActivatorContent>
-                        </MudFileUpload>
-                    </div>
-
-                    @if (Session.ScenarioSteps.Count == 0)
-                    {
-                        <div class="wb-empty"><div>등록된 메시지 단계 없음</div></div>
-                    }
-                    else
-                    {
-                        <div class="wb-scroll" style="max-height:320px;">
-                            @for (var i = 0; i < Session.ScenarioSteps.Count; i++)
-                            {
-                                var stepIndex = i;
-                                var step = Session.ScenarioSteps[i];
-                                <div class="wb-scenario-step mb-2">
-                                    <div class="wb-scenario-step-top">
-                                        <div>
-                                            <div class="wb-scenario-step-order">Step @(stepIndex + 1)</div>
-                                            <div class="wb-scenario-step-title">@(string.IsNullOrWhiteSpace(step.Name) ? step.TopicName : step.Name)</div>
-                                        </div>
-                                        <div class="wb-chip-row">
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@StepModeLabel(step.Mode)</MudChip>
-                                            @if (step.Mode != DdsStepMode.Manual)
-                                            {
-                                                <MudChip T="string" Size="Size.Small" Color="@(_automationRunning ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">@(_automationRunning ? "자동화 동작 중" : "자동화 대기")</MudChip>
-                                            }
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@step.TypeName</MudChip>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
-                                                       StartIcon="@Icons.Material.Filled.DeleteOutline"
-                                                       OnClick="@(() => RemoveScenarioStep(stepIndex))">삭제</MudButton>
-                                        </div>
-                                    </div>
-                                    <div class="wb-home-form">
-                                        <MudTextField @bind-Value="step.Name" Label="이름"
-                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        <MudSelect T="string" Label="토픽" Value="@step.TopicName"
-                                                   ValueChanged="@((string topicName) => OnScenarioStepTopicChanged(step, topicName))"
-                                                   Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                   Class="wb-select wb-select--comfortable wb-select--ellipsis">
-                                            @foreach (var t in Session.Topics)
-                                            {
-                                                <MudSelectItem T="string" Value="@t.TopicName">
-                                                    @($"{t.TopicName} · {t.TypeName}")
-                                                </MudSelectItem>
-                                            }
-                                        </MudSelect>
-                                        <MudSelect T="DdsStepMode" @bind-Value="step.Mode" Label="실행 방식"
-                                                   Variant="Variant.Outlined" Margin="Margin.Dense">
-                                            <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Manual">수동 / 순차 실행</MudSelectItem>
-                                            <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Periodic">주기 발행</MudSelectItem>
-                                            <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Bulk">다발 발행</MudSelectItem>
-                                            <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.OnIncoming">수신 반응 발행</MudSelectItem>
-                                        </MudSelect>
-                                        <MudNumericField @bind-Value="step.RepeatCount" Label="이 단계 발행 횟수"
-                                                         Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        <MudNumericField @bind-Value="step.DelayAfterMs" Label="다음 단계 전 대기(ms)"
-                                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                    </div>
-                                    @if (step.Mode == DdsStepMode.Periodic)
-                                    {
-                                        <div class="wb-home-form">
-                                            <MudNumericField @bind-Value="step.IntervalMs" Label="주기(ms)"
-                                                             Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                            <MudNumericField @bind-Value="step.MaxFires" Label="최대 발행 수(선택)"
-                                                             Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        </div>
-                                    }
-                                    else if (step.Mode == DdsStepMode.Bulk)
-                                    {
-                                        <div class="wb-home-form">
-                                            <MudNumericField @bind-Value="step.BulkCount" Label="다발 개수"
-                                                             Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                            <MudCheckBox @bind-Value="step.BulkParallel"
-                                                         Label="병렬 발행"
-                                                         Color="Color.Warning" />
-                                        </div>
-                                    }
-                                    else if (step.Mode == DdsStepMode.OnIncoming)
-                                    {
-                                        <div class="wb-home-form">
-                                            <MudSelect T="string" Label="매칭 source 토픽"
-                                                       Value="@step.MatchTopicName"
-                                                       ValueChanged="@((string? topicName) => OnScenarioStepMatchTopicChanged(step, topicName))"
-                                                       Variant="Variant.Outlined" Margin="Margin.Dense">
-                                                @foreach (var t in Session.Topics)
-                                                {
-                                                    <MudSelectItem T="string" Value="@t.TopicName">@t.TopicName</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                            <MudNumericField @bind-Value="step.MinFireIntervalMs" Label="최소 발행 간격(ms)"
-                                                             Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                            <MudNumericField @bind-Value="step.MaxFiresPerMinute" Label="분당 최대 발행 수"
-                                                             Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        </div>
-                                        <MudCheckBox @bind-Value="step.BlockSelfTopicLoop"
-                                                     Label="동일 source/target 재발행 차단"
-                                                     Color="Color.Warning" />
-                                    }
-
-                                    @if (FindGrpcMatch(step.TopicName) is string stepMatch)
-                                    {
-                                        <div class="d-flex align-center mb-2" style="gap:6px;">
-                                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                                                ambassador 매칭: @stepMatch
-                                            </MudChip>
-                                        </div>
-                                    }
-
-                                    @{ var stepFields = GetScenarioStepSchemaFields(step); }
-                                    @if (stepFields.Count == 0)
-                                    {
-                                        <MudTextField @bind-Value="step.JsonPayload" Lines="6" Variant="Variant.Outlined"
-                                                      Margin="Margin.Dense" Label="메시지 Payload JSON" />
-                                    }
-                                    else
-                                    {
-                                        <div class="wb-subpanel mt-2 pa-3">
-                                            <div class="wb-panel-kicker">메시지 필드</div>
-                                            <div class="wb-panel-heading">필드별로 값을 선택하면 JSON이 자동 반영됩니다</div>
-                                            <div class="wb-scroll mt-2" style="max-height:34vh;">
-                                                @foreach (var field in stepFields)
-                                                {
-                                                    <div class="mb-2">
-                                                        <SchemaFormField Field="field" OnChanged="@(() => OnScenarioStepFieldChanged(step))" />
-                                                    </div>
-                                                }
+                        @if (Session.ScenarioSteps.Count == 0)
+                        {
+                            <div class="wb-empty"><div>등록된 자동화 단계가 없습니다<br />시나리오 추가 후 단계와 자동화를 구성하세요</div></div>
+                        }
+                        else
+                        {
+                            var scenarioGroups = BuildScenarioGroups();
+                            <div class="d-flex flex-wrap" style="gap:8px;">
+                                @foreach (var group in scenarioGroups)
+                                {
+                                    <div class="wb-panel pa-3 wb-scenario-group" style="min-width:320px;flex:1 1 520px;">
+                                        <div class="wb-scenario-step-top">
+                                            <div>
+                                                <div class="wb-scenario-step-order">시나리오</div>
+                                                <div class="wb-scenario-step-title">@group.Name</div>
+                                            </div>
+                                            <div class="wb-chip-row">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@group.OrderedSteps.Count 단계</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Color="@(IsScenarioAutomationRunning(group.Name) ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">@(IsScenarioAutomationRunning(group.Name) ? "자동화 동작 중" : "자동화 대기")</MudChip>
                                             </div>
                                         </div>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-
-                </div>
+                                        <div class="wb-inline-note mt-2">수동 단계 전체 실행은 이 시나리오의 수동 단계만 순서대로 보냅니다. 자동 단계 시작은 주기, 다발, 수신 반응 단계를 이 시나리오 범위에서 유지합니다.</div>
+                                        <div class="wb-scenario-step-actions mt-2">
+                                            <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Add"
+                                                       OnClick="@(() => AddScenarioStep(group.Name))">단계 추가</MudButton>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                       OnClick="@(() => RunScenario(group.Name))"
+                                                       Disabled="@(ManualScenarioStepCountFor(group.Name) == 0 || _runningScenario)">수동 단계 전체 실행</MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.AutoMode"
+                                                       OnClick="@(() => StartAutomation(group.Name))"
+                                                       Disabled="@(AutomaticScenarioStepCountFor(group.Name) == 0 || _runningScenario || IsScenarioAutomationRunning(group.Name))">자동 단계 시작</MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Info" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.PlayCircle"
+                                                       OnClick="@(() => StartScenarioWorkflow(group.Name))"
+                                                       Disabled="@((ManualScenarioStepCountFor(group.Name) == 0 && AutomaticScenarioStepCountFor(group.Name) == 0) || _runningScenario || IsScenarioAutomationRunning(group.Name))">전체 시작</MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Stop"
+                                                       OnClick="@(() => StopAutomation(group.Name))"
+                                                       Disabled="@(!IsScenarioAutomationRunning(group.Name))">자동화 중지</MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Cancel"
+                                                       OnClick="StopScenario"
+                                                       Disabled="@(!_runningScenario)">중단</MudButton>
+                                        </div>
+                                        <div class="wb-scenario-list mt-2 wb-scroll" style="max-height:320px;overflow:auto;">
+                                            @for (var i = 0; i < group.OrderedSteps.Count; i++)
+                                            {
+                                                var step = group.OrderedSteps[i];
+                                                var isLastStep = i == group.OrderedSteps.Count - 1;
+                                                <div class="wb-scenario-step mb-2">
+                                                    <div class="wb-scenario-step-top">
+                                                        <div>
+                                                            <div class="wb-scenario-step-order">단계 @(i + 1)</div>
+                                                            <div class="wb-scenario-step-title">@ScenarioStepDisplayName(step)</div>
+                                                        </div>
+                                                        <div class="wb-chip-row">
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@StepModeLabel(step.Mode)</MudChip>
+                                                            <MudChip T="string" Size="Size.Small" Color="@(ScenarioStepStatusColor(step))" Variant="Variant.Text" Class="ma-0">@ScenarioStepStatusLabel(step)</MudChip>
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@step.TypeName</MudChip>
+                                                        </div>
+                                                    </div>
+                                                    <div class="wb-scenario-step-meta">
+                                                        <div>
+                                                            <span class="wb-scenario-label">조건</span>
+                                                            <span class="wb-scenario-value wb-preline">@ScenarioStepWhenLabel(step)</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="wb-scenario-label">대상</span>
+                                                            <span class="wb-scenario-value">@ScenarioStepDestinationLabel(step)</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="wb-scenario-label">Payload</span>
+                                                            <span class="wb-scenario-value wb-preline">@ScenarioStepPayloadPreview(step)</span>
+                                                        </div>
+                                                    </div>
+                                                    @if (FindGrpcMatch(step.TopicName) is string stepMatch)
+                                                    {
+                                                        <div class="d-flex align-center mt-2" style="gap:6px;">
+                                                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
+                                                                ambassador 매칭: @stepMatch
+                                                            </MudChip>
+                                                        </div>
+                                                    }
+                                                    <div class="wb-scenario-step-actions">
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.KeyboardArrowUp"
+                                                                   Disabled="@(i == 0)"
+                                                                   OnClick="@(() => MoveScenarioStep(step, -1))">위로</MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                                                                   Disabled="@isLastStep"
+                                                                   OnClick="@(() => MoveScenarioStep(step, 1))">아래로</MudButton>
+                                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Filled.Edit"
+                                                                   OnClick="@(() => EditScenarioStep(step))">편집</MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success"
+                                                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                                   OnClick="@(() => FireScenarioStep(step))">1회 실행</MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
+                                                                   StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                                                   OnClick="@(() => RemoveScenarioStep(step))">삭제</MudButton>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>
             </MudItem>
 
@@ -539,6 +447,183 @@ else
                 </div>
             </MudItem>
         </MudGrid>
+
+        @if (_editingScenarioStep != null)
+        {
+            var editor = _editingScenarioStep;
+            var editorFields = GetScenarioStepSchemaFields(editor);
+            <div class="wb-editor-backdrop"></div>
+            <div class="wb-editor-shell">
+                <div class="wb-editor-drawer wb-panel pa-4 wb-scroll">
+                    <div class="wb-panel-head mb-3">
+                        <div>
+                            <div class="wb-panel-kicker d-flex align-center" style="gap:6px;">
+                                <span>DDS 단계 편집기</span>
+                                <MudTooltip Text="토픽, 실행 방식, payload, 자동 조건을 여기서 함께 편집합니다. 전체 순차 실행은 현재 단계 순서대로 그대로 동작합니다.">
+                                    <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
+                                </MudTooltip>
+                            </div>
+                            <div class="wb-panel-heading">@ScenarioStepDisplayName(editor)</div>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseScenarioStepEditor" />
+                    </div>
+
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="editor.Name" Label="이름"
+                                          Placeholder="@editor.TopicName"
+                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="string" Label="토픽" Value="@editor.TopicName"
+                                       ValueChanged="@((string topicName) => OnScenarioStepTopicChanged(editor, topicName))"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Class="wb-select wb-select--comfortable wb-select--ellipsis">
+                                @foreach (var t in Session.Topics)
+                                {
+                                    <MudSelectItem T="string" Value="@t.TopicName">
+                                        @($"{t.TopicName} · {t.TypeName}")
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="DdsStepMode" @bind-Value="editor.Mode" Label="실행 방식"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Manual">수동 / 순차 실행</MudSelectItem>
+                                <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Periodic">주기 발행</MudSelectItem>
+                                <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.Bulk">다발 발행</MudSelectItem>
+                                <MudSelectItem T="DdsStepMode" Value="@DdsStepMode.OnIncoming">수신 반응 발행</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <div class="wb-inline-note" style="margin-top:4px;">
+                                @ScenarioStepModeGuidance(editor.Mode)
+                            </div>
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudNumericField @bind-Value="editor.RepeatCount" Label="이 단계 발행 횟수"
+                                             Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudNumericField @bind-Value="editor.DelayAfterMs" Label="다음 단계 전 대기(ms)"
+                                             Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+
+                        @if (editor.Mode == DdsStepMode.Periodic)
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="editor.IntervalMs" Label="주기(ms)"
+                                                 Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="editor.MaxFires" Label="최대 발행 수(선택)"
+                                                 Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                        }
+                        else if (editor.Mode == DdsStepMode.Bulk)
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="editor.BulkCount" Label="다발 개수"
+                                                 Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6" Class="d-flex align-center">
+                                <MudCheckBox @bind-Value="editor.BulkParallel" Label="병렬 발행" Color="Color.Warning" />
+                            </MudItem>
+                        }
+                        else if (editor.Mode == DdsStepMode.OnIncoming)
+                        {
+                            <MudItem xs="12" sm="4">
+                                <MudSelect T="string" Label="매칭 source 토픽"
+                                           Value="@editor.MatchTopicName"
+                                           ValueChanged="@((string? topicName) => OnScenarioStepMatchTopicChanged(editor, topicName))"
+                                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    @foreach (var t in Session.Topics)
+                                    {
+                                        <MudSelectItem T="string" Value="@t.TopicName">@t.TopicName</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="4">
+                                <MudNumericField @bind-Value="editor.MinFireIntervalMs" Label="최소 발행 간격(ms)"
+                                                 Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="4">
+                                <MudNumericField @bind-Value="editor.MaxFiresPerMinute" Label="분당 최대 발행 수"
+                                                 Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudCheckBox @bind-Value="editor.BlockSelfTopicLoop" Label="동일 source/target 재발행 차단" Color="Color.Warning" />
+                            </MudItem>
+                        }
+
+                        @if (FindGrpcMatch(editor.TopicName) is string editorStepMatch)
+                        {
+                            <MudItem xs="12">
+                                <div class="d-flex align-center" style="gap:6px;">
+                                    <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
+                                        ambassador 매칭: @editorStepMatch
+                                    </MudChip>
+                                </div>
+                            </MudItem>
+                        }
+
+                        <MudItem xs="12">
+                            <div class="d-flex flex-wrap align-center" style="gap:8px;">
+                                <div class="d-flex align-center" style="gap:6px;min-width:0;">
+                                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);margin:0;">Payload 편집</MudText>
+                                    <MudTooltip Text="DDS 단계는 필드 입력 또는 JSON 원문으로 payload를 편집할 수 있습니다.">
+                                        <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
+                                    </MudTooltip>
+                                </div>
+                                <MudSpacer />
+                                @if (editorFields.Count > 0)
+                                {
+                                    <MudToggleGroup T="bool" Value="_editingScenarioStepRawJsonMode" ValueChanged="OnScenarioStepRawModeChanged"
+                                                    Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                                    SelectionMode="SelectionMode.SingleSelection">
+                                        <MudToggleItem Value="false" Text="필드" />
+                                        <MudToggleItem Value="true" Text="JSON" />
+                                    </MudToggleGroup>
+                                }
+                            </div>
+                            @if (!_editingScenarioStepRawJsonMode && editorFields.Count > 0)
+                            {
+                                <div class="wb-scroll mt-2" style="max-height:44vh;overflow-y:auto;">
+                                    @foreach (var field in editorFields)
+                                    {
+                                        <div class="mb-2">
+                                            <SchemaFormField Field="field" OnChanged="@(() => OnScenarioStepFieldChanged(editor))" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <MudTextField @bind-Value="editor.JsonPayload" Lines="12" Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" Label="메시지 Payload JSON" FullWidth="true"
+                                              Class="mt-2 wb-mono" Style="font-size:.8rem;" />
+                            }
+                        </MudItem>
+
+                        <MudItem xs="12" Class="d-flex" Style="gap:8px;">
+                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                                       OnClick="@(() => FireScenarioStep(editor))">지금 1회 발행</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       OnClick="SaveScenarioStepEditor">저장</MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       OnClick="CloseScenarioStepEditor">닫기</MudButton>
+                            <MudSpacer />
+                            <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Delete"
+                                       OnClick="@(() => DeleteEditingScenarioStep())">삭제</MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </div>
+        }
 
         <MudOverlay Visible="@_showReceiveTopicPicker" DarkBackground="true" AutoClose="false" ZIndex="1500">
             <div class="wb-topic-picker-shell">
@@ -608,12 +693,12 @@ else
     private bool _scenarioDraftRawJsonMode;
     private List<SchemaField> _scenarioDraftSchemaFields = [];
     private string? _scenarioDraftMatchTopicName;
-
-    private bool _showTypesXml;
-    private bool _showConfigXml;
+    private DdsScenarioStep? _editingScenarioStep;
+    private bool _editingScenarioStepRawJsonMode;
 
     private bool _runningScenario;
     private bool _automationRunning;
+    private readonly HashSet<string> _activeAutomationScenarios = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _scenarioCts;
     private string _automationSignature = string.Empty;
 
@@ -658,6 +743,9 @@ else
     private int AutomaticScenarioStepCount
         => Session?.ScenarioSteps.Count(step => step.Mode != DdsStepMode.Manual) ?? 0;
 
+    private int ScenarioStepCount
+        => Session?.ScenarioSteps.Count ?? 0;
+
     private bool CanPublishScenarioDraft
         => _scenarioDraftTopic != null && _scenarioDraftTopic.Direction != DdsTopicDirection.Subscribe;
 
@@ -693,8 +781,8 @@ else
         foreach (var step in Session.ScenarioSteps)
             EnsureScenarioStepSchema(step);
 
-        Session.ScenarioOptions.CycleCount = Math.Max(1, Session.ScenarioOptions.CycleCount);
     }
+
 
     protected override void OnAfterRender(bool firstRender)
     {
@@ -1107,7 +1195,12 @@ else
         }
     }
 
-    private void AddScenarioStep()
+    private void AddScenarioGroup()
+    {
+        AddScenarioStep(CreateScenarioName());
+    }
+
+    private void AddScenarioStep(string? scenario = null)
     {
         if (Session == null) return;
 
@@ -1121,6 +1214,7 @@ else
         var step = new DdsScenarioStep
         {
             Name = string.Empty,
+            Scenario = NormalizeScenarioName(scenario),
             TopicName = publishTopic.TopicName,
             TypeName = publishTopic.TypeName,
             QosProfileName = publishTopic.QosProfileName,
@@ -1141,7 +1235,8 @@ else
 
         Session.ScenarioSteps.Add(step);
         EnsureScenarioStepSchema(step);
-        AppendLog("session", "INFO", $"메시지 단계 추가: {step.TopicName}");
+        EditScenarioStep(step);
+        AppendLog("session", "INFO", $"메시지 단계 추가: {NormalizeScenarioName(step.Scenario)} · {step.TopicName}");
     }
 
     private void OnScenarioStepTopicChanged(DdsScenarioStep step, string topicName)
@@ -1155,6 +1250,7 @@ else
         step.TypeName = topic.TypeName;
         step.QosProfileName = topic.QosProfileName;
         step.JsonPayload = CreateDefaultScenarioPayloadJson(topic.TypeName);
+        _editingScenarioStepRawJsonMode = false;
         ResetScenarioStepSchema(step);
     }
 
@@ -1163,15 +1259,100 @@ else
         step.MatchTopicName = topicName;
     }
 
-    private void RemoveScenarioStep(int index)
+    private void RemoveScenarioStep(DdsScenarioStep step)
     {
         if (Session == null) return;
-        if (index < 0 || index >= Session.ScenarioSteps.Count) return;
-        var removed = Session.ScenarioSteps[index];
-        Session.ScenarioSteps.RemoveAt(index);
+        var removed = Session.ScenarioSteps.FirstOrDefault(existing => existing.Id == step.Id);
+        if (removed == null) return;
+        if (_editingScenarioStep?.Id == removed.Id)
+            _editingScenarioStep = null;
+        Session.ScenarioSteps.Remove(removed);
         _scenarioStepSchemaFields.Remove(removed.Id);
         Snackbar.Add("메시지 단계를 삭제했습니다.", Severity.Info);
-        AppendLog("session", "INFO", $"메시지 단계 삭제: {removed.TopicName}");
+        AppendLog("session", "INFO", $"메시지 단계 삭제: {NormalizeScenarioName(removed.Scenario)} · {removed.TopicName}");
+        SyncScenarioAutomationTriggers();
+    }
+
+    private void EditScenarioStep(DdsScenarioStep step)
+    {
+        EnsureScenarioStepSchema(step);
+        if (_scenarioStepSchemaFields.TryGetValue(step.Id, out var fields) && fields.Count > 0)
+            TryPopulateFieldsFromJson(fields, step.JsonPayload);
+
+        _editingScenarioStepRawJsonMode = false;
+        _editingScenarioStep = step;
+    }
+
+    private void SaveScenarioStepEditor()
+    {
+        if (_editingScenarioStep == null)
+            return;
+
+        AppendLog("session", "INFO", $"단계 편집 저장: {ScenarioStepDisplayName(_editingScenarioStep)}");
+        _editingScenarioStep = null;
+    }
+
+    private void CloseScenarioStepEditor()
+    {
+        _editingScenarioStep = null;
+    }
+
+    private void DeleteEditingScenarioStep()
+    {
+        if (Session == null || _editingScenarioStep == null)
+            return;
+
+        var index = Session.ScenarioSteps.FindIndex(step => step.Id == _editingScenarioStep.Id);
+        if (index >= 0)
+            RemoveScenarioStep(_editingScenarioStep);
+    }
+
+    private void MoveScenarioStep(DdsScenarioStep step, int direction)
+    {
+        if (Session == null)
+            return;
+
+        var scenarioName = NormalizeScenarioName(step.Scenario);
+        var scenarioSteps = Session.ScenarioSteps
+            .Where(existing => string.Equals(NormalizeScenarioName(existing.Scenario), scenarioName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var index = scenarioSteps.FindIndex(existing => existing.Id == step.Id);
+        var nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= scenarioSteps.Count)
+            return;
+
+        var target = scenarioSteps[nextIndex];
+        var sourceIndex = Session.ScenarioSteps.FindIndex(existing => existing.Id == step.Id);
+        var targetIndex = Session.ScenarioSteps.FindIndex(existing => existing.Id == target.Id);
+        if (sourceIndex < 0 || targetIndex < 0)
+            return;
+
+        Session.ScenarioSteps[sourceIndex] = target;
+        Session.ScenarioSteps[targetIndex] = step;
+        AppendLog("session", "INFO", $"단계 순서 변경: {scenarioName} · {ScenarioStepDisplayName(step)} -> {nextIndex + 1}");
+    }
+
+    private async Task FireScenarioStep(DdsScenarioStep step)
+    {
+        if (Session == null)
+            return;
+
+        var result = await Task.Run(() => DdsState.Publish(
+            Session.SessionId,
+            step.TopicName,
+            step.TypeName,
+            step.QosProfileName,
+            step.JsonPayload));
+
+        if (!result.Success)
+        {
+            Snackbar.Add($"단계 발행 실패: {result.Error}", Severity.Error);
+            AppendLog("system", "ERROR", $"단계 발행 실패: {ScenarioStepDisplayName(step)} · {result.Error}");
+            return;
+        }
+
+        Snackbar.Add($"단계 발행 완료: {ScenarioStepDisplayName(step)}", Severity.Success);
+        AppendLog("session", "INFO", $"단계 1회 발행: {ScenarioStepDisplayName(step)}");
     }
 
     private IReadOnlyList<SchemaField> GetScenarioStepSchemaFields(DdsScenarioStep step)
@@ -1215,6 +1396,19 @@ else
             new JsonSerializerOptions { WriteIndented = true });
     }
 
+    private void OnScenarioStepRawModeChanged(bool raw)
+    {
+        _editingScenarioStepRawJsonMode = raw;
+        if (raw || _editingScenarioStep == null)
+            return;
+
+        if (_scenarioStepSchemaFields.TryGetValue(_editingScenarioStep.Id, out var fields) && fields.Count > 0)
+        {
+            TryPopulateFieldsFromJson(fields, _editingScenarioStep.JsonPayload);
+            BuildScenarioStepJsonFromFields(_editingScenarioStep);
+        }
+    }
+
     private void TryPopulateFieldsFromJson(List<SchemaField> fields, string? json)
     {
         if (fields.Count == 0 || string.IsNullOrWhiteSpace(json))
@@ -1233,26 +1427,57 @@ else
         }
     }
 
-    private void StartAutomation()
+    private void StartAutomation(string? scenario = null)
     {
-        if (Session == null || AutomaticScenarioStepCount == 0)
+        if (Session == null)
             return;
 
-        _automationRunning = true;
+        var scenarioName = NormalizeScenarioName(scenario);
+        var stepCount = AutomaticScenarioStepCountFor(scenarioName);
+        if (stepCount == 0)
+            return;
+
+        _activeAutomationScenarios.Add(scenarioName);
+        _automationRunning = _activeAutomationScenarios.Count > 0;
         SyncScenarioAutomationTriggers();
-        Snackbar.Add("DDS 자동화를 시작했습니다.", Severity.Success);
-        AppendLog("session", "INFO", $"자동화 시작: {AutomaticScenarioStepCount} step");
+        Snackbar.Add($"DDS 자동화를 시작했습니다: {scenarioName}", Severity.Success);
+        AppendLog("session", "INFO", $"자동화 시작: {scenarioName} · {stepCount} step");
     }
 
-    private void StopAutomation()
+    private void StopAutomation(string? scenario = null)
     {
-        if (Session == null || !_automationRunning)
+        if (Session == null)
             return;
 
-        _automationRunning = false;
+        if (string.IsNullOrWhiteSpace(scenario))
+            _activeAutomationScenarios.Clear();
+        else
+            _activeAutomationScenarios.Remove(NormalizeScenarioName(scenario));
+
+        _automationRunning = _activeAutomationScenarios.Count > 0;
         SyncScenarioAutomationTriggers();
-        Snackbar.Add("DDS 자동화를 중지했습니다.", Severity.Info);
-        AppendLog("session", "INFO", "자동화 중지");
+        Snackbar.Add(string.IsNullOrWhiteSpace(scenario)
+            ? "DDS 자동화를 중지했습니다."
+            : $"DDS 자동화를 중지했습니다: {NormalizeScenarioName(scenario)}", Severity.Info);
+        AppendLog("session", "INFO", string.IsNullOrWhiteSpace(scenario)
+            ? "자동화 중지"
+            : $"자동화 중지: {NormalizeScenarioName(scenario)}");
+    }
+
+    private async Task StartScenarioWorkflow(string scenario)
+    {
+        if (Session == null || ScenarioStepCountFor(scenario) == 0 || _runningScenario || IsScenarioAutomationRunning(scenario))
+            return;
+
+        if (ManualScenarioStepCountFor(scenario) > 0)
+        {
+            var completed = await RunManualScenario(scenario, showCompletionSnackbar: AutomaticScenarioStepCountFor(scenario) == 0);
+            if (!completed || Session == null || AutomaticScenarioStepCountFor(scenario) == 0)
+                return;
+        }
+
+        StartAutomation(scenario);
+        AppendLog("session", "INFO", $"전체 시작 완료: {NormalizeScenarioName(scenario)}");
     }
 
     private string CreateDefaultScenarioPayloadJson(string typeName)
@@ -1275,65 +1500,68 @@ else
         }
     }
 
-    private async Task RunScenario()
+    private async Task RunScenario(string scenario)
+        => await RunManualScenario(scenario, showCompletionSnackbar: true);
+
+    private async Task<bool> RunManualScenario(string scenario, bool showCompletionSnackbar)
     {
-        if (Session == null || ManualScenarioStepCount == 0 || _runningScenario) return;
+        if (Session == null || ManualScenarioStepCountFor(scenario) == 0 || _runningScenario)
+            return false;
 
         _runningScenario = true;
         _scenarioCts = new CancellationTokenSource();
         var ct = _scenarioCts.Token;
-        var options = Session.ScenarioOptions;
-        var manualSteps = Session.ScenarioSteps.Where(step => step.Mode == DdsStepMode.Manual).ToList();
+        var scenarioName = NormalizeScenarioName(scenario);
+        var manualSteps = Session.ScenarioSteps
+            .Where(step => string.Equals(NormalizeScenarioName(step.Scenario), scenarioName, StringComparison.OrdinalIgnoreCase)
+                && step.Mode == DdsStepMode.Manual)
+            .ToList();
 
-        AppendLog("session", "INFO", $"수동 실행 시작: {manualSteps.Count} step, cycle {options.CycleCount}");
+        AppendLog("session", "INFO", $"수동 실행 시작: {scenarioName} · {manualSteps.Count} step");
 
         try
         {
-            for (var cycle = 1; cycle <= Math.Max(1, options.CycleCount); cycle++)
+            for (var i = 0; i < manualSteps.Count; i++)
             {
-                for (var i = 0; i < manualSteps.Count; i++)
+                ct.ThrowIfCancellationRequested();
+                var step = manualSteps[i];
+
+                for (var repeat = 1; repeat <= Math.Max(1, step.RepeatCount); repeat++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var step = manualSteps[i];
+                    var result = await Task.Run(() => DdsState.Publish(
+                        Session.SessionId,
+                        step.TopicName,
+                        step.TypeName,
+                        step.QosProfileName,
+                        step.JsonPayload), ct);
 
-                    for (var repeat = 1; repeat <= Math.Max(1, step.RepeatCount); repeat++)
+                    if (!result.Success)
                     {
-                        ct.ThrowIfCancellationRequested();
-                        var result = await Task.Run(() => DdsState.Publish(
-                            Session.SessionId,
-                            step.TopicName,
-                            step.TypeName,
-                            step.QosProfileName,
-                            step.JsonPayload), ct);
-
-                        if (!result.Success)
-                        {
-                            AppendLog("system", "ERROR", $"cycle {cycle} step {i + 1}/{manualSteps.Count} 실패: {result.Error}");
-                            if (options.StopOnError)
-                            {
-                                AppendLog("system", "WARN", "오류 발생으로 수동 실행 중단");
-                                return;
-                            }
-                        }
-                        else
-                        {
-                            AppendLog("session", "INFO", $"cycle {cycle} step {i + 1}/{manualSteps.Count} repeat {repeat}/{Math.Max(1, step.RepeatCount)} 성공");
-                        }
+                        AppendLog("system", "ERROR", $"{scenarioName} step {i + 1}/{manualSteps.Count} 실패: {result.Error}");
                     }
-
-                    var delayMs = Math.Max(0, step.DelayAfterMs);
-                    if (delayMs > 0)
-                        await Task.Delay(delayMs, ct);
+                    else
+                    {
+                        AppendLog("session", "INFO", $"{scenarioName} step {i + 1}/{manualSteps.Count} repeat {repeat}/{Math.Max(1, step.RepeatCount)} 성공");
+                    }
                 }
+
+                var delayMs = Math.Max(0, step.DelayAfterMs);
+                if (delayMs > 0)
+                    await Task.Delay(delayMs, ct);
             }
 
-            Snackbar.Add("DDS 수동 실행 완료", Severity.Success);
-            AppendLog("session", "INFO", "수동 실행 완료");
+            if (showCompletionSnackbar)
+                Snackbar.Add($"DDS 수동 실행 완료: {scenarioName}", Severity.Success);
+
+            AppendLog("session", "INFO", $"수동 실행 완료: {scenarioName}");
+            return true;
         }
         catch (OperationCanceledException)
         {
             Snackbar.Add("DDS 수동 실행 중단", Severity.Warning);
             AppendLog("system", "WARN", "사용자 요청으로 수동 실행 중단");
+            return false;
         }
         finally
         {
@@ -1352,7 +1580,7 @@ else
     {
         if (Session == null || Session.ScenarioSteps.Count == 0)
         {
-            Snackbar.Add("저장할 메시지 단계가 없습니다.", Severity.Warning);
+            Snackbar.Add("내보낼 DDS 시나리오가 없습니다.", Severity.Warning);
             return;
         }
 
@@ -1360,14 +1588,13 @@ else
         {
             Version = 1,
             ExportedAt = DateTimeOffset.Now,
-            Options = Session.ScenarioOptions,
             Steps = Session.ScenarioSteps.ToList(),
         };
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
-        await JS.InvokeVoidAsync("workbench.downloadText", $"dds-scenario-{SanitizeFileName(Session.Name)}.json", json, "application/json");
-        Snackbar.Add($"DDS 단계 저장 완료: {Session.ScenarioSteps.Count} step", Severity.Success);
-        AppendLog("session", "INFO", $"단계 저장: {Session.ScenarioSteps.Count} step");
+        await JS.InvokeVoidAsync("workbench.downloadText", $"dds-scenarios-{SanitizeFileName(Session.Name)}.json", json, "application/json");
+        Snackbar.Add($"DDS 시나리오 저장 완료: {Session.ScenarioSteps.Count} step", Severity.Success);
+        AppendLog("session", "INFO", $"시나리오 저장: {Session.ScenarioSteps.Count} step");
     }
 
     private async Task ImportScenarioJson(IBrowserFile? file)
@@ -1383,7 +1610,7 @@ else
 
             if (payload?.Steps == null || payload.Steps.Count == 0)
             {
-                Snackbar.Add("불러올 DDS 단계가 없습니다.", Severity.Warning);
+                Snackbar.Add("불러올 DDS 시나리오 단계가 없습니다.", Severity.Warning);
                 return;
             }
 
@@ -1393,6 +1620,7 @@ else
                 {
                     Id = string.IsNullOrWhiteSpace(step.Id) ? Guid.NewGuid().ToString() : step.Id,
                     Name = step.Name,
+                    Scenario = NormalizeScenarioName(step.Scenario),
                     TopicName = step.TopicName,
                     TypeName = step.TypeName,
                     QosProfileName = step.QosProfileName,
@@ -1416,16 +1644,17 @@ else
             foreach (var step in Session.ScenarioSteps)
                 EnsureScenarioStepSchema(step);
 
-            Session.ScenarioOptions = payload.Options ?? new DdsScenarioRunOptions();
-            Session.ScenarioOptions.CycleCount = Math.Max(1, Session.ScenarioOptions.CycleCount);
+            _editingScenarioStep = null;
+            _activeAutomationScenarios.Clear();
+            _automationRunning = false;
 
-            Snackbar.Add($"DDS 단계 불러오기 완료: {Session.ScenarioSteps.Count} step", Severity.Success);
-            AppendLog("session", "INFO", $"단계 불러오기: {Session.ScenarioSteps.Count} step");
+            Snackbar.Add($"DDS 시나리오 불러오기 완료: {Session.ScenarioSteps.Count} step", Severity.Success);
+            AppendLog("session", "INFO", $"시나리오 불러오기: {Session.ScenarioSteps.Count} step");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"DDS 단계 불러오기 실패: {ex.Message}", Severity.Error);
-            AppendLog("system", "ERROR", $"단계 불러오기 실패: {ex.Message}");
+            Snackbar.Add($"DDS 시나리오 불러오기 실패: {ex.Message}", Severity.Error);
+            AppendLog("system", "ERROR", $"시나리오 불러오기 실패: {ex.Message}");
         }
     }
 
@@ -1441,12 +1670,13 @@ else
 
         return string.Join('|', Session.ScenarioSteps.Select(step => string.Join(';',
             step.Id,
+            NormalizeScenarioName(step.Scenario),
             step.TopicName,
             step.TypeName,
             step.QosProfileName,
             step.JsonPayload,
             step.Mode,
-            _automationRunning,
+            string.Join(',', _activeAutomationScenarios.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)),
             step.IntervalMs,
             step.MaxFires,
             step.BulkCount,
@@ -1469,7 +1699,8 @@ else
         }
 
         var triggers = Session.ScenarioSteps
-            .Where(step => step.Mode != DdsStepMode.Manual)
+            .Where(step => step.Mode != DdsStepMode.Manual
+                && _activeAutomationScenarios.Contains(NormalizeScenarioName(step.Scenario)))
             .Select(step => new DdsTrigger
             {
                 Id = step.Id,
@@ -1508,6 +1739,101 @@ else
         DdsStepMode.OnIncoming => "수신반응",
         _ => "수동",
     };
+
+    private static string ScenarioStepDisplayName(DdsScenarioStep step)
+        => string.IsNullOrWhiteSpace(step.Name) ? step.TopicName : step.Name;
+
+    private string ScenarioStepStatusLabel(DdsScenarioStep step)
+        => step.Mode switch
+        {
+            DdsStepMode.Manual => "수동 전체 실행 포함",
+            _ when IsScenarioAutomationRunning(step.Scenario) => "자동화 동작 중",
+            _ => "자동화 시작 대기"
+        };
+
+    private Color ScenarioStepStatusColor(DdsScenarioStep step)
+        => step.Mode == DdsStepMode.Manual
+            ? Color.Default
+            : IsScenarioAutomationRunning(step.Scenario) ? Color.Success : Color.Default;
+
+    private static string ScenarioStepModeGuidance(DdsStepMode mode)
+        => mode switch
+        {
+            DdsStepMode.Manual => "이 단계는 `수동 단계 전체 실행`과 `전체 시작`의 앞부분에 포함됩니다. `자동 단계 시작`만으로는 동작하지 않습니다.",
+            DdsStepMode.Periodic => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 주기적으로 계속 발행됩니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
+            DdsStepMode.Bulk => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 다발 발행 규칙으로 동작합니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
+            DdsStepMode.OnIncoming => "이 단계는 `자동 단계 시작` 또는 `전체 시작` 이후 수신 이벤트를 기다렸다가 반응 발행합니다. 수동 단계 전체 실행에는 포함되지 않습니다.",
+            _ => string.Empty
+        };
+
+    private static string ScenarioStepDestinationLabel(DdsScenarioStep step)
+        => $"{step.TopicName} · {step.TypeName} · QoS {step.QosProfileName}";
+
+    private const string DefaultScenarioName = "기본 시나리오";
+
+    private int ScenarioStepCountFor(string scenario)
+        => Session?.ScenarioSteps.Count(step => string.Equals(NormalizeScenarioName(step.Scenario), NormalizeScenarioName(scenario), StringComparison.OrdinalIgnoreCase)) ?? 0;
+
+    private int ManualScenarioStepCountFor(string scenario)
+        => Session?.ScenarioSteps.Count(step => string.Equals(NormalizeScenarioName(step.Scenario), NormalizeScenarioName(scenario), StringComparison.OrdinalIgnoreCase) && step.Mode == DdsStepMode.Manual) ?? 0;
+
+    private int AutomaticScenarioStepCountFor(string scenario)
+        => Session?.ScenarioSteps.Count(step => string.Equals(NormalizeScenarioName(step.Scenario), NormalizeScenarioName(scenario), StringComparison.OrdinalIgnoreCase) && step.Mode != DdsStepMode.Manual) ?? 0;
+
+    private bool IsScenarioAutomationRunning(string? scenario)
+        => _activeAutomationScenarios.Contains(NormalizeScenarioName(scenario));
+
+    private string CreateScenarioName()
+    {
+        var existing = BuildScenarioGroups().Select(group => group.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var index = 1;
+        while (existing.Contains($"시나리오 {index}"))
+            index++;
+
+        return $"시나리오 {index}";
+    }
+
+    private string NormalizeScenarioName(string? scenario)
+        => string.IsNullOrWhiteSpace(scenario) ? DefaultScenarioName : scenario.Trim();
+
+    private List<DdsScenarioGroupVm> BuildScenarioGroups()
+    {
+        if (Session == null)
+            return [];
+
+        var orderedSteps = Session.ScenarioSteps
+            .Select((step, index) => new { Step = step, Index = index })
+            .GroupBy(item => NormalizeScenarioName(item.Step.Scenario), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Min(item => item.Index))
+            .Select(group => new DdsScenarioGroupVm(group.Key, group.Select(item => item.Step).ToList()))
+            .ToList();
+
+        return orderedSteps;
+    }
+
+    private static string ScenarioStepPayloadPreview(DdsScenarioStep step)
+    {
+        var text = (step.JsonPayload ?? "{}").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return "Payload 비어 있음";
+
+        return text.Length > 120 ? text[..120] + "..." : text;
+    }
+
+    private static string ScenarioStepWhenLabel(DdsScenarioStep step)
+    {
+        var repeatLabel = $"단계 반복 {Math.Max(1, step.RepeatCount)}회";
+        var delayLabel = step.DelayAfterMs > 0 ? $"\n다음 단계 전 {step.DelayAfterMs}ms 대기" : string.Empty;
+
+        return step.Mode switch
+        {
+            DdsStepMode.Manual => $"수동 단계 전체 실행에 포함\n{repeatLabel}{delayLabel}",
+            DdsStepMode.Periodic => $"자동화 시작 후 {step.IntervalMs}ms 주기 발행{(step.MaxFires.HasValue ? $"\n최대 {step.MaxFires}회" : string.Empty)}\n{repeatLabel}{delayLabel}",
+            DdsStepMode.Bulk => $"자동화 시작 후 {Math.Max(1, step.BulkCount)}건 {(step.BulkParallel ? "병렬" : "순차")} 발행\n{repeatLabel}{delayLabel}",
+            DdsStepMode.OnIncoming => $"자동화 시작 후 {(string.IsNullOrWhiteSpace(step.MatchTopicName) ? "전체 토픽" : step.MatchTopicName)} 수신 반응\n최소 간격 {Math.Max(0, step.MinFireIntervalMs)}ms · 분당 최대 {Math.Max(0, step.MaxFiresPerMinute)}회\n{repeatLabel}{delayLabel}",
+            _ => repeatLabel
+        };
+    }
 
     private void OnSampleReceived(DdsSubscriptionInfo info, DdsSampleEntry sample)
     {
@@ -1551,36 +1877,6 @@ else
         _ => Color.Default,
     };
 
-    private string GetTypesXmlText()
-    {
-        if (Session?.TypesXmlContent == null) return string.Empty;
-        return System.Text.Encoding.UTF8.GetString(Session.TypesXmlContent);
-    }
-
-    private string GetConfigXmlText()
-    {
-        if (Session?.ConfigXmlContent == null) return string.Empty;
-        return System.Text.Encoding.UTF8.GetString(Session.ConfigXmlContent);
-    }
-
-    private async Task DownloadTypesXml()
-    {
-        if (Session?.TypesXmlContent == null) return;
-        var fileName = string.IsNullOrWhiteSpace(Session.TypesXmlFileName)
-            ? "DDSSim.xml"
-            : Session.TypesXmlFileName;
-        await JS.InvokeVoidAsync("workbench.downloadText", fileName, GetTypesXmlText(), "application/xml");
-    }
-
-    private async Task DownloadConfigXml()
-    {
-        if (Session?.ConfigXmlContent == null) return;
-        var fileName = string.IsNullOrWhiteSpace(Session.ConfigXmlFileName)
-            ? "dds-config.xml"
-            : Session.ConfigXmlFileName;
-        await JS.InvokeVoidAsync("workbench.downloadText", fileName, GetConfigXmlText(), "application/xml");
-    }
-
     public void Dispose()
     {
         DdsState.StateChanged -= OnDdsStateChanged;
@@ -1613,8 +1909,9 @@ else
     {
         public int Version { get; set; }
         public DateTimeOffset ExportedAt { get; set; }
-        public DdsScenarioRunOptions? Options { get; set; }
         public List<DdsScenarioStep> Steps { get; set; } = [];
     }
+
+    private sealed record DdsScenarioGroupVm(string Name, List<DdsScenarioStep> OrderedSteps);
 
 }

@@ -41,12 +41,16 @@
         var visibleOutboundMessages = State.SnapshotOutbound()
             .Where(item => _session == null || string.Equals(item.SessionId, _session.SessionId, StringComparison.Ordinal))
             .ToList();
-        var topActiveCalls = aggregateSnapshots.Sum(State.GetDisplayedActiveCalls);
+        var configuredScenarioCount = BuildScenarioGroups(triggerSnapshot).Count;
         var enabledTriggerCount = triggerSnapshot.Count(x => x.Enabled);
         var selectedMethodLabel = _selectedMethod == null
             ? "메서드 미선택"
             : $"{_selectedService?.ServiceName.Split('.').Last()}.{_selectedMethod.MethodName}";
+        var listenerWorkspaceActive = IsListenerWorkspaceActive();
         var protoLabel = CurrentProtoLabel();
+        var currentSessionTarget = _session?.UnixSocketPath ?? "연결된 세션 없음";
+        var currentOpenLocalStreamCount = _session == null ? 0 : OpenLocalStreamsForCurrentSession().Count;
+        var selectedLocalStreamLabel = string.IsNullOrWhiteSpace(State.StreamId) ? "미선택" : ShortStreamId(State.StreamId!);
     }
 
     @if (_evicted)
@@ -127,8 +131,8 @@
         {
             <div class="wb-panel wb-panel--contain pa-4 mt-3">
                 <div class="wb-panel-kicker">새 탭</div>
-                <div class="wb-panel-heading">브라우저처럼 탭을 열고, 닫고, 전환합니다</div>
-                <div class="wb-inline-note mt-2">gRPC 수신도 홈에 고정하지 않고 별도 탭으로 엽니다. 새 탭 종류를 고른 뒤 바로 열거나 연결을 만드세요.</div>
+                <div class="wb-panel-heading">먼저 열 작업 공간 하나를 고르세요</div>
+                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 추가로 여는 작업입니다." : "열린 탭이 아직 없습니다. 관찰용 gRPC 탭, 연결형 gRPC 탭, DDS 작업 탭 중 하나로 시작하세요.")</div>
 
                 <div class="wb-mode-strip mt-3">
                     <button type="button"
@@ -136,21 +140,21 @@
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcListener))">
                         <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Small" Color="Color.Info" />
                         <div class="wb-mode-title">gRPC 수신 탭</div>
-                        <div class="wb-mode-note">세션 연결 없이 수신, 송신 이력, 로그만 따로 띄워 둡니다.</div>
+                        <div class="wb-mode-note">연결 없이 수신 RPC와 이벤트 로그만 관찰합니다.</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Primary" />
                         <div class="wb-mode-title">gRPC 세션 탭</div>
-                        <div class="wb-mode-note">소켓에 연결한 뒤 메서드 호출과 스트림을 그 세션 전용 탭에서 다룹니다.</div>
+                        <div class="wb-mode-note">소켓 하나에 연결해 호출, 스트림, proto를 세션 단위로 다룹니다.</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.DdsSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.DdsSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Secondary" />
                         <div class="wb-mode-title">DDS 세션 탭</div>
-                        <div class="wb-mode-note">Domain, XML, topic 구성을 가진 DDS 작업 공간을 별도 탭으로 엽니다.</div>
+                        <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행을 엽니다.</div>
                     </button>
                 </div>
 
@@ -159,7 +163,7 @@
                     <div class="wb-subpanel mt-3">
                         <div class="wb-panel-kicker">gRPC 수신 탭</div>
                         <div class="wb-panel-heading">세션 없이 관찰 전용 탭 열기</div>
-                        <div class="wb-inline-note mt-2">이 탭은 연결 대상 없이도 수신 RPC, 자동 실행, 송신 이력, 로그를 계속 볼 수 있습니다.</div>
+                        <div class="wb-inline-note mt-2">디버깅, 수신 감시, 이벤트 확인처럼 “먼저 보기”가 목적일 때 가장 가볍게 시작할 수 있습니다.</div>
                         <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.AddToPhotos"
                                    OnClick="OpenListenerTab">
@@ -177,10 +181,10 @@
                                           Label="탭 이름" Placeholder="예: B 피어 테스트"
                                           Variant="Variant.Outlined" Margin="Margin.Dense" />
                             <MudTextField @bind-Value="_socketPath"
-                                          Label="연결할 소켓 경로" Placeholder="/var/run/dds-ambassador-peer/grpc.sock"
+                                          Label="연결할 소켓 경로" Placeholder="현재 워크벤치 수신 소켓"
                                           Variant="Variant.Outlined" Margin="Margin.Dense"
                                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Shortcut"
-                                          AdornmentAriaLabel="기본 피어 소켓 경로" OnAdornmentClick="FillPeerSocketPath" />
+                                          AdornmentAriaLabel="현재 워크벤치 수신 소켓 경로" OnAdornmentClick="FillWorkbenchSocketPath" />
                             <MudNumericField @bind-Value="_timeoutSeconds" Label="타임아웃 (초)"
                                              Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="300" />
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
@@ -197,7 +201,7 @@
                                 }
                             </MudButton>
                         </div>
-                        <div class="wb-inline-note mt-3">비워 두면 소켓 경로나 세션 ID 기반 이름을 자동으로 씁니다. 내 소켓: @_mySocketPath</div>
+                        <div class="wb-inline-note mt-3">탭 이름은 비워도 됩니다. 소켓 경로나 세션 ID를 기준으로 자동 이름을 붙입니다. 내 소켓: @_mySocketPath</div>
                     </div>
                 }
                 else
@@ -205,7 +209,7 @@
                     <div class="mt-3">
                         <DdsSessionCreateForm
                             OnCreated="OnDdsSessionCreated"
-                            OnCancelled="ActivateAddTab" />
+                            OnCancelled="ActivatePreferredFallbackTab" />
                     </div>
                 }
             </div>
@@ -218,36 +222,6 @@
     }
     else if (IsGrpcPanelActive())
     {
-    <div class="wb-hero mb-4">
-        <div>
-            <div class="wb-panel-kicker">gRPC 워크벤치</div>
-            <div class="wb-hero-title">열린 탭 기준으로 수신과 전송 흐름을 다루는 gRPC 작업 공간</div>
-            <div class="d-flex align-center mt-2" style="gap:8px;">
-                <span class="wb-inline-note">탭 기반 작업 안내</span>
-                <MudTooltip Text="gRPC 수신 탭은 세션 없이 수신과 이력을 보여주고, gRPC 세션 탭은 연결된 소켓 기준 호출과 로컬 스트림을 관리합니다.">
-                    <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
-                </MudTooltip>
-            </div>
-        </div>
-        <div class="wb-hero-metrics">
-            <div class="wb-metric-card">
-                <div class="wb-metric-label">활성 탭</div>
-                <div class="wb-metric-value">@ActiveGrpcTabLabel()</div>
-                <div class="wb-metric-note">@ActiveGrpcTabNote()</div>
-            </div>
-            <div class="wb-metric-card">
-                <div class="wb-metric-label">메서드</div>
-                <div class="wb-metric-value">@selectedMethodLabel</div>
-                <div class="wb-metric-note">@(_selectedMethod?.RpcType ?? "RPC 미선택")</div>
-            </div>
-            <div class="wb-metric-card">
-                <div class="wb-metric-label">수신</div>
-                <div class="wb-metric-value">@topActiveCalls 활성</div>
-                <div class="wb-metric-note">@State.RpcCount 개 RPC · @State.TriggerCount 개 트리거</div>
-            </div>
-        </div>
-    </div>
-
     @if (IsListenerWorkspaceActive())
     {
     <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
@@ -269,7 +243,7 @@
         <div class="wb-listener-summary-grid">
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">현재 listener 범위</span><br />
-                <text>모든 수신 RPC와 송신 이력을 세션 필터 없이 표시합니다.</text>
+                <text>모든 수신 RPC와 이벤트 로그를 세션 필터 없이 표시합니다.</text>
             </div>
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">관찰 요약</span><br />
@@ -277,7 +251,7 @@
             </div>
             <div class="wb-code">
                 <span style="color:var(--mud-palette-text-secondary);">세션 탭과 차이</span><br />
-                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리를 숨깁니다.</text>
+                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리, 자동 송신, 송신 이력을 숨깁니다.</text>
             </div>
         </div>
     </div>
@@ -288,14 +262,33 @@
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="@(_session == null ? Color.Default : Color.Success)" />
             <div>
-                <div class="wb-panel-kicker">세션 / Proto</div>
-                <div class="wb-panel-heading">활성 세션 전환과 현재 Proto 관리</div>
+                <div class="wb-panel-kicker">세션 작업</div>
+                <div class="wb-panel-heading">활성 대상과 proto 기준만 먼저 정합니다</div>
             </div>
             <MudChip T="string" Size="Size.Small" Color="@(_session == null ? Color.Default : Color.Success)" Variant="Variant.Text" Class="ma-0">@(_session == null ? "미연결" : "연결됨")</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_services.Count 개 서비스</MudChip>
         </div>
 
-        <div class="wb-topbar-grid">
+        <div class="wb-summary-grid mt-3">
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">현재 대상</span><br />
+                @currentSessionTarget
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">로드된 proto</span><br />
+                @protoLabel
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">현재 선택 메서드</span><br />
+                @selectedMethodLabel
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">로컬 스트림</span><br />
+                @currentOpenLocalStreamCount 개 열림 · 선택 @selectedLocalStreamLabel
+            </div>
+        </div>
+
+        <div class="wb-topbar-grid mt-3">
             <div>
                 <MudSelect T="string"
                            Label="활성 세션"
@@ -310,24 +303,8 @@
                         <MudSelectItem T="string" Value="@sessionTab.SessionId">@($"{FormatSessionTabLabel(sessionTab)} · {sessionTab.UnixSocketPath ?? "소켓 경로 없음"}")</MudSelectItem>
                     }
                 </MudSelect>
-
-                <div class="wb-code mt-2" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">현재 선택된 세션 대상</span><br />
-                    @if (_session == null)
-                    {
-                        <text>없음 · 수신 관찰과 열린 스트림 대상 전송만 가능합니다</text>
-                    }
-                    else
-                    {
-                        <text>@_session.UnixSocketPath</text>
-                    }
-                </div>
             </div>
             <div>
-                <div class="wb-code mb-2" style="font-size:.74rem;">
-                    <span style="color:var(--mud-palette-text-secondary);">로드된 proto</span><br />
-                    <text>@protoLabel</text>
-                </div>
                 <MudFileUpload T="IBrowserFile" FilesChanged="OnProtoFileSelected" Accept=".proto">
                     <ActivatorContent>
                         <MudButton Variant="Variant.Outlined" FullWidth="true"
@@ -338,12 +315,6 @@
                 </MudFileUpload>
             </div>
         </div>
-        <div class="d-flex align-center mt-3" style="gap:8px;">
-            <span class="wb-inline-note">세션 / Proto 안내</span>
-            <MudTooltip Text="여기서는 활성 세션을 바꾸고 그 세션에 묶인 proto를 관리합니다. 실제 발사 대상, payload, 로컬 스트림 기준은 아래 자동화 패널에서 계속 조정합니다.">
-                <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
-            </MudTooltip>
-        </div>
 
         @if (_session != null)
         {
@@ -351,13 +322,8 @@
             <div class="wb-subpanel mt-3">
                 <div class="wb-subpanel-head mb-3">
                     <div>
-                        <div class="wb-panel-kicker d-flex align-center" style="gap:6px;">
-                            <span>로컬 스트림</span>
-                            <MudTooltip Text="여기서 연 스트림은 아래 목록에서 각각 선택하거나 닫을 수 있고, 트리거·시나리오·수동 1회 발사에서 재사용할 수 있습니다.">
-                                <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
-                            </MudTooltip>
-                        </div>
-                        <div class="wb-panel-heading">세션 안에서 미리 열어두고 선택해서 재사용</div>
+                        <div class="wb-panel-kicker">로컬 스트림</div>
+                        <div class="wb-panel-heading">필요한 스트림만 열어 두고 재사용합니다</div>
                     </div>
                     <div class="wb-chip-row">
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@openLocalStreams.Count 개 열림</MudChip>
@@ -393,7 +359,7 @@
                                StartIcon="@Icons.Material.Filled.PlayArrow"
                                Disabled="@(!CanOpenSelectedStreamMethod())"
                                OnClick="StartStream">
-                        현재 세션에서 스트림 열기
+                        스트림 열기
                     </MudButton>
                     <MudTooltip Text="@SelectedStreamMethodNote()">
                         <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
@@ -657,6 +623,8 @@
             </div>
         </MudItem>
 
+        @if (!listenerWorkspaceActive)
+        {
         @* ════════ 하단: Triggers (자동 송신 규칙) ════════ *@
         <MudItem xs="12" Class="wb-section-order-3">
             <div class="wb-panel wb-panel--major pa-3">
@@ -665,39 +633,35 @@
                                    Size="Size.Small" OnClick="@(() => _triggersExpanded = !_triggersExpanded)" />
                     <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
                     <div>
-                        <div class="wb-panel-kicker">자동화</div>
-                        <div class="wb-panel-heading">자동 실행과 메시지 단계</div>
+                        <div class="wb-panel-kicker">gRPC 자동화</div>
+                        <div class="wb-panel-heading">메시지 단계마다 자동 조건과 수동 발사를 함께 관리</div>
                     </div>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@triggerSnapshot.Count</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">시나리오 @configuredScenarioCount</MudChip>
                     @if (enabledTriggerCount > 0)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                            @enabledTriggerCount 활성
+                            자동 동작 @enabledTriggerCount
                         </MudChip>
                     }
                     <MudSpacer />
                     <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Add" OnClick="AddNewTrigger">
-                        자동 실행 추가
+                               StartIcon="@Icons.Material.Filled.Add" OnClick="AddScenarioGroup">
+                        시나리오 추가
                     </MudButton>
                 </div>
 
                 @if (_triggersExpanded)
                 {
-                    <div class="d-flex align-center mb-3" style="gap:8px;">
-                        <span class="wb-inline-note">자동 실행 편집 안내</span>
-                        <MudTooltip Text="자동 실행은 여기서 직접 대상 서비스, 메서드, payload를 편집합니다. `활성`을 꺼 두면 자동 실행은 막고 카드의 재생 버튼으로 수동 발사만 할 수 있습니다.">
-                            <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
-                        </MudTooltip>
-                    </div>
+                    <div class="wb-inline-note mb-3">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오가 생성됩니다. 모든 단계는 시나리오 안에서만 관리하고, 여기서는 `수동 전체 실행`, `자동 단계 시작`, `전체 시작`으로 시나리오를 제어합니다.</div>
                     var scenarioGroups = BuildScenarioGroups(triggerSnapshot);
                     @if (scenarioGroups.Count > 0)
                     {
                         <div class="wb-panel pa-2 mb-3">
                             <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
                                 <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Info" />
-                                <span class="wb-panel-title">시나리오</span>
-                                <MudTooltip Text="실행은 같은 시나리오 이름의 step을 순서대로 수동 수행합니다. 활성은 백그라운드 자동 실행 여부만 제어합니다.">
+                                <span class="wb-panel-title">시나리오 단계</span>
+                                <MudTooltip Text="수동 전체 실행은 모든 단계를 순서대로 한 번 수행합니다. 자동 단계 시작은 이 시나리오의 모든 단계를 켭니다. 전체 시작은 수동 실행 뒤 자동 단계를 유지합니다.">
                                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                 </MudTooltip>
                                 <MudSpacer />
@@ -705,13 +669,13 @@
                                            StartIcon="@Icons.Material.Filled.Download"
                                            Disabled="@(scenarioGroups.Count == 0)"
                                            OnClick="ExportAllScenarios">
-                                    JSON 내보내기
+                                    전체 내보내기
                                 </MudButton>
                                 <MudFileUpload T="IBrowserFile" FilesChanged="ImportScenarioJson" Accept=".json">
                                     <ActivatorContent>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
                                                    StartIcon="@Icons.Material.Filled.UploadFile">
-                                            JSON 불러오기
+                                            전체 불러오기
                                         </MudButton>
                                     </ActivatorContent>
                                 </MudFileUpload>
@@ -719,26 +683,44 @@
                             <div class="d-flex flex-wrap" style="gap:8px;">
                                 @foreach (var group in scenarioGroups)
                                 {
-                                    <div class="wb-panel pa-2" style="min-width:320px;flex:1 1 480px;">
-                                        <div class="d-flex align-center" style="gap:8px;">
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Info" Class="ma-0">
-                                                @group.Name
-                                            </MudChip>
-                                            <MudSpacer />
+                                    <div class="wb-panel pa-3 wb-scenario-group" style="min-width:320px;flex:1 1 480px;">
+                                        <div class="wb-scenario-step-top">
+                                            <div>
+                                                <div class="wb-scenario-step-order">시나리오</div>
+                                                <div class="wb-scenario-step-title">@group.Name</div>
+                                            </div>
+                                            <div class="wb-chip-row">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@group.OrderedSteps.Count 단계</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Color="@(group.OrderedSteps.Any(step => step.Enabled) ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">@group.OrderedSteps.Count(step => step.Enabled) 동작 중</MudChip>
+                                            </div>
+                                        </div>
+                                        <div class="wb-inline-note mt-2">수동 전체 실행은 모든 단계를 순서대로 한 번 보냅니다. 자동 단계 시작은 이 시나리오의 모든 단계를 백그라운드에서 유지합니다.</div>
+                                        <div class="wb-scenario-step-actions mt-2">
                                             <MudButton Variant="Variant.Text" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.Add"
                                                        OnClick="@(() => AddScenarioStep(group.Name))">
-                                                Step 추가
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small"
-                                                       StartIcon="@Icons.Material.Filled.Download"
-                                                       OnClick="@(() => ExportScenario(group.Name))">
-                                                내보내기
+                                                단계 추가
                                             </MudButton>
                                             <MudButton Variant="Variant.Outlined" Size="Size.Small"
                                                        StartIcon="@Icons.Material.Filled.PlayArrow"
                                                        OnClick="@(() => RunScenario(group.Name))">
-                                                실행
+                                                수동 전체 실행
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.AutoMode"
+                                                       OnClick="@(() => StartScenarioAutomation(group.Name))">
+                                                자동 단계 시작
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Info" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.PlayCircle"
+                                                       OnClick="@(() => StartScenarioWorkflow(group.Name))">
+                                                전체 시작
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                                       StartIcon="@Icons.Material.Filled.Stop"
+                                                       Disabled="@(group.OrderedSteps.All(step => !step.Enabled))"
+                                                       OnClick="@(() => StopScenarioAutomation(group.Name))">
+                                                자동화 중지
                                             </MudButton>
                                         </div>
                                         <div class="wb-scenario-list mt-2 wb-scroll" style="max-height:320px;overflow:auto;">
@@ -754,10 +736,9 @@
                                                             <MudChip T="string" Size="Size.Small" Color="@TriggerTypeColor(step.Type)" Variant="Variant.Text" Class="ma-0">
                                                                 @TriggerTypeLabel(step.Type)
                                                             </MudChip>
-                                                            @if (step.Enabled)
-                                                            {
-                                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">활성</MudChip>
-                                                            }
+                                                            <MudChip T="string" Size="Size.Small" Color="@(step.Enabled ? Color.Success : Color.Default)" Variant="Variant.Text" Class="ma-0">
+                                                                @(step.Enabled ? "자동화 동작 중" : "자동화 대기")
+                                                            </MudChip>
                                                         </div>
                                                     </div>
                                                     <div class="wb-scenario-step-meta">
@@ -788,6 +769,16 @@
                                                                    OnClick="@(() => EditTrigger(step))">
                                                             편집
                                                         </MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success"
+                                                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                                   OnClick="@(() => step.Type == TriggerType.Bulk ? FireBulk(step) : FireManual(step))">
+                                                            1회 발사
+                                                        </MudButton>
+                                                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
+                                                                   StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                                                   OnClick="@(() => DeleteTrigger(step))">
+                                                            삭제
+                                                        </MudButton>
                                                     </div>
                                                 </div>
                                             }
@@ -802,107 +793,17 @@
                     {
                         <div class="wb-empty">
                             <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
-                            <div>등록된 자동 실행이 없습니다 · Periodic / OnIncoming / Bulk 자동 송신 규칙</div>
+                            <div>등록된 자동화 단계가 없습니다<br />주기, 수신 반응, 묶음 발사 규칙을 여기서 추가합니다</div>
                         </div>
                     }
 
-                    @if (triggerSnapshot.Count > 0)
-                    {
-                        @foreach (var t in triggerSnapshot)
-                        {
-                            <div @key="t.Id" class="wb-panel pa-2 mb-2 wb-trigger-card">
-                                    <div class="d-flex align-center flex-wrap" style="gap:8px;">
-                                        <MudSwitch T="bool" Value="t.Enabled"
-                                                   ValueChanged="@((bool v) => { t.Enabled = v; State.NotifyTriggersChanged(); })"
-                                                   Color="Color.Success" Size="Size.Small" />
-                                        <MudChip T="string" Size="Size.Small" Color="@TriggerTypeColor(t.Type)"
-                                                 Variant="Variant.Filled" Class="ma-0">@t.Type</MudChip>
-                                        <span style="font-weight:600;">
-                                            @(string.IsNullOrEmpty(t.Name) ? t.Id : t.Name)
-                                        </span>
-                                        @if (!string.IsNullOrWhiteSpace(t.Scenario))
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Info"
-                                                     Variant="Variant.Text" Class="ma-0">
-                                                @($"{t.Scenario} · step {t.StepOrder}")
-                                            </MudChip>
-                                        }
-                                        <span class="wb-mono" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">
-                                            → @TriggerDestinationLabel(t)
-                                        </span>
-                                        @switch (t.Type)
-                                        {
-                                            case TriggerType.Periodic:
-                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
-                                                    every @t.IntervalMs ms
-                                                    @if (t.MaxFires.HasValue) { <text>· max @t.MaxFires</text> }
-                                                </span>
-                                                break;
-                                            case TriggerType.OnIncoming:
-                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
-                                                    on @(string.IsNullOrEmpty(t.MatchService) ? "*" : t.MatchService).@(string.IsNullOrEmpty(t.MatchMethod) ? "*" : t.MatchMethod)
-                                                </span>
-                                                break;
-                                            case TriggerType.Bulk:
-                                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
-                                                    ×@t.BulkCount @(t.BulkParallel ? "parallel" : "seq")
-                                                </span>
-                                                break;
-                                        }
-                                        <MudSpacer />
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0"
-                                                 Color="@(t.Enabled ? Color.Success : Color.Default)">
-                                            @(t.Enabled ? "자동 실행" : "수동만")
-                                        </MudChip>
-                                        <span style="font-size:.7rem;">실행 @t.TotalFires 회</span>
-                                        @if (t.Errors > 0)
-                                        {
-                                            <MudTooltip Text="@(t.LastError ?? "")">
-                                                <span style="font-size:.7rem;color:var(--mud-palette-error);">오류 @t.Errors</span>
-                                            </MudTooltip>
-                                        }
-                                        @if (t.LastFiredAt.HasValue)
-                                        {
-                                            <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">
-                                                @AgoLabel(t.LastFiredAt.Value)
-                                            </span>
-                                        }
-                                        @if (t.Type == TriggerType.Bulk)
-                                        {
-                                            <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Size="Size.Small"
-                                                           Color="Color.Success"
-                                                           OnClick="@(() => FireBulk(t))"
-                                                           title="@($"Bulk 발사 ({t.BulkCount}건)")" />
-                                        }
-                                        else
-                                        {
-                                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
-                                                           OnClick="@(() => FireManual(t))" title="1회 발사" />
-                                        }
-                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                       OnClick="@(() => EditTrigger(t))" />
-                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small"
-                                                       Color="Color.Error"
-                                                       title="Trigger 삭제"
-                                                       OnClick="@(() => DeleteTrigger(t))" />
-                                    </div>
-                                    <div class="wb-trigger-meta-grid mt-2">
-                                        <div>
-                                            <span class="wb-scenario-label">조건</span>
-                                            <span class="wb-scenario-value wb-preline">@ScenarioWhenLabel(t)</span>
-                                        </div>
-                                        <div>
-                                            <span class="wb-scenario-label">대상</span>
-                                            <span class="wb-scenario-value">@TriggerDestinationLabel(t)</span>
-                                        </div>
-                                    </div>
-                            </div>
-                        }
-                    }
                 }
             </div>
         </MudItem>
+        }
 
+        @if (!listenerWorkspaceActive)
+        {
         @* ════════ 하단: 송신 이력 ════════ *@
         <MudItem xs="12" Class="wb-section-order-2">
             <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
@@ -1034,6 +935,7 @@
                 }
             </div>
         </MudItem>
+        }
 
         @* ════════ 하단: 세션 / 이벤트 로그 ════════ *@
         <MudItem xs="12" Class="wb-section-order-5">
@@ -1049,7 +951,6 @@
     @if (_editingTrigger != null)
     {
         var editor = _editingTrigger;
-        var editorScenarioNames = BuildScenarioNames(triggerSnapshot);
         var editorIncomingServiceOptions = BuildIncomingServiceOptions(aggregateSnapshots, _services);
         var editorIncomingMethodLookup = BuildIncomingMethodOptionsLookup(aggregateSnapshots, _services);
         var editorAvailableInboundTargets = BuildAvailableInboundTargets(aggregateSnapshots);
@@ -1076,29 +977,9 @@
                                           Margin="Margin.Dense" Variant="Variant.Outlined" />
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            <MudTextField @bind-Value="editor.Scenario" Label="시나리오"
-                                          Placeholder="예: handshake-a-to-b"
-                                          HelperText="같은 이름이면 한 시나리오로 묶여 Step 순서대로 실행됩니다"
-                                          Margin="Margin.Dense" Variant="Variant.Outlined" />
-                            @if (editorScenarioNames.Count > 0)
-                            {
-                                <div class="d-flex flex-wrap mt-1" style="gap:6px;">
-                                    @foreach (var scenarioName in editorScenarioNames)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
-                                                 Color="Color.Info" Class="ma-0"
-                                                 OnClick="@(() => { editor.Scenario = scenarioName; State.NotifyTriggersChanged(); })">
-                                            @scenarioName
-                                        </MudChip>
-                                    }
-                                </div>
-                            }
+                            <div class="wb-inline-note" style="margin-top:12px;">시나리오 @NormalizeScenarioName(editor.Scenario) 안의 단계입니다. 순서는 카드의 위/아래 버튼으로만 바꿉니다.</div>
                         </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudNumericField @bind-Value="editor.StepOrder" Label="Step" Min="1"
-                                             Margin="Margin.Dense" Variant="Variant.Outlined" />
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
+                        <MudItem xs="12" sm="6">
                             <MudSelect T="TriggerType" Value="editor.Type"
                                        ValueChanged="@((TriggerType v) => { editor.Type = v; State.NotifyTriggersChanged(); })"
                                        Label="타입" Margin="Margin.Dense" Variant="Variant.Outlined"
@@ -1380,8 +1261,9 @@
     }
 
     // ── 회로 로컬 상태 (폼/일회성 UI만; 누적 상태는 WorkbenchStateService) ──
+    private const string PeerSocketPath = "/var/run/dds-ambassador-peer/grpc.sock";
     private string _mySocketPath = "로딩 중...";
-    private string _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
+    private string _socketPath = string.Empty;
     private string _newGrpcSessionName = string.Empty;
     private int _timeoutSeconds = 30;
     private bool _connecting;
@@ -1480,6 +1362,7 @@
         _mySocketPath = Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
             ?? Configuration["GrpcWorkbench:UdsSocketPath"]
             ?? "(설정 없음)";
+        ApplyDefaultSocketPath();
         RefreshSessionTabs();
         RefreshDdsSessionTabs();
         if (_sessionTabs.Count > 0)
@@ -1544,7 +1427,10 @@
         try
         {
             var sp = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_socketPath");
-            if (!string.IsNullOrEmpty(sp)) _socketPath = sp;
+            if (!string.IsNullOrEmpty(sp))
+                _socketPath = sp;
+
+            ApplyDefaultSocketPath();
 
             var to = await JS.InvokeAsync<string?>("localStorage.getItem", "wb_timeout");
             if (int.TryParse(to, out var t)) _timeoutSeconds = t;
@@ -1625,8 +1511,24 @@
     private Task DisconnectSession()
         => _session == null ? Task.CompletedTask : CloseSessionTab(_session.SessionId);
 
-    private void FillPeerSocketPath() =>
-        _socketPath = "/var/run/dds-ambassador-peer/grpc.sock";
+    private void FillWorkbenchSocketPath()
+    {
+        ApplyDefaultSocketPath(force: true);
+    }
+
+    private void ApplyDefaultSocketPath(bool force = false)
+    {
+        if (string.IsNullOrWhiteSpace(_mySocketPath) || _mySocketPath == "(설정 없음)")
+            return;
+
+        if (force
+            || string.IsNullOrWhiteSpace(_socketPath)
+            || string.Equals(_socketPath, PeerSocketPath, StringComparison.Ordinal)
+            || string.Equals(_socketPath, "로딩 중...", StringComparison.Ordinal))
+        {
+            _socketPath = _mySocketPath;
+        }
+    }
 
     private void RefreshSessionTabs()
     {
@@ -1675,24 +1577,8 @@
     private bool IsGrpcSessionWorkspaceActive()
         => _activeTabKind == WorkbenchTabKind.GrpcSession;
 
-    private string ActiveGrpcTabLabel()
-        => _activeTabKind switch
-        {
-            WorkbenchTabKind.GrpcListener => "gRPC 수신 탭",
-            WorkbenchTabKind.GrpcSession when _session != null => FormatSessionTabLabel(_session),
-            _ => "탭 미선택"
-        };
-
-    private string ActiveGrpcTabNote()
-        => _activeTabKind switch
-        {
-            WorkbenchTabKind.GrpcListener => "세션 없이 전체 수신과 이력을 관찰",
-            WorkbenchTabKind.GrpcSession => _session?.UnixSocketPath ?? "소켓 경로 미연결",
-            _ => "새 탭에서 gRPC 수신 또는 세션을 열어 시작하세요"
-        };
-
     private string ListenerTabSummary()
-        => $"수신 {State.RpcCount}개 RPC · 자동 실행 {State.TriggerCount}개 · 송신 이력 {State.SnapshotOutbound().Count}건";
+        => $"수신 {VisibleIncomingRpcCount()}개 RPC · 진행 중 {VisibleIncomingActiveCount()}개 · 로그 {State.LogCount}건";
 
     private void ActivateAddTab()
     {
@@ -2435,26 +2321,10 @@
     }
 
     // ── Triggers ─────────────────────────────────────────────────────────
-    private void AddNewTrigger()
+    private void AddScenarioGroup()
     {
-        // 동시에 여러 트리거가 편집 상태가 되는 혼동 방지 — 기존 편집 모두 닫기
-        ClearTriggerEditing();
-        var targetService = ResolvePreferredTriggerService(State.ActiveStreamServiceName ?? _selectedService?.ServiceName);
-        var targetMethod = ResolvePreferredTriggerMethod(targetService, State.ActiveStreamMethodName ?? _selectedMethod?.MethodName);
-        var t = new Trigger
-        {
-            Name = $"trigger-{State.TriggerCount + 1}",
-            StepOrder = State.TriggerCount + 1,
-            Editing = true,
-            TargetService = targetService,
-            TargetMethod = targetMethod,
-            LocalStreamMode = TriggerLocalStreamMode.Auto,
-            InboundTargetCallId = string.Empty,
-            PayloadTemplate = "{}"
-        };
-        State.AddTrigger(t);
-        _editingTrigger = t;
-        InitializeTriggerPayloadEditor(t, overwritePayloadWhenEmpty: true);
+        var scenarioName = CreateScenarioName();
+        AddScenarioStep(scenarioName);
     }
 
     private void AddScenarioStep(string scenario)
@@ -2471,7 +2341,7 @@
         var trigger = new Trigger
         {
             Name = $"{scenario}-step-{(last?.StepOrder ?? 0) + 1}",
-            Scenario = scenario,
+            Scenario = NormalizeScenarioName(scenario),
             StepOrder = (last?.StepOrder ?? 0) + 1,
             Type = last?.Type ?? TriggerType.Periodic,
             BulkCount = last?.BulkCount ?? 10,
@@ -2611,6 +2481,38 @@
         Snackbar.Add($"Scenario 실행 완료: {scenario} ({steps.Count} step)", Severity.Success);
     }
 
+    private void StartScenarioAutomation(string scenario)
+    {
+        var steps = BuildScenarioStepList(SnapshotTriggersList(), scenario);
+        if (steps.Count == 0)
+            return;
+
+        foreach (var step in steps)
+            step.Enabled = true;
+
+        State.NotifyTriggersChanged();
+        Snackbar.Add($"자동 단계 시작: {scenario}", Severity.Success);
+    }
+
+    private void StopScenarioAutomation(string scenario)
+    {
+        var steps = BuildScenarioStepList(SnapshotTriggersList(), scenario);
+        if (steps.Count == 0)
+            return;
+
+        foreach (var step in steps)
+            step.Enabled = false;
+
+        State.NotifyTriggersChanged();
+        Snackbar.Add($"자동화 중지: {scenario}", Severity.Info);
+    }
+
+    private async Task StartScenarioWorkflow(string scenario)
+    {
+        await RunScenario(scenario);
+        StartScenarioAutomation(scenario);
+    }
+
     private RpcAggregate? ResolveSelectedIncomingAggregate(List<RpcAggregate> aggregates)
     {
         if (aggregates.Count == 0)
@@ -2704,7 +2606,7 @@
 
     private static List<Trigger> BuildScenarioStepList(IReadOnlyList<Trigger> triggers, string scenario)
         => triggers
-            .Where(trigger => string.Equals(trigger.Scenario?.Trim(), scenario, StringComparison.OrdinalIgnoreCase))
+            .Where(trigger => string.Equals(NormalizeScenarioName(trigger.Scenario), NormalizeScenarioName(scenario), StringComparison.OrdinalIgnoreCase))
             .OrderBy(trigger => trigger.StepOrder)
             .ThenBy(trigger => trigger.Name)
             .ToList();
@@ -2851,16 +2753,23 @@
 
     private const string AnyMatchValue = "__ANY__";
 
-    private List<string> ScenarioNames() => BuildScenarioNames(State.SnapshotTriggers());
+    private const string DefaultScenarioName = "기본 시나리오";
 
-    private static List<string> BuildScenarioNames(IReadOnlyList<Trigger> triggers)
-        => triggers
-            .Select(t => t.Scenario?.Trim())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-            .Cast<string>()
-            .ToList();
+    private string CreateScenarioName()
+    {
+        var existing = BuildScenarioGroups(State.SnapshotTriggers())
+            .Select(group => group.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var index = 1;
+        while (existing.Contains($"시나리오 {index}"))
+            index++;
+
+        return $"시나리오 {index}";
+    }
+
+    private static string NormalizeScenarioName(string? scenario)
+        => string.IsNullOrWhiteSpace(scenario) ? DefaultScenarioName : scenario.Trim();
 
     private List<string> IncomingServiceOptions() => BuildIncomingServiceOptions(State.SnapshotAggregates(), _services);
 
@@ -2924,8 +2833,7 @@
 
     private static List<ScenarioGroupVm> BuildScenarioGroups(IReadOnlyList<Trigger> triggerSnapshot)
         => triggerSnapshot
-            .Where(trigger => !string.IsNullOrWhiteSpace(trigger.Scenario))
-            .GroupBy(trigger => trigger.Scenario.Trim(), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(trigger => NormalizeScenarioName(trigger.Scenario), StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key)
             .Select(group => new ScenarioGroupVm(
                 group.Key,
@@ -3089,14 +2997,7 @@
             .ThenBy(t => t.Name)
             .ToList();
 
-        await ExportScenarioSet("scenarios-all", triggers);
-    }
-
-    private async Task ExportScenario(string scenario)
-    {
-        var triggers = BuildScenarioStepList(SnapshotTriggersList(), scenario);
-
-        await ExportScenarioSet($"scenario-{SanitizeFileName(scenario)}", triggers);
+        await ExportScenarioSet("grpc-scenarios-all", triggers);
     }
 
     private async Task ExportScenarioSet(string fileStem, List<Trigger> triggers)
@@ -3116,7 +3017,7 @@
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
         await JS.InvokeVoidAsync("workbench.downloadText", $"{fileStem}.json", json, "application/json");
-        Snackbar.Add($"시나리오 JSON 저장 완료: {triggers.Count} step", Severity.Success);
+        Snackbar.Add($"gRPC 시나리오 저장 완료: {triggers.Count} step", Severity.Success);
     }
 
     private async Task ImportScenarioJson(IBrowserFile file)
@@ -3129,7 +3030,7 @@
             var payload = JsonSerializer.Deserialize<ScenarioExportFile>(json);
             if (payload?.Triggers == null || payload.Triggers.Count == 0)
             {
-                Snackbar.Add("불러올 step이 없습니다.", Severity.Warning);
+                Snackbar.Add("불러올 gRPC 시나리오 단계가 없습니다.", Severity.Warning);
                 return;
             }
 
@@ -3140,10 +3041,10 @@
                 State.AddTrigger(new Trigger
                 {
                     Name = item.Name,
-                    Scenario = item.Scenario,
+                    Scenario = NormalizeScenarioName(item.Scenario),
                     StepOrder = Math.Max(1, item.StepOrder),
                     Type = item.Type,
-                    Enabled = item.Enabled,
+                    Enabled = false,
                     TargetService = item.TargetService,
                     TargetMethod = item.TargetMethod,
                     LocalStreamMode = item.LocalStreamMode ?? (item.UseOpenStreamTarget ? TriggerLocalStreamMode.RequireCompatibleOpen : TriggerLocalStreamMode.Auto),
@@ -3163,18 +3064,18 @@
             }
 
             _triggersExpanded = true;
-            Snackbar.Add($"시나리오 JSON 불러오기 완료: {payload.Triggers.Count} step 추가", Severity.Success);
+            Snackbar.Add($"gRPC 시나리오 불러오기 완료: {payload.Triggers.Count} step 추가", Severity.Success);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"시나리오 JSON 불러오기 실패: {ex.Message}", Severity.Error);
+            Snackbar.Add($"gRPC 시나리오 불러오기 실패: {ex.Message}", Severity.Error);
         }
     }
 
     private static ScenarioExportItem ToScenarioExportItem(Trigger t) => new()
     {
         Name = t.Name,
-        Scenario = t.Scenario,
+        Scenario = NormalizeScenarioName(t.Scenario),
         StepOrder = t.StepOrder,
         Type = t.Type,
         Enabled = t.Enabled,
