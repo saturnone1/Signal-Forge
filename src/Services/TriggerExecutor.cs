@@ -286,12 +286,21 @@ public class TriggerExecutor : IHostedService, IDisposable
     }
 
     private bool HasCompatibleOpenLocalStream(string sessionId, string serviceName, string methodName, string rpcType)
-        => _state.IsStreamOpen
-           && !string.IsNullOrWhiteSpace(_state.StreamId)
-           && string.Equals(_state.ActiveStreamSessionId, sessionId, StringComparison.Ordinal)
-           && string.Equals(_state.ActiveStreamServiceName, serviceName, StringComparison.Ordinal)
-           && string.Equals(_state.ActiveStreamMethodName, methodName, StringComparison.Ordinal)
-           && string.Equals(_state.ActiveStreamRpcType, rpcType, StringComparison.Ordinal);
+    {
+        if (!_state.IsStreamOpen || string.IsNullOrWhiteSpace(_state.StreamId))
+            return false;
+
+        if (!_streaming.IsStreamOpen(_state.StreamId))
+        {
+            _state.SetStream(null);
+            return false;
+        }
+
+        return string.Equals(_state.ActiveStreamSessionId, sessionId, StringComparison.Ordinal)
+            && string.Equals(_state.ActiveStreamServiceName, serviceName, StringComparison.Ordinal)
+            && string.Equals(_state.ActiveStreamMethodName, methodName, StringComparison.Ordinal)
+            && string.Equals(_state.ActiveStreamRpcType, rpcType, StringComparison.Ordinal);
+    }
 
     private async Task WriteToCurrentLocalStreamAsync(Trigger t, string json, string source)
     {

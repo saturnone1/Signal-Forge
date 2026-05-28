@@ -253,6 +253,7 @@ public class GrpcStreamingService : IGrpcStreamingService
                 }
                 catch (Exception ex)
                 {
+                    _streams.TryRemove(streamId, out _);
                     _logger.LogError(ex, "Error receiving bidirectional messages for stream {StreamId}", streamId);
                 }
             });
@@ -289,9 +290,17 @@ public class GrpcStreamingService : IGrpcStreamingService
         if (!_streams.TryGetValue(streamId, out var ctx))
             throw new InvalidOperationException($"Stream '{streamId}' not found");
 
-        var message = await ctx.JsonConverter.JsonToMessageAsync(messageJson, ctx.RequestMessageType);
-        await (Task)ctx.WriteAsyncMethod.Invoke(ctx.RequestStream, [message])!;
-        ctx.MessagesSent++;
+        try
+        {
+            var message = await ctx.JsonConverter.JsonToMessageAsync(messageJson, ctx.RequestMessageType);
+            await (Task)ctx.WriteAsyncMethod.Invoke(ctx.RequestStream, [message])!;
+            ctx.MessagesSent++;
+        }
+        catch
+        {
+            _streams.TryRemove(streamId, out _);
+            throw;
+        }
 
         _logger.LogDebug("Stream {StreamId}: message #{Count} sent", streamId, ctx.MessagesSent);
     }

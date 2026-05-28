@@ -31,7 +31,6 @@
         var triggerSnapshot = State.SnapshotTriggers();
         var visibleIncomingCalls = aggregateSnapshots
             .SelectMany(State.SnapshotRecentCalls)
-            .Where(call => _session == null || string.Equals(call.SessionId, _session.SessionId, StringComparison.Ordinal))
             .ToList();
         var visibleIncomingRpcCount = visibleIncomingCalls
             .Select(call => $"{call.Service}.{call.Method}")
@@ -46,7 +45,6 @@
         var selectedMethodLabel = _selectedMethod == null
             ? "메서드 미선택"
             : $"{_selectedService?.ServiceName.Split('.').Last()}.{_selectedMethod.MethodName}";
-        var listenerWorkspaceActive = IsListenerWorkspaceActive();
         var protoLabel = CurrentProtoLabel();
         var currentSessionTarget = _session?.UnixSocketPath ?? "연결된 세션 없음";
         var currentOpenLocalStreams = _session == null ? [] : OpenLocalStreamsForCurrentSession();
@@ -77,21 +75,6 @@
 
     <div class="wb-session-shell mb-4">
         <div class="wb-session-tabs">
-            @if (_listenerTabOpen)
-            {
-                <div class="wb-session-tab @(IsListenerTabActive() ? "is-active" : null)">
-                    <button type="button" class="wb-session-tab-main"
-                            @onclick="ActivateListenerTab">
-                        <span class="wb-session-tab-title">gRPC 수신</span>
-                        <span class="wb-session-tab-note">세션 없이 관찰</span>
-                    </button>
-                    <button type="button" class="wb-session-tab-close" title="gRPC 수신 탭 닫기"
-                            @onclick:stopPropagation="true"
-                            @onclick="CloseListenerTab">
-                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
-                    </button>
-                </div>
-            }
             @foreach (var sessionTab in connectedSessions)
             {
                 <div class="wb-session-tab @(IsGrpcSessionActive(sessionTab.SessionId) ? "is-active" : null)">
@@ -142,13 +125,6 @@
 
                 <div class="wb-mode-strip mt-3">
                     <button type="button"
-                            class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcListener ? "is-active" : null)"
-                            @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcListener))">
-                        <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Small" Color="Color.Info" />
-                        <div class="wb-mode-title">gRPC 수신 탭</div>
-                        <div class="wb-mode-note">연결 없이 수신 RPC와 이벤트 로그만 확인</div>
-                    </button>
-                    <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Primary" />
@@ -164,20 +140,7 @@
                     </button>
                 </div>
 
-                @if (_newTabKind == WorkbenchNewTabKind.GrpcListener)
-                {
-                    <div class="wb-subpanel mt-3">
-                        <div class="wb-panel-kicker">gRPC 수신 탭</div>
-                        <div class="wb-panel-heading">세션 없이 관찰 전용 탭 열기</div>
-                        <div class="wb-inline-note mt-2">디버깅, 수신 감시, 이벤트 확인처럼 “먼저 보기”가 목적일 때 가장 가볍게 시작할 수 있어요.</div>
-                        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.AddToPhotos"
-                                   OnClick="OpenListenerTab">
-                            gRPC 수신 탭 열기
-                        </MudButton>
-                    </div>
-                }
-                else if (_newTabKind == WorkbenchNewTabKind.GrpcSession)
+                @if (_newTabKind == WorkbenchNewTabKind.GrpcSession)
                 {
                     <div class="wb-subpanel mt-3">
                         <div class="wb-panel-kicker">gRPC 세션 탭</div>
@@ -227,42 +190,6 @@
         <DdsSessionPanel Session="_activeDdsSession" />
     }
     else if (IsGrpcPanelActive())
-    {
-    @if (IsListenerWorkspaceActive())
-    {
-    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
-        <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
-            <MudIcon Icon="@Icons.Material.Filled.RssFeed" Size="Size.Small" Color="Color.Info" />
-            <div>
-                <div class="wb-panel-kicker">수신 전용 탭</div>
-                <div class="wb-panel-heading">세션 연결 없이 관찰과 기록에 집중</div>
-            </div>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">listener-only</MudChip>
-            <MudSpacer />
-            <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                       StartIcon="@Icons.Material.Filled.AddLink"
-                       OnClick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
-                gRPC 세션 탭 추가
-            </MudButton>
-        </div>
-
-        <div class="wb-listener-summary-grid">
-            <div class="wb-code">
-                <span style="color:var(--mud-palette-text-secondary);">현재 listener 범위</span><br />
-                <text>모든 수신 RPC와 이벤트 로그를 세션 필터 없이 표시</text>
-            </div>
-            <div class="wb-code">
-                <span style="color:var(--mud-palette-text-secondary);">관찰 요약</span><br />
-                <text>@ListenerTabSummary()</text>
-            </div>
-            <div class="wb-code">
-                <span style="color:var(--mud-palette-text-secondary);">세션 탭과 차이</span><br />
-                <text>이 탭에서는 연결 대상 선택, proto 교체, 로컬 스트림 관리, 자동 송신, 송신 이력을 숨김</text>
-            </div>
-        </div>
-    </div>
-    }
-    else if (IsGrpcSessionWorkspaceActive())
     {
     <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
@@ -431,7 +358,6 @@
             </div>
         }
     </div>
-    }
 
     <MudGrid Spacing="2">
 
@@ -633,8 +559,6 @@
             </div>
         </MudItem>
 
-        @if (!listenerWorkspaceActive)
-        {
         @* ════════ 하단: Triggers (자동 송신 규칙) ════════ *@
         <MudItem xs="12" Class="wb-section-order-3">
             <div class="wb-panel wb-panel--major pa-3">
@@ -660,7 +584,6 @@
                         시나리오 추가
                     </MudButton>
                 </div>
-
                 @if (_triggersExpanded)
                 {
                     <div class="wb-inline-note mb-3">시나리오 추가를 누르면 첫 단계가 포함된 새 시나리오를 만들어요. 모든 단계는 시나리오 안에서만 관리하고, 여기서는 `수동 전체 실행`, `자동 단계 시작`, `전체 시작`으로 시나리오를 제어해요.</div>
@@ -669,14 +592,12 @@
                     {
                         <div class="wb-panel pa-2 mb-3">
                             <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
-                                <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Info" />
                                 <span class="wb-panel-title">시나리오 단계</span>
                                 <MudTooltip Text="수동 전체 실행은 모든 단계를 순서대로 한 번 수행해요. 자동 단계 시작은 이 시나리오의 자동 단계를 켜고, 전체 시작은 수동 실행 뒤 자동 단계를 이어서 유지해요.">
                                     <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Style="cursor:help;color:var(--mud-palette-text-secondary);" />
                                 </MudTooltip>
                                 <MudSpacer />
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.Download"
                                            Disabled="@(scenarioGroups.Count == 0)"
                                            OnClick="ExportAllScenarios">
                                     전체 내보내기
@@ -810,10 +731,7 @@
                 }
             </div>
         </MudItem>
-        }
 
-        @if (!listenerWorkspaceActive)
-        {
         @* ════════ 하단: 송신 이력 ════════ *@
         <MudItem xs="12" Class="wb-section-order-2">
             <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
@@ -945,7 +863,6 @@
                 }
             </div>
         </MudItem>
-        }
 
         @* ════════ 하단: 세션 / 이벤트 로그 ════════ *@
         <MudItem xs="12" Class="wb-section-order-5">
@@ -1248,9 +1165,10 @@
                         </MudItem>
                     </MudGrid>
                 </div>
-            </div>
-    }
-    } @* end gRPC tab workspace *@
+                </div>
+                }
+            }
+            @* end gRPC tab workspace *@
 </div>
 
 @code {
@@ -1258,14 +1176,12 @@
     {
         None,
         Add,
-        GrpcListener,
         GrpcSession,
         DdsSession
     }
 
     private enum WorkbenchNewTabKind
     {
-        GrpcListener,
         GrpcSession,
         DdsSession
     }
@@ -1300,8 +1216,7 @@
     private List<DdsSession> _ddsSessionTabs = [];
     private DdsSession? _activeDdsSession;
     private WorkbenchTabKind _activeTabKind;
-    private WorkbenchNewTabKind _newTabKind = WorkbenchNewTabKind.GrpcListener;
-    private bool _listenerTabOpen;
+    private WorkbenchNewTabKind _newTabKind = WorkbenchNewTabKind.GrpcSession;
     private Trigger? _editingTrigger;
     private readonly Dictionary<string, string> _localStreamSyntheticCallIds = [];
 
@@ -1564,13 +1479,10 @@
     }
 
     private bool HasOpenTabs()
-        => _listenerTabOpen || _sessionTabs.Count > 0 || _ddsSessionTabs.Count > 0;
+        => _sessionTabs.Count > 0 || _ddsSessionTabs.Count > 0;
 
     private bool ShouldShowNewTabPanel()
         => _activeTabKind == WorkbenchTabKind.Add || !HasOpenTabs();
-
-    private bool IsListenerTabActive()
-        => _activeTabKind == WorkbenchTabKind.GrpcListener;
 
     private bool IsGrpcSessionActive(string sessionId)
         => _activeTabKind == WorkbenchTabKind.GrpcSession
@@ -1587,16 +1499,10 @@
         => _activeTabKind == WorkbenchTabKind.DdsSession && _activeDdsSession != null;
 
     private bool IsGrpcPanelActive()
-        => _activeTabKind is WorkbenchTabKind.GrpcListener or WorkbenchTabKind.GrpcSession;
-
-    private bool IsListenerWorkspaceActive()
-        => _activeTabKind == WorkbenchTabKind.GrpcListener;
+        => _activeTabKind == WorkbenchTabKind.GrpcSession;
 
     private bool IsGrpcSessionWorkspaceActive()
         => _activeTabKind == WorkbenchTabKind.GrpcSession;
-
-    private string ListenerTabSummary()
-        => $"수신 {VisibleIncomingRpcCount()}개 RPC · 진행 중 {VisibleIncomingActiveCount()}개 · 로그 {State.LogCount}건";
 
     private void ActivateAddTab()
     {
@@ -1610,49 +1516,10 @@
         ActivateAddTab();
     }
 
-    private async Task OpenListenerTab()
-    {
-        _listenerTabOpen = true;
-        await ActivateListenerTab();
-    }
-
-    private async Task ActivateListenerTab()
-    {
-        _listenerTabOpen = true;
-        ResetTriggerEditor();
-        _activeTabKind = WorkbenchTabKind.GrpcListener;
-        _activeDdsSession = null;
-        _activeSessionId = null;
-        State.SetSession(null);
-        State.SetSelected(null, null);
-        Ui.SetConnection(false, null);
-        Ui.SetWorkspace("gRPC 수신 탭", "수신 RPC 관찰 전용");
-        RefreshSelectedLocalStream();
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task CloseListenerTab()
-    {
-        _listenerTabOpen = false;
-        if (_activeTabKind == WorkbenchTabKind.GrpcListener)
-        {
-            await ActivatePreferredFallbackTab();
-            return;
-        }
-
-        await InvokeAsync(StateHasChanged);
-    }
-
     private async Task ActivatePreferredFallbackTab()
     {
         RefreshSessionTabs();
         RefreshDdsSessionTabs();
-
-        if (_listenerTabOpen)
-        {
-            await ActivateListenerTab();
-            return;
-        }
 
         if (_sessionTabs.Count > 0)
         {
@@ -2101,6 +1968,7 @@
         }
         catch (Exception ex)
         {
+            RefreshSelectedLocalStream();
             Log($"전송 실패: {ex.Message}", LogLevel.Error);
         }
     }
@@ -2640,7 +2508,6 @@
     private List<IncomingCallVm> VisibleIncomingCalls()
         => State.SnapshotAggregates()
             .SelectMany(State.SnapshotRecentCalls)
-            .Where(call => _session == null || string.Equals(call.SessionId, _session.SessionId, StringComparison.Ordinal))
             .ToList();
 
     private List<Trigger> SnapshotTriggersList() => State.SnapshotTriggers().ToList();
