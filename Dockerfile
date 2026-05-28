@@ -1,32 +1,15 @@
-# gRPC Workbench — offline (air-gapped) multi-stage build.
-#
-# Restore uses ONLY the committed ./packages nupkg cache (see nuget.config).
-# The final image bundles protoc + grpc_csharp_plugin + well-known-type
-# includes under /app/tools so the runtime dynamic proto→C# compilation
-# (DynamicProtoCompiler / ProtoLoader) works without a system protoc.
-#
-# Build:  docker build -t asap:test .
-# Deploy: kubectl apply -f k8s/local-test-pod.yaml
-
-# ── Build stage ──────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Restore first (offline, from ./packages) for layer caching.
-COPY nuget.config ./nuget.config
+COPY NuGet.Config ./NuGet.Config
 COPY packages/ ./packages/
 COPY rti/ ./rti/
 COPY ASAP.csproj ./
-RUN dotnet restore ASAP.csproj --configfile nuget.config
+RUN dotnet restore ASAP.csproj --configfile NuGet.Config
 
-# Build + publish.
 COPY . .
-RUN dotnet publish ASAP.csproj -c Release -o /app/publish \
-        --no-restore /p:UseAppHost=false
+RUN dotnet publish ASAP.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
-# Stage protoc, grpc_csharp_plugin and the well-known-type .proto includes
-# from the restored Grpc.Tools package into the publish output's tools/ dir.
-# DynamicProtoCompiler/ProtoLoader look here first (AppContext.BaseDirectory/tools).
 RUN set -eux; \
     TOOLS_DIR="$(find /root/.nuget/packages/grpc.tools -type d -name linux_x64 | head -n1)"; \
     INCLUDE_DIR="$(find /root/.nuget/packages/grpc.tools -type d -path '*build/native/include' | head -n1)"; \
@@ -38,12 +21,9 @@ RUN set -eux; \
     chmod +x /app/publish/tools/protoc /app/publish/tools/grpc_csharp_plugin; \
     test -f /app/publish/tools/include/google/protobuf/empty.proto
 
-# ── Runtime stage ────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
 
-# protoc / grpc_csharp_plugin are native binaries; aspnet:9.0 (debian) ships
-# libstdc++6 + libc already, no extra apt packages required.
 COPY --from=build /app/publish ./
 
 ENV ASPNETCORE_URLS=http://+:5226

@@ -8,11 +8,14 @@ namespace ASAP.Nats;
 
 public interface INatsSessionService
 {
+    event Action<string, NatsMessageEntry>? MessageReceived;
+
     Task<NatsSession> CreateAsync(string url, string? displayName = null, CancellationToken cancellationToken = default);
     NatsSession? Get(string sessionId);
     IReadOnlyList<NatsSession> GetAll();
     Task DeleteAsync(string sessionId);
     Task PublishTextAsync(string sessionId, string subject, string payload, CancellationToken cancellationToken = default);
+    Task PublishBinaryAsync(string sessionId, string subject, byte[] payload, string? payloadText = null, CancellationToken cancellationToken = default);
     Task StartSubscriptionAsync(string sessionId, string subject, CancellationToken cancellationToken = default);
     Task StopSubscriptionAsync(string sessionId, string subject);
     IReadOnlyList<NatsSubscriptionInfo> SnapshotSubscriptions(string sessionId);
@@ -27,6 +30,8 @@ public sealed class NatsSessionService : INatsSessionService
 
     private readonly ConcurrentDictionary<string, SessionRuntime> _sessions = new();
     private readonly ILogger<NatsSessionService> _logger;
+
+    public event Action<string, NatsMessageEntry>? MessageReceived;
 
     public NatsSessionService(ILogger<NatsSessionService> logger)
     {
@@ -80,22 +85,32 @@ public sealed class NatsSessionService : INatsSessionService
 
     public async Task PublishTextAsync(string sessionId, string subject, string payload, CancellationToken cancellationToken = default)
     {
-        var runtime = GetRuntime(sessionId);
-        var normalizedSubject = NormalizeSubject(subject);
         var normalizedPayload = payload ?? string.Empty;
         var bytes = Encoding.UTF8.GetBytes(normalizedPayload);
 
-        await runtime.Connection.PublishAsync(normalizedSubject, bytes, cancellationToken: cancellationToken);
+        await PublishAsync(sessionId, subject, bytes, normalizedPayload, cancellationToken);
+    }
+
+    public Task PublishBinaryAsync(string sessionId, string subject, byte[] payload, string? payloadText = null, CancellationToken cancellationToken = default)
+        => PublishAsync(sessionId, subject, payload ?? [], payloadText, cancellationToken);
+
+    private async Task PublishAsync(string sessionId, string subject, byte[] payload, string? payloadText, CancellationToken cancellationToken)
+    {
+        var runtime = GetRuntime(sessionId);
+        var normalizedSubject = NormalizeSubject(subject);
+
+        await runtime.Connection.PublishAsync(normalizedSubject, payload, cancellationToken: cancellationToken);
         Touch(runtime.Session);
         Append(runtime.Outbound, new NatsMessageEntry
         {
             Subject = normalizedSubject,
             Direction = "Outbound",
-            PayloadText = normalizedPayload,
-            PayloadSize = bytes.Length,
+            PayloadText = payloadText ?? DecodePayload(payload),
+            PayloadBase64 = Convert.ToBase64String(payload),
+            PayloadSize = payload.Length,
         });
 
-        _logger.LogInformation("NATS outbound {SessionId} {Subject} ({Bytes} bytes)", sessionId, normalizedSubject, bytes.Length);
+        _logger.LogInformation("NATS outbound {SessionId} {Subject} ({Bytes} bytes)", sessionId, normalizedSubject, payload.Length);
     }
 
     public Task StartSubscriptionAsync(string sessionId, string subject, CancellationToken cancellationToken = default)
@@ -205,6 +220,7 @@ public sealed class NatsSessionService : INatsSessionService
                     Subject = message.Subject,
                     Direction = "Inbound",
                     PayloadText = DecodePayload(payload),
+                    PayloadBase64 = Convert.ToBase64String(payload),
                     PayloadSize = payload.Length,
                 };
 
@@ -214,6 +230,7 @@ public sealed class NatsSessionService : INatsSessionService
                 }
 
                 Touch(runtime.Session);
+                MessageReceived?.Invoke(runtime.Session.SessionId, CloneMessage(entry));
             }
         }
         catch (OperationCanceledException)
@@ -239,6 +256,7 @@ public sealed class NatsSessionService : INatsSessionService
             Subject = entry.Subject,
             Direction = entry.Direction,
             PayloadText = entry.PayloadText,
+            PayloadBase64 = entry.PayloadBase64,
             PayloadSize = entry.PayloadSize,
             Timestamp = entry.Timestamp,
         };
