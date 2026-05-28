@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Triggers;
+namespace ASAP.Models.Triggers;
 
 public enum TriggerType
 {

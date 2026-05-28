@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Api;
+namespace ASAP.Models.Api;
 
 public class GrpcResponseData
 {

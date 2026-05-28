@@ -1,7 +1,7 @@
-using GrpcWorkbench.Models.Session;
+using ASAP.Models.Session;
 using System.Collections.Concurrent;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 public interface ISessionService
 {

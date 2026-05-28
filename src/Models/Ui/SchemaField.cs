@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Ui;
+namespace ASAP.Models.Ui;
 
 public class SchemaField
 {

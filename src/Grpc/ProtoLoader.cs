@@ -4,9 +4,9 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
-using GrpcWorkbench.Models.Grpc;
+using ASAP.Models.Grpc;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 public interface IProtoLoader
 {

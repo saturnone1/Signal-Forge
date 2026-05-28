@@ -1,0 +1,242 @@
+@using ASAP.Models.Nats
+@using ASAP.Models.Session
+@using ASAP.Nats
+@inject INatsSessionService NatsSessions
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@if (Session == null)
+{
+    <div class="wb-empty"><div>NATS 세션이 선택되지 않았습니다</div></div>
+}
+else
+{
+    var subscriptions = NatsSessions.SnapshotSubscriptions(Session.SessionId);
+    var inbound = NatsSessions.SnapshotInbound(Session.SessionId, 100).OrderByDescending(x => x.Timestamp).ToList();
+    var outbound = NatsSessions.SnapshotOutbound(Session.SessionId, 100).OrderByDescending(x => x.Timestamp).ToList();
+
+    <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
+        <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+            <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Success" />
+            <div>
+                <div class="wb-panel-kicker">NATS 세션</div>
+                <div class="wb-panel-heading">@Session.Name</div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Url</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">구독 @subscriptions.Count</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">수신 @inbound.Count</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">송신 @outbound.Count</MudChip>
+        </div>
+
+        <div class="wb-summary-grid mt-3">
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">브로커</span><br />
+                @Session.Url
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
+                @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">마지막 활동</span><br />
+                @Session.LastAccessedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            </div>
+            <div class="wb-code wb-summary-card">
+                <span style="color:var(--mud-palette-text-secondary);">용도</span><br />
+                로컬 broker pub/sub 테스트
+            </div>
+        </div>
+    </div>
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="4">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="wb-panel-kicker">구독</div>
+                <div class="wb-panel-heading">subject를 추가하고 수신을 관찰합니다</div>
+
+                <div class="wb-home-form mt-3">
+                    <MudTextField @bind-Value="_subscribeSubject" Label="구독 subject" Placeholder="example.subject"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="AddSubscription" StartIcon="@Icons.Material.Filled.PlayArrow">
+                        구독 시작
+                    </MudButton>
+                </div>
+
+                @if (subscriptions.Count == 0)
+                {
+                    <div class="wb-empty mt-3"><div>활성 구독이 없습니다</div></div>
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap mt-3" style="gap:8px;">
+                        @foreach (var subscription in subscriptions)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClose="@(() => RemoveSubscription(subscription.Subject))">
+                                @subscription.Subject
+                            </MudChip>
+                        }
+                    </div>
+                }
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="wb-panel-kicker">발행</div>
+                <div class="wb-panel-heading">subject와 payload를 직접 보내 봅니다</div>
+
+                <div class="wb-home-form mt-3">
+                    <MudTextField @bind-Value="_publishSubject" Label="발행 subject" Placeholder="example.subject"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField @bind-Value="_publishPayload" Label="payload" Placeholder="{\"hello\":\"world\"}"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Lines="6" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                               OnClick="Publish" StartIcon="@Icons.Material.Filled.Send">
+                        발행
+                    </MudButton>
+                </div>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="wb-panel-kicker">최근 수신</div>
+                <div class="wb-panel-heading">구독 중 들어온 메시지</div>
+
+                @if (inbound.Count == 0)
+                {
+                    <div class="wb-empty mt-3"><div>아직 수신 메시지가 없습니다</div></div>
+                }
+                else
+                {
+                    <div class="wb-scroll mt-3" style="max-height:420px;">
+                        @foreach (var message in inbound)
+                        {
+                            <div class="wb-scenario-step mb-2">
+                                <div class="wb-scenario-step-top">
+                                    <div class="wb-scenario-step-title">@message.Subject</div>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@message.PayloadSize bytes</MudChip>
+                                </div>
+                                <div class="wb-inline-note">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</div>
+                                <MudTextField Value="@message.PayloadText" ReadOnly="true" Variant="Variant.Outlined" Lines="4" Margin="Margin.Dense" />
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="wb-panel-kicker">최근 발행</div>
+                <div class="wb-panel-heading">보낸 subject와 payload 기록</div>
+
+                @if (outbound.Count == 0)
+                {
+                    <div class="wb-empty mt-3"><div>아직 발행한 메시지가 없습니다</div></div>
+                }
+                else
+                {
+                    <div class="wb-scroll mt-3" style="max-height:420px;">
+                        @foreach (var message in outbound)
+                        {
+                            <div class="wb-scenario-step mb-2">
+                                <div class="wb-scenario-step-top">
+                                    <div class="wb-scenario-step-title">@message.Subject</div>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@message.PayloadSize bytes</MudChip>
+                                </div>
+                                <div class="wb-inline-note">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</div>
+                                <MudTextField Value="@message.PayloadText" ReadOnly="true" Variant="Variant.Outlined" Lines="4" Margin="Margin.Dense" />
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public NatsSession? Session { get; set; }
+
+    private readonly CancellationTokenSource _cts = new();
+    private PeriodicTimer? _uiTimer;
+    private bool _disposed;
+    private string _subscribeSubject = string.Empty;
+    private string _publishSubject = string.Empty;
+    private string _publishPayload = "{}";
+
+    protected override void OnInitialized()
+    {
+        _uiTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (_uiTimer != null && await _uiTimer.WaitForNextTickAsync(_cts.Token))
+                {
+                    if (_disposed)
+                        break;
+
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private async Task AddSubscription()
+    {
+        if (Session == null)
+            return;
+
+        try
+        {
+            await NatsSessions.StartSubscriptionAsync(Session.SessionId, _subscribeSubject);
+            Snackbar.Add($"구독 시작: {_subscribeSubject}", Severity.Success);
+            _publishSubject = string.IsNullOrWhiteSpace(_publishSubject) ? _subscribeSubject : _publishSubject;
+            _subscribeSubject = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task RemoveSubscription(string subject)
+    {
+        if (Session == null)
+            return;
+
+        await NatsSessions.StopSubscriptionAsync(Session.SessionId, subject);
+        Snackbar.Add($"구독 중지: {subject}", Severity.Info);
+    }
+
+    private async Task Publish()
+    {
+        if (Session == null)
+            return;
+
+        try
+        {
+            await NatsSessions.PublishTextAsync(Session.SessionId, _publishSubject, _publishPayload);
+            Snackbar.Add($"발행 완료: {_publishSubject}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _cts.Cancel();
+        _cts.Dispose();
+        _uiTimer?.Dispose();
+    }
+}

@@ -1,7 +1,7 @@
 using System.Reflection;
 using Grpc.Core;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 /// <summary>
 /// gRPC 서비스 클라이언트 타입을 동적으로 찾는 유틸리티입니다.

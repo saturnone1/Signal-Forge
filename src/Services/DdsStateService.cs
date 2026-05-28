@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
-using GrpcWorkbench.Dds;
-using GrpcWorkbench.Models.Dds;
+using ASAP.Dds;
+using ASAP.Models.Dds;
 using Rti.Dds.Subscription;
 using Rti.Types.Dynamic;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// DDS 세션 운영 상태 — 활성 구독, 최근 샘플, 발행 이력을 관리.

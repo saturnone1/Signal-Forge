@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Dds;
+namespace ASAP.Models.Dds;
 
 public sealed class DdsSampleEntry
 {

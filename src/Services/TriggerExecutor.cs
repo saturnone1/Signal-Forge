@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
-using GrpcWorkbench.Models.Api;
-using GrpcWorkbench.Models.Session;
-using GrpcWorkbench.Models.Triggers;
+using ASAP.Models.Api;
+using ASAP.Models.Session;
+using ASAP.Models.Triggers;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// Trigger 등록 변경에 따라 Periodic 백그라운드 루프를 동기화하고,

@@ -2,11 +2,11 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using Google.Protobuf;
 using Grpc.Core;
-using GrpcWorkbench.Grpc;
-using GrpcWorkbench.Models.Api;
-using GrpcWorkbench.Models.Session;
+using ASAP.Grpc;
+using ASAP.Models.Api;
+using ASAP.Models.Session;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// 3가지 gRPC 스트리밍 RPC 타입을 모두 담당합니다.

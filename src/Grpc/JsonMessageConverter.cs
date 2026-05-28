@@ -3,7 +3,7 @@ using Google.Protobuf.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 public interface IJsonMessageConverter
 {

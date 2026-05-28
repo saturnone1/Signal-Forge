@@ -1,10 +1,10 @@
-using GrpcWorkbench.Models.Grpc;
-using GrpcWorkbench.Models.Session;
-using GrpcWorkbench.Models.Triggers;
-using GrpcWorkbench.Models.Ui;
-using LogLevel = GrpcWorkbench.Models.Ui.LogLevel;
+using ASAP.Models.Grpc;
+using ASAP.Models.Session;
+using ASAP.Models.Triggers;
+using ASAP.Models.Ui;
+using LogLevel = ASAP.Models.Ui.LogLevel;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// 회로(circuit)와 독립적으로 살아있는 워크벤치 누적 상태 보관자.

@@ -1,10 +1,10 @@
-﻿# Assumptions:
+# Assumptions:
 #   - `docker` and `kubectl` are on PATH.
 #   - kubectl's *current context* points at a working cluster whose container
 #     runtime shares the image built here (imagePullPolicy: Never). Verify with
 #     `kubectl config current-context` / `kubectl get nodes` before running;
 #     switch with `kubectl config use-context <ctx>` if needed.
-#   - Image tag: grpc-workbench:test (built locally, not pulled).
+#   - Image tag: asap:test (built locally, not pulled).
 
 param(
     [switch]$SkipBuild,
@@ -15,8 +15,8 @@ $ErrorActionPreference = "Stop"
 
 if ($Teardown) {
     Write-Host "[Teardown] Removing test resources..." -ForegroundColor Yellow
-    kubectl delete pod     grpc-workbench-test --ignore-not-found
-    kubectl delete service grpc-workbench-test --ignore-not-found
+    kubectl delete pod     asap-test --ignore-not-found
+    kubectl delete service asap-test --ignore-not-found
     Write-Host "[Teardown] Done." -ForegroundColor Green
     exit 0
 }
@@ -28,8 +28,8 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "Docker package allowlist validation failed" }
 
     Write-Host ""
-    Write-Host "Building grpc-workbench:test image (no-cache)..." -ForegroundColor Cyan
-    docker build --no-cache -t grpc-workbench:test .
+    Write-Host "Building asap:test image (no-cache)..." -ForegroundColor Cyan
+    docker build --no-cache -t asap:test .
     if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
     Write-Host "Build complete." -ForegroundColor Green
 
@@ -42,14 +42,14 @@ if (-not $SkipBuild) {
 
 Write-Host ""
 Write-Host "Cleaning up old test resources..." -ForegroundColor Yellow
-kubectl delete pod     grpc-workbench-test --ignore-not-found --wait=false 2>$null
-kubectl delete service grpc-workbench-test --ignore-not-found 2>$null
+kubectl delete pod     asap-test --ignore-not-found --wait=false 2>$null
+kubectl delete service asap-test --ignore-not-found 2>$null
 
 # Wait until pod is gone (ignore errors when pod doesn't exist)
 $timeout = 30; $elapsed = 0
 while ($elapsed -lt $timeout) {
     $pExists = $false
-    try { $pExists = [bool](kubectl get pod grpc-workbench-test --no-headers 2>$null) } catch {}
+    try { $pExists = [bool](kubectl get pod asap-test --no-headers 2>$null) } catch {}
     if (-not $pExists) { break }
     Start-Sleep -Seconds 2; $elapsed += 2
 }
@@ -64,7 +64,7 @@ Write-Host "Waiting for pod ready..." -ForegroundColor Yellow
 
 $maxWait = 180; $elapsed = 0; $ready = $false
 while ($elapsed -lt $maxWait) {
-    $podJson = kubectl get pod grpc-workbench-test -o json 2>$null | ConvertFrom-Json
+    $podJson = kubectl get pod asap-test -o json 2>$null | ConvertFrom-Json
     if ($podJson) {
         $readyCond = $podJson.status.conditions | Where-Object { $_.type -eq "Ready" }
         if ($readyCond -and $readyCond.status -eq "True") { $ready = $true; break }
@@ -98,11 +98,11 @@ if ($ready) {
     Write-Host "----------------------------------------"
 } else {
     Write-Host "Timeout: pod not ready yet." -ForegroundColor Yellow
-    Write-Host "  Run: kubectl describe pod grpc-workbench-test"
+    Write-Host "  Run: kubectl describe pod asap-test"
 }
 
 Write-Host ""
 Write-Host "Logs:"
-Write-Host "  kubectl logs grpc-workbench-test -c grpc-workbench -f"
+Write-Host "  kubectl logs asap-test -c asap -f"
 Write-Host ""
 Write-Host "Teardown: .\build-and-deploy-test.ps1 -Teardown"

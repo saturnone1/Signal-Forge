@@ -1,7 +1,7 @@
 using Rti.Dds.Topics;
 using Rti.Types.Dynamic;
 
-namespace GrpcWorkbench.Dds;
+namespace ASAP.Dds;
 
 /// <summary>
 /// DynamicData ↔ JSON 변환. RTI Connext의 내장 PrintFormat/FromString을 활용.

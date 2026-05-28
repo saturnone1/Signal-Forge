@@ -1,5 +1,5 @@
-using GrpcWorkbench.Models.Api;
-using GrpcWorkbench.Services;
+using ASAP.Models.Api;
+using ASAP.Services;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Microsoft.AspNetCore.Http.Features;
@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 /// <summary>
 /// Intercepts all incoming gRPC requests on the UDS endpoint.

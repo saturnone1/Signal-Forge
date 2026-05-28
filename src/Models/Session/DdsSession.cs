@@ -1,6 +1,6 @@
-using GrpcWorkbench.Models.Dds;
+using ASAP.Models.Dds;
 
-namespace GrpcWorkbench.Models.Session;
+namespace ASAP.Models.Session;
 
 public class DdsSession
 {

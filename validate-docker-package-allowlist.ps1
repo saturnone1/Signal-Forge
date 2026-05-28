@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectPath = ".\GrpcWorkbench.csproj",
+    [string]$ProjectPath = ".\ASAP.csproj",
     [string]$AssetsPath = ".\obj\project.assets.json",
     [string]$DockerIgnorePath = ".\.dockerignore",
     [string]$PackagesPath = ".\packages",
