@@ -8,7 +8,6 @@
 @inject IDdsSessionService DdsSessions
 @inject DdsStateService DdsState
 @inject DdsTriggerService Triggers
-@inject WorkbenchStateService GrpcState
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @implements IDisposable
@@ -369,15 +368,6 @@ else
                                                             <span class="wb-scenario-value wb-preline">@ScenarioStepPayloadPreview(step)</span>
                                                         </div>
                                                     </div>
-                                                    @if (FindGrpcMatch(step.TopicName) is string stepMatch)
-                                                    {
-                                                        <div class="d-flex align-center mt-2" style="gap:6px;">
-                                                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
-                                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                                                                ambassador 매칭: @stepMatch
-                                                            </MudChip>
-                                                        </div>
-                                                    }
                                                     <div class="wb-scenario-step-actions">
                                                         <MudButton Variant="Variant.Text" Size="Size.Small"
                                                                    StartIcon="@Icons.Material.Filled.KeyboardArrowUp"
@@ -557,18 +547,6 @@ else
                             </MudItem>
                         }
 
-                        @if (FindGrpcMatch(editor.TopicName) is string editorStepMatch)
-                        {
-                            <MudItem xs="12">
-                                <div class="d-flex align-center" style="gap:6px;">
-                                    <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small" Color="Color.Success" />
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">
-                                        ambassador 매칭: @editorStepMatch
-                                    </MudChip>
-                                </div>
-                            </MudItem>
-                        }
-
                         <MudItem xs="12">
                             <div class="d-flex flex-wrap align-center" style="gap:8px;">
                                 <div class="d-flex align-center" style="gap:6px;min-width:0;">
@@ -701,7 +679,6 @@ else
     private readonly HashSet<string> _activeAutomationScenarios = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _scenarioCts;
     private string _automationSignature = string.Empty;
-
     private const int MaxLogEntries = 500;
 
     private IReadOnlyList<DdsTopicConfig> ReceivableTopics
@@ -1883,19 +1860,6 @@ else
         DdsState.SampleReceived -= OnSampleReceived;
         _scenarioCts?.Cancel();
         _scenarioCts?.Dispose();
-    }
-
-    private string? FindGrpcMatch(string topicName)
-    {
-        foreach (var svc in GrpcState.Services)
-        {
-            var m = svc.Methods.FirstOrDefault(x =>
-                string.Equals(x.MethodName, topicName, StringComparison.Ordinal) ||
-                string.Equals(x.MethodName, "Stream" + topicName, StringComparison.Ordinal));
-            if (m != null)
-                return $"{svc.ServiceName.Split('.').Last()}.{m.MethodName}";
-        }
-        return null;
     }
 
     private static string SanitizeFileName(string value)

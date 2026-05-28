@@ -145,6 +145,26 @@ public sealed class DdsStateService
         return q.Reverse().Take(max).ToList();
     }
 
+    public void RecordExternalPublish(
+        string sessionId,
+        string topicName,
+        string typeName,
+        string jsonPayload,
+        bool success,
+        string? error = null)
+    {
+        RecordOutbound(sessionId, new DdsOutboundEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            TopicName = topicName,
+            TypeName = typeName,
+            JsonPayload = jsonPayload,
+            Success = success,
+            Error = error,
+        });
+        StateChanged?.Invoke();
+    }
+
     // ── DataAvailable handler ─────────────────────────────────────
 
     private void HandleDataAvailable(AnyDataReader anyReader, DdsSubscriptionInfo info)
