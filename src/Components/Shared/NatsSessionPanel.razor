@@ -149,7 +149,7 @@ else
                                          Variant="Variant.Outlined"
                                          OnClick="@(() => SelectInboundSubject(subscription.Subject))"
                                          OnClose="@(() => RemoveSubscription(subscription.Subject))">
-                                    @subscription.Subject
+                                    <span title="@BuildSubjectTooltip(subscription.Subject)">@FormatSubjectForList(subscription.Subject)</span>
                                 </MudChip>
                             }
                         }
@@ -169,9 +169,10 @@ else
                                 var count = inbound.Count(x => x.Subject == subscription.Subject);
                                 <button type="button"
                                         class="wb-call-row @(selectedInboundSubject == subscription.Subject ? "is-selected" : null)"
-                                        @onclick="@(() => SelectInboundSubject(subscription.Subject))">
+                                        @onclick="@(() => SelectInboundSubject(subscription.Subject))"
+                                        title="@BuildSubjectTooltip(subscription.Subject)">
                                     <div class="wb-call-row-top">
-                                        <span class="wb-mono wb-call-row-title">@subscription.Subject</span>
+                                        <span class="wb-mono wb-call-row-title">@FormatSubjectForList(subscription.Subject)</span>
                                         <span class="wb-call-row-count">@count 개 수신</span>
                                     </div>
                                     <div class="wb-call-row-meta">
@@ -189,12 +190,12 @@ else
                             }
                             else if (selectedInboundMessages.Count == 0)
                             {
-                                <div class="wb-inline-note mb-2">subject: @selectedInboundSubscription.Subject · 아직 수신 메시지 없음</div>
+                                <div class="wb-inline-note mb-2" title="@BuildSubjectTooltip(selectedInboundSubscription.Subject)">subject: @FormatSubjectForList(selectedInboundSubscription.Subject) · 아직 수신 메시지 없음</div>
                                 <div class="wb-empty"><div>이 subject로 수신된 메시지가 없습니다</div></div>
                             }
                             else
                             {
-                                <div class="wb-inline-note mb-2">subject: @selectedInboundSubscription.Subject · 최근 @selectedInboundMessages.Count 개 메시지</div>
+                                <div class="wb-inline-note mb-2" title="@BuildSubjectTooltip(selectedInboundSubscription.Subject)">subject: @FormatSubjectForList(selectedInboundSubscription.Subject) · 최근 @selectedInboundMessages.Count 개 메시지</div>
                                 <div class="wb-message-split">
                                     <div class="wb-scroll wb-message-list">
                                         @foreach (var message in selectedInboundMessages)
@@ -348,9 +349,10 @@ else
                                 var last = outbound.First(x => x.Subject == subject);
                                 <button type="button"
                                         class="wb-call-row @(selectedOutboundSubject == subject ? "is-selected" : null)"
-                                        @onclick="@(() => SelectOutboundSubject(subject))">
+                                        @onclick="@(() => SelectOutboundSubject(subject))"
+                                        title="@BuildSubjectTooltip(subject)">
                                     <div class="wb-call-row-top">
-                                        <span class="wb-mono wb-call-row-title">@subject</span>
+                                        <span class="wb-mono wb-call-row-title">@FormatSubjectForList(subject)</span>
                                         <span class="wb-call-row-count">@count 개 송신</span>
                                     </div>
                                     <div class="wb-call-row-meta">
@@ -368,7 +370,7 @@ else
                             }
                             else
                             {
-                                <div class="wb-inline-note mb-2">subject: @selectedOutboundMessage.Subject · 최근 @selectedOutboundMessages.Count 개 송신</div>
+                                <div class="wb-inline-note mb-2" title="@BuildSubjectTooltip(selectedOutboundMessage.Subject)">subject: @FormatSubjectForList(selectedOutboundMessage.Subject) · 최근 @selectedOutboundMessages.Count 개 송신</div>
                                 <div class="wb-message-split">
                                     <div class="wb-scroll wb-message-list">
                                         @foreach (var message in selectedOutboundMessages)
@@ -617,14 +619,15 @@ else
         if (subjects.Count == 0)
             return emptyText;
 
-        if (subjects.Count <= 2)
-            return string.Join("\n", subjects);
+        var formatted = subjects.Select(FormatSubjectForList).ToList();
+        if (formatted.Count <= 2)
+            return string.Join("\n", formatted);
 
-        return $"{subjects[0]}\n{subjects[1]}\n외 {subjects.Count - 2}개";
+        return $"{formatted[0]}\n{formatted[1]}\n외 {formatted.Count - 2}개";
     }
 
     private static string FormatMessageMeta(NatsMessageEntry message)
-        => $"{message.Direction} · {message.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss} · {message.PayloadSize} bytes · {message.Subject}";
+        => $"{message.Direction} · {message.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss} · {message.PayloadSize} bytes · {FormatSubjectForList(message.Subject)}";
 
     private BridgeMessageOption? SelectedBridgeMessage
         => _bridgeMessages.FirstOrDefault(x => x.TypeName == _selectedBridgeMessageType);
@@ -649,7 +652,11 @@ else
                 .ToList();
 
             _bridgeMessages.Clear();
-            _bridgeMessages.AddRange(next);
+            _bridgeMessages.AddRange(next.Select(option => new BridgeMessageOption
+            {
+                TypeName = StripPackagePrefix(option.TypeName),
+                InputSchema = option.InputSchema,
+            }));
             if (_bridgeMessages.Count == 0)
             {
                 _bridgePublishMode = false;
@@ -700,6 +707,40 @@ else
     }
 
     private static string BuildBridgeSubject(string typeName) => $"dds.sidecar.to-dds.{typeName}";
+
+    private static string StripPackagePrefix(string fullName)
+    {
+        if (string.IsNullOrEmpty(fullName))
+            return fullName;
+
+        var lastDot = fullName.LastIndexOf('.');
+        return lastDot >= 0 ? fullName[(lastDot + 1)..] : fullName;
+    }
+
+    private static (string Topic, string? Direction) ParseBridgeSubject(string subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject))
+            return (subject, null);
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            subject, @"^.+?\.to-(?<dir>dds|nats)\.(?<topic>.+)$");
+        if (!match.Success)
+            return (subject, null);
+
+        return (match.Groups["topic"].Value, match.Groups["dir"].Value);
+    }
+
+    private static string FormatSubjectForList(string subject)
+    {
+        var (topic, direction) = ParseBridgeSubject(subject);
+        return direction == null ? subject : $"{topic} · to-{direction}";
+    }
+
+    private static string BuildSubjectTooltip(string subject)
+    {
+        var (_, direction) = ParseBridgeSubject(subject);
+        return direction == null ? subject : $"raw subject: {subject}";
+    }
 
     private static Type? ResolveBridgeMessageType(string typeName)
         => typeof(DDSSimReflection).Assembly.GetType($"DdsSim.{typeName}", throwOnError: false, ignoreCase: false);
