@@ -143,7 +143,9 @@ public class JsonMessageConverter : IJsonMessageConverter
             uint unsignedIntValue => unsignedIntValue == 0,
             long longValue => longValue == 0,
             ulong unsignedLongValue => unsignedLongValue == 0,
-            string stringValue => string.IsNullOrWhiteSpace(stringValue) || IdentifiersMatch(stringValue, "MESSAGE_ID_UNSPECIFIED") || IdentifiersMatch(stringValue, "UNSPECIFIED"),
+            string stringValue => string.IsNullOrWhiteSpace(stringValue)
+                || IdentifiersMatch(stringValue, "UNSPECIFIED")
+                || stringValue.EndsWith("_UNSPECIFIED", StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }
