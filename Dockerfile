@@ -5,7 +5,7 @@
 # includes under /app/tools so the runtime dynamic proto→C# compilation
 # (DynamicProtoCompiler / ProtoLoader) works without a system protoc.
 #
-# Build:  docker build -t grpc-workbench:test .
+# Build:  docker build -t asap:test .
 # Deploy: kubectl apply -f k8s/local-test-pod.yaml
 
 # ── Build stage ──────────────────────────────────────────────────────────────
@@ -16,12 +16,12 @@ WORKDIR /src
 COPY nuget.config ./nuget.config
 COPY packages/ ./packages/
 COPY rti/ ./rti/
-COPY GrpcWorkbench.csproj ./
-RUN dotnet restore GrpcWorkbench.csproj --configfile nuget.config
+COPY ASAP.csproj ./
+RUN dotnet restore ASAP.csproj --configfile nuget.config
 
 # Build + publish.
 COPY . .
-RUN dotnet publish GrpcWorkbench.csproj -c Release -o /app/publish \
+RUN dotnet publish ASAP.csproj -c Release -o /app/publish \
         --no-restore /p:UseAppHost=false
 
 # Stage protoc, grpc_csharp_plugin and the well-known-type .proto includes
@@ -49,4 +49,4 @@ COPY --from=build /app/publish ./
 ENV ASPNETCORE_URLS=http://+:5226
 EXPOSE 5226
 
-ENTRYPOINT ["dotnet", "GrpcWorkbench.dll"]
+ENTRYPOINT ["dotnet", "ASAP.dll"]

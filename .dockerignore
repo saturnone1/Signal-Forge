@@ -43,6 +43,9 @@ packages/*
 !packages/microsoft.jsinterop.8.0.8.nupkg
 !packages/microsoft.visualstudio.azure.containers.tools.targets.1.23.0.nupkg
 !packages/mudblazor.7.15.0.nupkg
+!packages/NATS.Client.Abstractions.2.8.0.nupkg
+!packages/NATS.Client.Core.2.8.0.nupkg
+!packages/NATS.NKeys.1.0.2.nupkg
 !packages/rti.connextdds.7.3.1.nupkg
 !packages/rti.connextdds.extra.7.3.1.nupkg
 !packages/rti.connextdds.native.7.3.1.nupkg
