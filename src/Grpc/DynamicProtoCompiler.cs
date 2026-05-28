@@ -6,7 +6,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 /// <summary>
 /// Proto 파일을 동적으로 C# 코드로 컴파일하고 어셈블리로 로드

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using GrpcWorkbench.Models.Dds;
+using ASAP.Models.Dds;
 using Rti.Dds.Core;
 using Rti.Dds.Core.Policy;
 using Rti.Dds.Domain;
@@ -9,7 +9,7 @@ using Rti.Dds.Subscription;
 using Rti.Dds.Topics;
 using Rti.Types.Dynamic;
 
-namespace GrpcWorkbench.Dds;
+namespace ASAP.Dds;
 
 /// <summary>
 /// 한 DDS 세션에 대응하는 RTI 런타임. DomainParticipant 1개와 그 위에서 만들어진
@@ -179,7 +179,7 @@ public sealed class DdsParticipantHostFactory
         string? qosProfilesXml)
     {
         // RTI QosProvider는 파일 경로로 동작 → 임시 디렉토리에 두 XML을 쓴다.
-        var sessionTempDir = Path.Combine(Path.GetTempPath(), "grpc-workbench-dds", System.Guid.NewGuid().ToString("N"));
+        var sessionTempDir = Path.Combine(Path.GetTempPath(), "asap-dds", System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(sessionTempDir);
         var typesPath = Path.Combine(sessionTempDir, "types.xml");
         File.WriteAllText(typesPath, typesXmlContent);

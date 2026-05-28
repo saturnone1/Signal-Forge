@@ -1,7 +1,7 @@
 using System.Xml.Linq;
-using GrpcWorkbench.Models.Dds;
+using ASAP.Models.Dds;
 
-namespace GrpcWorkbench.Dds;
+namespace ASAP.Dds;
 
 /// <summary>
 /// RTI XML 타입 정의 (DDSSim.xml 형식) 파싱.

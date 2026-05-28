@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Dds;
+namespace ASAP.Models.Dds;
 
 public enum DdsTypeKind { Struct, Enum, Primitive }
 

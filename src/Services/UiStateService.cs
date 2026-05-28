@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// 회로(circuit) 단위 UI 상태 — AppBar(MainLayout)와 Workbench가 공유.

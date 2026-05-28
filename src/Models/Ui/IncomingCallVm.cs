@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Ui;
+namespace ASAP.Models.Ui;
 
 public sealed record FrameVm(int Index, string Data, DateTime Time);
 

@@ -1,10 +1,10 @@
 using Google.Protobuf;
-using GrpcWorkbench.Grpc;
-using GrpcWorkbench.Models.Grpc;
+using ASAP.Grpc;
+using ASAP.Models.Grpc;
 using System.Collections.Concurrent;
 using System.Reflection;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 public record IncomingCallStartedEvent(
     string CallId,
@@ -65,7 +65,7 @@ public class WorkbenchNotificationService
         _logger = logger;
     }
 
-    public void RegisterServices(IEnumerable<GrpcWorkbench.Models.Grpc.ServiceMetadata> services)
+    public void RegisterServices(IEnumerable<ASAP.Models.Grpc.ServiceMetadata> services)
     {
         lock (_rpcTypeMap)
         {

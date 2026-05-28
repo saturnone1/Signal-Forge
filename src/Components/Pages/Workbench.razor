@@ -16,10 +16,11 @@
 @inject IJSRuntime JS
 @inject IDdsSessionService DdsSessions
 @inject DdsStateService DdsState
-@using GrpcWorkbench.Models.Session
-@using GrpcWorkbench.Models.Dds
-@using GrpcWorkbench.Services
-@using GrpcWorkbench.Dds
+@inject INatsSessionService NatsSessions
+@using ASAP.Models.Session
+@using ASAP.Models.Dds
+@using ASAP.Services
+@using ASAP.Dds
 @implements IDisposable
 
 <PageTitle>Signal Forge</PageTitle>
@@ -108,11 +109,26 @@
                     </button>
                 </div>
             }
+            @foreach (var nats in _natsSessionTabs)
+            {
+                <div class="wb-session-tab @(IsNatsSessionActive(nats.SessionId) ? "is-active" : null)">
+                    <button type="button" class="wb-session-tab-main"
+                            @onclick="@(() => ActivateNatsSession(nats.SessionId))">
+                        <span class="wb-session-tab-title">@FormatNatsSessionTabLabel(nats)</span>
+                        <span class="wb-session-tab-note">@FormatNatsSessionTabNote(nats)</span>
+                    </button>
+                    <button type="button" class="wb-session-tab-close" title="NATS 탭 닫기"
+                            @onclick:stopPropagation="true"
+                            @onclick="@(async () => await CloseNatsSession(nats.SessionId))">
+                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                    </button>
+                </div>
+            }
             <button type="button"
                     class="wb-session-tab wb-session-tab--new @(IsAddTabActive() ? "is-active" : null)"
                     @onclick="ActivateAddTab">
                 <span class="wb-session-tab-title">새 탭</span>
-                <span class="wb-session-tab-note">gRPC / DDS 추가</span>
+                <span class="wb-session-tab-note">gRPC / DDS / NATS 추가</span>
             </button>
         </div>
 
@@ -121,7 +137,7 @@
             <div class="wb-panel wb-panel--contain pa-4 mt-3">
                 <div class="wb-panel-kicker">새 탭</div>
                 <div class="wb-panel-heading">먼저 열 작업 공간 하나를 고르세요</div>
-                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 나란히 여는 용도예요." : "아직 열린 탭이 없어요. 관찰용 gRPC 탭, 연결형 gRPC 탭, DDS 작업 탭 가운데 하나부터 열어 보세요.")</div>
+                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 나란히 여는 용도예요." : "아직 열린 탭이 없어요. 관찰용 gRPC 탭, DDS 작업 탭, NATS 세션 탭 가운데 하나부터 열어 보세요.")</div>
 
                 <div class="wb-mode-strip mt-3">
                     <button type="button"
@@ -137,6 +153,13 @@
                         <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Secondary" />
                         <div class="wb-mode-title">DDS 세션 탭</div>
                         <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행 시작</div>
+                    </button>
+                    <button type="button"
+                            class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.NatsSession ? "is-active" : null)"
+                            @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.NatsSession))">
+                        <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Tertiary" />
+                        <div class="wb-mode-title">NATS 세션 탭</div>
+                        <div class="wb-mode-note">브로커 URL 하나로 subject 구독과 발행을 한 화면에서 확인</div>
                     </button>
                 </div>
 
@@ -173,11 +196,19 @@
                         <div class="wb-inline-note mt-3">탭 이름은 비워도 괜찮아요. 소켓 경로나 세션 ID를 기준으로 자동 이름을 붙여요. 내 소켓: @_mySocketPath</div>
                     </div>
                 }
-                else
+                else if (_newTabKind == WorkbenchNewTabKind.DdsSession)
                 {
                     <div class="mt-3">
                         <DdsSessionCreateForm
                             OnCreated="OnDdsSessionCreated"
+                            OnCancelled="ActivatePreferredFallbackTab" />
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3">
+                        <NatsSessionCreateForm
+                            OnCreated="OnNatsSessionCreated"
                             OnCancelled="ActivatePreferredFallbackTab" />
                     </div>
                 }
@@ -188,6 +219,10 @@
     @if (IsDdsPanelActive())
     {
         <DdsSessionPanel Session="_activeDdsSession" />
+    }
+    else if (IsNatsPanelActive())
+    {
+        <NatsSessionPanel Session="_activeNatsSession" />
     }
     else if (IsGrpcPanelActive())
     {
@@ -1177,13 +1212,15 @@
         None,
         Add,
         GrpcSession,
-        DdsSession
+        DdsSession,
+        NatsSession
     }
 
     private enum WorkbenchNewTabKind
     {
         GrpcSession,
-        DdsSession
+        DdsSession,
+        NatsSession
     }
 
     // ── 회로 로컬 상태 (폼/일회성 UI만; 누적 상태는 WorkbenchStateService) ──
@@ -1215,6 +1252,8 @@
     private List<GrpcSession> _sessionTabs = [];
     private List<DdsSession> _ddsSessionTabs = [];
     private DdsSession? _activeDdsSession;
+    private List<NatsSession> _natsSessionTabs = [];
+    private NatsSession? _activeNatsSession;
     private WorkbenchTabKind _activeTabKind;
     private WorkbenchNewTabKind _newTabKind = WorkbenchNewTabKind.GrpcSession;
     private Trigger? _editingTrigger;
@@ -1285,17 +1324,20 @@
     protected override async Task OnInitializedAsync()
     {
         _mySocketPath = Environment.GetEnvironmentVariable("DEFAULT_TARGET_UDS_SOCKET_PATH")
-            ?? Configuration["GrpcWorkbench:DefaultTargetUdsSocketPath"]
+            ?? Configuration["ASAP:DefaultTargetUdsSocketPath"]
             ?? Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
-            ?? Configuration["GrpcWorkbench:UdsSocketPath"]
+            ?? Configuration["ASAP:UdsSocketPath"]
             ?? "(설정 없음)";
         ApplyDefaultSocketPath();
         RefreshSessionTabs();
         RefreshDdsSessionTabs();
+        RefreshNatsSessionTabs();
         if (_sessionTabs.Count > 0)
             await ActivateSessionTab(_sessionTabs[0].SessionId);
         else if (_ddsSessionTabs.Count > 0)
             await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
+        else if (_natsSessionTabs.Count > 0)
+            await ActivateNatsSession(_natsSessionTabs[0].SessionId);
         else
             ActivateAddTab();
 
@@ -1450,7 +1492,7 @@
 
         var usesLegacyWorkbenchSocket = string.Equals(
             _socketPath,
-            "/var/run/grpc-workbench/grpc.sock",
+            "/var/run/asap/grpc.sock",
             StringComparison.Ordinal);
 
         if (force
@@ -1478,8 +1520,15 @@
             .ToList();
     }
 
+    private void RefreshNatsSessionTabs()
+    {
+        _natsSessionTabs = NatsSessions.GetAll()
+            .OrderBy(s => s.CreatedAt)
+            .ToList();
+    }
+
     private bool HasOpenTabs()
-        => _sessionTabs.Count > 0 || _ddsSessionTabs.Count > 0;
+        => _sessionTabs.Count > 0 || _ddsSessionTabs.Count > 0 || _natsSessionTabs.Count > 0;
 
     private bool ShouldShowNewTabPanel()
         => _activeTabKind == WorkbenchTabKind.Add || !HasOpenTabs();
@@ -1492,11 +1541,18 @@
         => _activeTabKind == WorkbenchTabKind.DdsSession
             && string.Equals(_activeDdsSession?.SessionId, sessionId, StringComparison.Ordinal);
 
+    private bool IsNatsSessionActive(string sessionId)
+        => _activeTabKind == WorkbenchTabKind.NatsSession
+            && string.Equals(_activeNatsSession?.SessionId, sessionId, StringComparison.Ordinal);
+
     private bool IsAddTabActive()
         => _activeTabKind == WorkbenchTabKind.Add;
 
     private bool IsDdsPanelActive()
         => _activeTabKind == WorkbenchTabKind.DdsSession && _activeDdsSession != null;
+
+    private bool IsNatsPanelActive()
+        => _activeTabKind == WorkbenchTabKind.NatsSession && _activeNatsSession != null;
 
     private bool IsGrpcPanelActive()
         => _activeTabKind == WorkbenchTabKind.GrpcSession;
@@ -1507,7 +1563,7 @@
     private void ActivateAddTab()
     {
         _activeTabKind = WorkbenchTabKind.Add;
-        Ui.SetWorkspace("새 탭", "gRPC / DDS 작업 선택");
+        Ui.SetWorkspace("새 탭", "gRPC / DDS / NATS 작업 선택");
     }
 
     private void SelectNewTabKind(WorkbenchNewTabKind kind)
@@ -1520,6 +1576,7 @@
     {
         RefreshSessionTabs();
         RefreshDdsSessionTabs();
+        RefreshNatsSessionTabs();
 
         if (_sessionTabs.Count > 0)
         {
@@ -1530,6 +1587,12 @@
         if (_ddsSessionTabs.Count > 0)
         {
             await ActivateDdsSession(_ddsSessionTabs[0].SessionId);
+            return;
+        }
+
+        if (_natsSessionTabs.Count > 0)
+        {
+            await ActivateNatsSession(_natsSessionTabs[0].SessionId);
             return;
         }
 
@@ -1554,6 +1617,7 @@
 
         _activeTabKind = WorkbenchTabKind.DdsSession;
         _activeDdsSession = session;
+        _activeNatsSession = null;
         _activeSessionId = null;
         State.SetSession(null);
         State.SetSelected(null, null);
@@ -1572,6 +1636,46 @@
             await ActivatePreferredFallbackTab();
             return;
         }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnNatsSessionCreated(NatsSession session)
+    {
+        RefreshNatsSessionTabs();
+        await ActivateNatsSession(session.SessionId);
+    }
+
+    private async Task ActivateNatsSession(string sessionId)
+    {
+        var session = NatsSessions.Get(sessionId);
+        if (session == null)
+        {
+            RefreshNatsSessionTabs();
+            return;
+        }
+
+        _activeTabKind = WorkbenchTabKind.NatsSession;
+        _activeNatsSession = session;
+        _activeDdsSession = null;
+        _activeSessionId = null;
+        State.SetSession(null);
+        State.SetSelected(null, null);
+        Ui.SetConnection(false, null);
+        Ui.SetWorkspace(FormatNatsSessionTabLabel(session), FormatNatsSessionTabNote(session));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CloseNatsSession(string sessionId)
+    {
+        await NatsSessions.DeleteAsync(sessionId);
+        RefreshNatsSessionTabs();
+        if (_activeNatsSession?.SessionId == sessionId)
+        {
+            _activeNatsSession = null;
+            await ActivatePreferredFallbackTab();
+            return;
+        }
+
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1603,6 +1707,18 @@
 
     private static string FormatDdsSessionTabNote(DdsSession session)
         => $"DDS · domain {session.Transport.DomainId}";
+
+    private string FormatNatsSessionTabLabel(NatsSession session)
+    {
+        var baseLabel = string.IsNullOrWhiteSpace(session.Name)
+            ? "NATS"
+            : session.Name.Trim();
+
+        return AppendTabIdentity(baseLabel, session.SessionId[..4]);
+    }
+
+    private static string FormatNatsSessionTabNote(NatsSession session)
+        => $"NATS · {session.Url}";
 
     private static string AppendTabIdentity(string label, string shortId)
         => label.Contains(shortId, StringComparison.OrdinalIgnoreCase)

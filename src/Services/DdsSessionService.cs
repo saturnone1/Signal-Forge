@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using GrpcWorkbench.Dds;
-using GrpcWorkbench.Models.Dds;
-using GrpcWorkbench.Models.Session;
+using ASAP.Dds;
+using ASAP.Models.Dds;
+using ASAP.Models.Session;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 public interface IDdsSessionService
 {

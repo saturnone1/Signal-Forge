@@ -1,10 +1,10 @@
 using Grpc.Net.Client;
-using GrpcWorkbench.Models.Session;
+using ASAP.Models.Session;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 
-namespace GrpcWorkbench.Grpc;
+namespace ASAP.Grpc;
 
 public interface IGrpcChannelProvider
 {

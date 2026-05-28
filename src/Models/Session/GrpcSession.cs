@@ -1,6 +1,6 @@
-using GrpcWorkbench.Models.Grpc;
+using ASAP.Models.Grpc;
 
-namespace GrpcWorkbench.Models.Session;
+namespace ASAP.Models.Session;
 
 public class GrpcSession
 {

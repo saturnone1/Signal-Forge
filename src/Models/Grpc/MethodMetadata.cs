@@ -1,4 +1,4 @@
-namespace GrpcWorkbench.Models.Grpc;
+namespace ASAP.Models.Grpc;
 
 public class MethodMetadata
 {

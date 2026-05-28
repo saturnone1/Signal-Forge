@@ -7,7 +7,7 @@
 ## 1. 이미지 빌드
 
 ```powershell
-docker build -t grpc-workbench:test .
+docker build -t asap:test .
 ```
 
 ## 2. K8s 2-인스턴스 테스트 (권장)
@@ -55,12 +55,12 @@ live 복구를 시도할 수 있습니다.
 ## 3. 단일 컨테이너 수동 실행 (선택)
 
 ```powershell
-docker run --rm -it --name grpc-workbench `
+docker run --rm -it --name asap `
   -p 5226:5226 `
   -e ASPNETCORE_URLS=http://+:5226 `
   -e UDS_SOCKET_PATH=/var/run/dds-ambassador/grpc.sock `
   -v grpc-sock:/var/run/dds-ambassador `
-  grpc-workbench:test
+  asap:test
 ```
 
 UI: <http://localhost:5226>

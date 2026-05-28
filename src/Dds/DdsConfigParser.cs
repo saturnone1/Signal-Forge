@@ -1,7 +1,7 @@
 using System.Xml.Linq;
-using GrpcWorkbench.Models.Dds;
+using ASAP.Models.Dds;
 
-namespace GrpcWorkbench.Dds;
+namespace ASAP.Dds;
 
 /// <summary>
 /// dds-config.xml (ddsAmbassador unified format) 파싱.

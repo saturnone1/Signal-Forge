@@ -1,12 +1,12 @@
 using Google.Protobuf;
 using Grpc.Core;
-using GrpcWorkbench.Grpc;
-using GrpcWorkbench.Models.Api;
-using GrpcWorkbench.Models.Session;
+using ASAP.Grpc;
+using ASAP.Models.Api;
+using ASAP.Models.Session;
 using System.Diagnostics;
 using System.Reflection;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 public interface IUnaryGrpcService
 {

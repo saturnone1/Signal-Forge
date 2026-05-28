@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using GrpcWorkbench.Models.Dds;
+using ASAP.Models.Dds;
 
-namespace GrpcWorkbench.Services;
+namespace ASAP.Services;
 
 /// <summary>
 /// DDS 전용 트리거 — 주기 발행, 다발 발행, 토픽 수신 시 자동 발행.

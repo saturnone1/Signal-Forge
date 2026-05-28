@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grpc-workbench
+  name: asap
   labels:
-    app: grpc-workbench
+    app: asap
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: grpc-workbench
+      app: asap
   template:
     metadata:
       labels:
-        app: grpc-workbench
+        app: asap
     spec:
       containers:
-        - name: grpc-workbench
-          image: localhost:5000/grpc-workbench:v1.0.5
+        - name: asap
+          image: localhost:5000/asap:v1.0.5
           imagePullPolicy: IfNotPresent
           env:
             - name: ASPNETCORE_URLS
@@ -37,13 +37,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: grpc-workbench
+  name: asap
   labels:
-    app: grpc-workbench
+    app: asap
 spec:
   type: ClusterIP
   selector:
-    app: grpc-workbench
+    app: asap
   ports:
     - name: http
       port: 5226

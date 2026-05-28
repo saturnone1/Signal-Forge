@@ -1,6 +1,7 @@
-using GrpcWorkbench.Dds;
-using GrpcWorkbench.Grpc;
-using GrpcWorkbench.Services;
+using ASAP.Dds;
+using ASAP.Grpc;
+using ASAP.Nats;
+using ASAP.Services;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using MudBlazor.Services;
 
@@ -8,7 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── UDS socket path: this instance's gRPC server listens here ───────────────
 var udsPath = Environment.GetEnvironmentVariable("UDS_SOCKET_PATH")
-              ?? builder.Configuration["GrpcWorkbench:UdsSocketPath"]
+              ?? builder.Configuration["ASAP:UdsSocketPath"]
               ?? "/var/run/grpc-test/grpc.sock";
 
 // ── Parse web port from configured URLs (default 5226) ──────────────────────
@@ -47,6 +48,7 @@ builder.Services.AddSingleton<IGrpcServiceClientFinder, GrpcServiceClientFinder>
 builder.Services.AddSingleton<IDynamicProtoCompiler, DynamicProtoCompiler>();
 builder.Services.AddSingleton<IUnaryGrpcService, UnaryGrpcService>();
 builder.Services.AddSingleton<IGrpcStreamingService, GrpcStreamingService>();
+builder.Services.AddSingleton<INatsSessionService, NatsSessionService>();
 builder.Services.AddSingleton<WorkbenchNotificationService>();
 builder.Services.AddSingleton<WorkbenchStateService>();
 // TriggerExecutor: 싱글톤으로도 노출(UI Inject) + IHostedService로 자동 Start/Stop
@@ -99,13 +101,13 @@ app.UseRouting();
 app.UseAntiforgery();
 
 app.MapGet("/health", () => Results.Ok(new { status = "connected" }));
-app.MapRazorComponents<GrpcWorkbench.Components.App>()
+app.MapRazorComponents<ASAP.Components.App>()
     .AddInteractiveServerRenderMode();
 
 // 회로 없이도 미들웨어 알림을 누적해야 하므로 시작 시 한 번 깨워서 구독 시작 보장.
 _ = app.Services.GetRequiredService<WorkbenchStateService>();
 
 app.Logger.LogInformation(
-    "gRPC Workbench: web UI :{Port}, gRPC server on {UdsPath}", webPort, udsPath);
+    "ASAP: web UI :{Port}, gRPC server on {UdsPath}", webPort, udsPath);
 
 app.Run();
