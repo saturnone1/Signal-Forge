@@ -61,6 +61,7 @@ builder.Services.AddSingleton<DdsParticipantHostFactory>();
 builder.Services.AddSingleton<IDdsSessionService, DdsSessionService>();
 builder.Services.AddSingleton<DdsStateService>();
 builder.Services.AddSingleton<DdsTriggerService>();
+builder.Services.AddSingleton<NatsTriggerService>();
 
 builder.Services.AddCors(options =>
 {

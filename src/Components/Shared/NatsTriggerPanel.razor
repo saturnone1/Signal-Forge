@@ -1,0 +1,227 @@
+﻿@using ASAP.Models.Nats
+@using ASAP.Models.Session
+@using ASAP.Services
+@inject NatsTriggerService Triggers
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@if (Session != null)
+{
+    <div class="@(Embedded ? "wb-subpanel mb-3 pa-3" : "wb-panel wb-panel--major wb-panel--contain pa-3 mb-4")">
+        <div class="d-flex align-center mb-2" style="gap:8px;">
+            <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" Color="Color.Warning" />
+            <div>
+                <div class="wb-panel-kicker">@(Embedded ? "자동 실행" : "NATS 자동화")</div>
+                <div class="wb-panel-heading">주기 / 다발 / 수신-응답 subject 발행</div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_triggers.Count</MudChip>
+            <MudSpacer />
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="ToggleAddForm">자동 실행 추가</MudButton>
+        </div>
+
+        @if (_showAddForm)
+        {
+            <div class="wb-subpanel mt-2 pa-3">
+                <div class="wb-panel-kicker">새 자동 실행</div>
+                <div class="wb-home-form mt-2">
+                    <MudTextField @bind-Value="_draft.Name" Label="이름" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudSelect T="NatsTriggerType" @bind-Value="_draft.Type" Label="타입" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="NatsTriggerType.Periodic">주기 (Periodic)</MudSelectItem>
+                        <MudSelectItem Value="NatsTriggerType.Bulk">다발 (Bulk)</MudSelectItem>
+                        <MudSelectItem Value="NatsTriggerType.OnIncoming">수신-응답 (OnIncoming)</MudSelectItem>
+                    </MudSelect>
+                    <MudTextField @bind-Value="_draft.Subject" Label="발행 subject" Placeholder="example.subject"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    @if (_draft.Type == NatsTriggerType.Periodic)
+                    {
+                        <MudNumericField @bind-Value="_draft.IntervalMs" Label="주기 (ms)" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+                    @if (_draft.Type == NatsTriggerType.Bulk)
+                    {
+                        <MudNumericField @bind-Value="_draft.BulkCount" Label="개수" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudCheckBox @bind-Value="_draft.BulkParallel" Label="병렬 발행" Color="Color.Info" />
+                    }
+                    @if (_draft.Type == NatsTriggerType.OnIncoming)
+                    {
+                        <MudTextField @bind-Value="_draft.MatchSubject" Label="매칭 source subject" Placeholder="> 또는 telemetry.*"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudCheckBox @bind-Value="_draft.BlockSelfSubjectLoop"
+                                     Label="동일 source/target subject 재발행 차단"
+                                     Color="Color.Warning" />
+                        <MudNumericField @bind-Value="_draft.MinFireIntervalMs"
+                                         Label="최소 발행 간격 (ms, 0=해제)"
+                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudNumericField @bind-Value="_draft.MaxFiresPerMinute"
+                                         Label="분당 최대 발행 수 (0=무제한)"
+                                         Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+                </div>
+
+                <MudTextField @bind-Value="_draft.PayloadText" Lines="6" Label="Payload"
+                              Placeholder='{"hello":"world"}'
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2 wb-mono" />
+                <div class="d-flex align-center mt-3" style="gap:8px;">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="SaveDraft">저장</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ToggleAddForm">취소</MudButton>
+                </div>
+            </div>
+        }
+
+        @if (_triggers.Count == 0)
+        {
+            <div class="wb-empty mt-3">
+                <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="mb-2" />
+                <div>등록된 NATS 자동 실행 없음</div>
+            </div>
+        }
+        else
+        {
+            foreach (var trigger in _triggers)
+            {
+                <div @key="trigger.Id" class="wb-panel pa-2 mb-2 wb-trigger-card">
+                    <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                        <MudSwitch T="bool" Value="trigger.Enabled"
+                                   ValueChanged="@((bool enabled) => Triggers.SetEnabled(trigger.Id, enabled))"
+                                   Color="Color.Success" Size="Size.Small" />
+                        <MudChip T="string" Size="Size.Small" Color="@TriggerColor(trigger.Type)" Variant="Variant.Filled" Class="ma-0">@trigger.Type</MudChip>
+                        <span style="font-weight:600;">@(string.IsNullOrWhiteSpace(trigger.Name) ? trigger.Id[..8] : trigger.Name)</span>
+                        <span class="wb-mono" style="font-size:.72rem;color:var(--mud-palette-text-secondary);">→ @trigger.Subject</span>
+                        @switch (trigger.Type)
+                        {
+                            case NatsTriggerType.Periodic:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">every @trigger.IntervalMs ms @(trigger.MaxFires.HasValue ? $"· max {trigger.MaxFires}" : string.Empty)</span>
+                                break;
+                            case NatsTriggerType.Bulk:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">×@trigger.BulkCount @(trigger.BulkParallel ? "parallel" : "seq")</span>
+                                break;
+                            case NatsTriggerType.OnIncoming:
+                                <span style="font-size:.72rem;color:var(--mud-palette-text-disabled);">
+                                    on @(string.IsNullOrWhiteSpace(trigger.MatchSubject) ? "*" : trigger.MatchSubject) · guard: @(trigger.BlockSelfSubjectLoop ? "self-block" : "none")
+                                    @(trigger.MinFireIntervalMs > 0 ? $" · min {trigger.MinFireIntervalMs}ms" : string.Empty)
+                                    @(trigger.MaxFiresPerMinute > 0 ? $" · max {trigger.MaxFiresPerMinute}/m" : string.Empty)
+                                </span>
+                                break;
+                        }
+                        <MudSpacer />
+                        <span style="font-size:.7rem;">실행 @trigger.TotalFires 회</span>
+                        @if (trigger.Errors > 0)
+                        {
+                            <MudTooltip Text="@(trigger.LastError ?? string.Empty)">
+                                <span style="font-size:.7rem;color:var(--mud-palette-error);">오류 @trigger.Errors</span>
+                            </MudTooltip>
+                        }
+                        @if (trigger.LastFiredAt.HasValue)
+                        {
+                            <span style="font-size:.7rem;color:var(--mud-palette-text-disabled);">@trigger.LastFiredAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                        }
+                        @if (trigger.Type == NatsTriggerType.Bulk)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Size="Size.Small" Color="Color.Success"
+                                           OnClick="@(() => FireBulkAsync(trigger))" title="Bulk 발행" />
+                        }
+                        else
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                           OnClick="@(() => FireOnceAsync(trigger))" title="1회 발행" />
+                        }
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error"
+                                       OnClick="@(() => Remove(trigger))" title="삭제" />
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public NatsSession? Session { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+
+    private IReadOnlyList<NatsTrigger> _triggers = [];
+    private bool _showAddForm;
+    private NatsTrigger _draft = new() { SessionId = string.Empty };
+
+    protected override void OnInitialized()
+    {
+        Triggers.Changed += OnTriggersChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        if (Session != null)
+            _triggers = Triggers.Snapshot(Session.SessionId);
+    }
+
+    private void ToggleAddForm()
+    {
+        _showAddForm = !_showAddForm;
+        if (_showAddForm && Session != null)
+        {
+            _draft = new NatsTrigger
+            {
+                SessionId = Session.SessionId,
+                Subject = "example.subject",
+            };
+        }
+    }
+
+    private void SaveDraft()
+    {
+        if (Session == null)
+            return;
+        if (string.IsNullOrWhiteSpace(_draft.Subject))
+        {
+            Snackbar.Add("발행 subject를 입력하세요", Severity.Warning);
+            return;
+        }
+
+        Triggers.Add(_draft);
+        Snackbar.Add("NATS 자동 실행 추가", Severity.Success);
+        _showAddForm = false;
+    }
+
+    private async Task FireOnceAsync(NatsTrigger trigger)
+    {
+        var result = await Triggers.FireOnceAsync(trigger.Id);
+        if (!result.Success)
+            Snackbar.Add($"발행 실패: {result.Error}", Severity.Error);
+    }
+
+    private async Task FireBulkAsync(NatsTrigger trigger)
+    {
+        await Triggers.FireBulkAsync(trigger.Id);
+        Snackbar.Add($"Bulk 발행: {trigger.BulkCount}건", Severity.Info);
+    }
+
+    private void Remove(NatsTrigger trigger)
+    {
+        Triggers.Remove(trigger.Id);
+    }
+
+    private async void OnTriggersChanged()
+    {
+        Refresh();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static Color TriggerColor(NatsTriggerType type) => type switch
+    {
+        NatsTriggerType.Periodic => Color.Info,
+        NatsTriggerType.Bulk => Color.Warning,
+        NatsTriggerType.OnIncoming => Color.Secondary,
+        _ => Color.Default,
+    };
+
+    public void Dispose()
+    {
+        Triggers.Changed -= OnTriggersChanged;
+    }
+}

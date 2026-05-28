@@ -128,7 +128,7 @@
                     class="wb-session-tab wb-session-tab--new @(IsAddTabActive() ? "is-active" : null)"
                     @onclick="ActivateAddTab">
                 <span class="wb-session-tab-title">새 탭</span>
-                <span class="wb-session-tab-note">gRPC / DDS / NATS 추가</span>
+                <span class="wb-session-tab-note">작업 탭 추가</span>
             </button>
         </div>
 
@@ -137,29 +137,29 @@
             <div class="wb-panel wb-panel--contain pa-4 mt-3">
                 <div class="wb-panel-kicker">새 탭</div>
                 <div class="wb-panel-heading">먼저 열 작업 공간 하나를 고르세요</div>
-                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 나란히 여는 용도예요." : "아직 열린 탭이 없어요. 관찰용 gRPC 탭, DDS 작업 탭, NATS 세션 탭 가운데 하나부터 열어 보세요.")</div>
+                <div class="wb-inline-note mt-2">@(HasOpenTabs() ? "새 탭은 현재 흐름을 끊지 않고 나란히 여는 용도예요." : "아직 열린 탭이 없어요. gRPC 연결 탭, DDS 작업 탭, NATS 브로커 탭 가운데 하나부터 열어 보세요.")</div>
 
                 <div class="wb-mode-strip mt-3">
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.GrpcSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.GrpcSession))">
-                        <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Primary" />
+                        <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="Color.Primary" />
                         <div class="wb-mode-title">gRPC 세션 탭</div>
-                        <div class="wb-mode-note">소켓 하나에 연결해 호출, 스트림, proto를 세션 단위로 관리</div>
+                        <div class="wb-mode-note">소켓 하나에 연결해 호출, 스트림, proto 작업을 한 탭에서 관리</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.DdsSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.DdsSession))">
                         <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Secondary" />
                         <div class="wb-mode-title">DDS 세션 탭</div>
-                        <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행 시작</div>
+                        <div class="wb-mode-note">Domain과 XML 설정으로 DDS 송수신, 수동 발행, 자동 실행을 시작</div>
                     </button>
                     <button type="button"
                             class="wb-mode-card @(_newTabKind == WorkbenchNewTabKind.NatsSession ? "is-active" : null)"
                             @onclick="@(() => SelectNewTabKind(WorkbenchNewTabKind.NatsSession))">
-                        <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Tertiary" />
+                        <MudIcon Icon="@Icons.Material.Filled.AlternateEmail" Size="Size.Small" Color="Color.Tertiary" />
                         <div class="wb-mode-title">NATS 세션 탭</div>
-                        <div class="wb-mode-note">브로커 URL 하나로 subject 구독과 발행을 한 화면에서 확인</div>
+                        <div class="wb-mode-note">브로커 URL 하나로 subject 구독, 발행, 최근 메시지 흐름을 확인</div>
                     </button>
                 </div>
 

@@ -6,7 +6,7 @@
 
 <div class="wb-panel wb-panel--contain pa-3">
     <div class="wb-panel-kicker">새 NATS 세션</div>
-    <div class="wb-panel-heading">브로커 URL을 정하고 pub/sub 탭을 바로 엽니다</div>
+    <div class="wb-panel-heading">브로커 URL만 정하면 바로 세션을 엽니다</div>
 
     <div class="wb-inline-note mt-2">같은 Pod 안의 broker를 테스트할 거면 기본값 그대로 `nats://localhost:4222`를 쓰면 됩니다.</div>
 
@@ -16,6 +16,8 @@
         <MudTextField @bind-Value="_url" Label="NATS URL" Placeholder="nats://localhost:4222"
                       Variant="Variant.Outlined" Margin="Margin.Dense" />
     </div>
+
+    <div class="wb-inline-note mt-3">생성 후에는 DDS 화면과 비슷하게 수신 subject 목록, 메시지 목록, payload 상세를 분리해서 보게 됩니다.</div>
 
     @if (!string.IsNullOrWhiteSpace(_error))
     {

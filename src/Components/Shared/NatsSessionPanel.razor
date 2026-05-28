@@ -1,7 +1,17 @@
+﻿@using System.Text
+@using System.Text.Json
+@using ASAP.Grpc
+@using ASAP.Models.Grpc
 @using ASAP.Models.Nats
 @using ASAP.Models.Session
+@using ASAP.Models.Ui
 @using ASAP.Nats
+@using DdsSim
+@using Google.Protobuf
 @inject INatsSessionService NatsSessions
+@inject IProtoLoader ProtoLoader
+@inject IJsonMessageConverter JsonMessageConverter
+@inject IWebHostEnvironment WebHostEnv
 @inject ISnackbar Snackbar
 @implements IDisposable
 
@@ -14,115 +24,217 @@ else
     var subscriptions = NatsSessions.SnapshotSubscriptions(Session.SessionId);
     var inbound = NatsSessions.SnapshotInbound(Session.SessionId, 100).OrderByDescending(x => x.Timestamp).ToList();
     var outbound = NatsSessions.SnapshotOutbound(Session.SessionId, 100).OrderByDescending(x => x.Timestamp).ToList();
+    var inboundSubjects = GetInboundSubjects(subscriptions, inbound);
+    var outboundSubjects = GetOutboundSubjects(outbound);
+    var selectedInboundSubject = ResolveSelectedSubject(inboundSubjects, _selectedInboundSubject);
+    var selectedOutboundSubject = ResolveSelectedSubject(outboundSubjects, _selectedOutboundSubject);
+    var selectedInboundSubscription = string.IsNullOrWhiteSpace(selectedInboundSubject)
+        ? null
+        : subscriptions.FirstOrDefault(x => x.Subject == selectedInboundSubject);
+    var selectedInboundMessages = string.IsNullOrWhiteSpace(selectedInboundSubject)
+        ? []
+        : inbound.Where(x => x.Subject == selectedInboundSubject).ToList();
+    var selectedOutboundMessages = string.IsNullOrWhiteSpace(selectedOutboundSubject)
+        ? []
+        : outbound.Where(x => x.Subject == selectedOutboundSubject).ToList();
+    var selectedInboundMessage = ResolveSelectedMessage(selectedInboundMessages, _selectedInboundMessageId);
+    var selectedOutboundMessage = ResolveSelectedMessage(selectedOutboundMessages, _selectedOutboundMessageId);
 
     <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Hub" Size="Size.Small" Color="Color.Success" />
             <div>
                 <div class="wb-panel-kicker">NATS 세션</div>
-                <div class="wb-panel-heading">@Session.Name</div>
+                <div class="wb-panel-heading">@Session.Name · @Session.Url</div>
             </div>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Url</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">구독 @subscriptions.Count</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">수신 @inbound.Count</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">송신 @outbound.Count</MudChip>
         </div>
 
-        <div class="wb-summary-grid mt-3">
-            <div class="wb-code wb-summary-card">
-                <span style="color:var(--mud-palette-text-secondary);">브로커</span><br />
-                @Session.Url
+        <div class="wb-subpanel mb-3 pa-3">
+            <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                <div>
+                    <div class="wb-panel-kicker">작업 요약</div>
+                    <div class="wb-panel-heading">브로커, 활성 subject, 최근 흐름을 먼저 보여줍니다</div>
+                </div>
+                <MudSpacer />
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">세션 @Session.SessionId[..4]</MudChip>
             </div>
-            <div class="wb-code wb-summary-card">
-                <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
-                @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+
+            <div class="wb-summary-grid mt-3">
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">브로커</span><br />
+                    @Session.Url
+                </div>
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
+                    @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                </div>
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">마지막 활동</span><br />
+                    @Session.LastAccessedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                </div>
+                <div class="wb-code wb-summary-card">
+                    <span style="color:var(--mud-palette-text-secondary);">활성 subject</span><br />
+                    @BuildSubjectSummary(inboundSubjects, "활성 subject 없음")
+                </div>
             </div>
-            <div class="wb-code wb-summary-card">
-                <span style="color:var(--mud-palette-text-secondary);">마지막 활동</span><br />
-                @Session.LastAccessedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-            </div>
-            <div class="wb-code wb-summary-card">
-                <span style="color:var(--mud-palette-text-secondary);">용도</span><br />
-                로컬 broker pub/sub 테스트
+
+            <div class="wb-inline-note mt-3">
+                NATS 화면도 DDS처럼 수신 subject 선택, 메시지 목록, 상세 payload 확인 순서로 정리했습니다. 일반 subject 테스트와 스키마 기반 bridge 발행을 함께 다룰 수 있고, 상세창에서는 JSON, base64, hex를 같이 확인할 수 있습니다.
             </div>
         </div>
     </div>
 
     <MudGrid Spacing="2">
-        <MudItem xs="12" md="4">
+        <MudItem xs="12" md="6">
             <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
-                <div class="wb-panel-kicker">구독</div>
-                <div class="wb-panel-heading">subject를 추가하고 수신을 관찰합니다</div>
+                <div class="d-flex align-center mb-2" style="gap:8px;">
+                    <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Info" />
+                    <div>
+                        <div class="wb-panel-kicker">수신</div>
+                        <div class="wb-panel-heading">구독 subject와 들어온 메시지를 함께 봅니다</div>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">@subscriptions.Count 활성</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@inbound.Count 메시지</MudChip>
+                </div>
 
-                <div class="wb-home-form mt-3">
-                    <MudTextField @bind-Value="_subscribeSubject" Label="구독 subject" Placeholder="example.subject"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               OnClick="AddSubscription" StartIcon="@Icons.Material.Filled.PlayArrow">
-                        구독 시작
-                    </MudButton>
+                <div class="wb-subpanel mb-3 pa-3">
+                    <div class="d-flex align-center mb-2" style="gap:8px;">
+                        <div>
+                            <div class="wb-panel-kicker">구독 subject 관리</div>
+                            <div class="wb-panel-heading">exact subject뿐 아니라 `*`, `>` 와일드카드도 그대로 구독할 수 있습니다</div>
+                        </div>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="AddSubscription" StartIcon="@Icons.Material.Filled.PlayArrow">
+                            구독 시작
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                   Disabled="@(selectedInboundSubscription == null)"
+                                   OnClick="@(() => RemoveSelectedSubscription())"
+                                   StartIcon="@Icons.Material.Filled.Stop">
+                            선택 중지
+                        </MudButton>
+                    </div>
+
+                    <MudTextField @bind-Value="_subscribeSubject" Label="구독 subject" Placeholder="> 또는 telemetry.*"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" FullWidth="true" />
+
+                    <div class="d-flex flex-wrap mt-2" style="gap:8px;">
+                        @foreach (var preset in SubscriptionPresets)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     Color="@(_subscribeSubject == preset ? Color.Info : Color.Default)"
+                                     OnClick="@(() => ApplySubscriptionPreset(preset))">
+                                @preset
+                            </MudChip>
+                        }
+                    </div>
+
+                    <div class="wb-inline-note mt-2">예: `>` 는 전체, `telemetry.*` 는 한 단계 subject, `foo.bar` 는 exact subject입니다.</div>
+
+                    <div class="d-flex flex-wrap mt-3" style="gap:8px;">
+                        @if (subscriptions.Count == 0)
+                        {
+                            <div class="wb-inline-note">활성 구독이 없습니다</div>
+                        }
+                        else
+                        {
+                            @foreach (var subscription in subscriptions)
+                            {
+                                <MudChip T="string" Size="Size.Small"
+                                         Color="@(subscription.Subject == selectedInboundSubject ? Color.Info : Color.Default)"
+                                         Variant="Variant.Outlined"
+                                         OnClick="@(() => SelectInboundSubject(subscription.Subject))"
+                                         OnClose="@(() => RemoveSubscription(subscription.Subject))">
+                                    @subscription.Subject
+                                </MudChip>
+                            }
+                        }
+                    </div>
                 </div>
 
                 @if (subscriptions.Count == 0)
                 {
-                    <div class="wb-empty mt-3"><div>활성 구독이 없습니다</div></div>
+                    <div class="wb-empty"><div>수신 중인 subject가 없습니다</div></div>
                 }
                 else
                 {
-                    <div class="d-flex flex-wrap mt-3" style="gap:8px;">
-                        @foreach (var subscription in subscriptions)
-                        {
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                     OnClose="@(() => RemoveSubscription(subscription.Subject))">
-                                @subscription.Subject
-                            </MudChip>
-                        }
-                    </div>
-                }
-            </div>
-        </MudItem>
+                    <div class="wb-message-split">
+                        <div class="wb-scroll wb-message-list">
+                            @foreach (var subscription in subscriptions)
+                            {
+                                var count = inbound.Count(x => x.Subject == subscription.Subject);
+                                <button type="button"
+                                        class="wb-call-row @(selectedInboundSubject == subscription.Subject ? "is-selected" : null)"
+                                        @onclick="@(() => SelectInboundSubject(subscription.Subject))">
+                                    <div class="wb-call-row-top">
+                                        <span class="wb-mono wb-call-row-title">@subscription.Subject</span>
+                                        <span class="wb-call-row-count">@count 개 수신</span>
+                                    </div>
+                                    <div class="wb-call-row-meta">
+                                        <span>started @subscription.StartedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        <span>@(count == 0 ? "대기 중" : "메시지 있음")</span>
+                                    </div>
+                                </button>
+                            }
+                        </div>
 
-        <MudItem xs="12" md="8">
-            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
-                <div class="wb-panel-kicker">발행</div>
-                <div class="wb-panel-heading">subject와 payload를 직접 보내 봅니다</div>
-
-                <div class="wb-home-form mt-3">
-                    <MudTextField @bind-Value="_publishSubject" Label="발행 subject" Placeholder="example.subject"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
-                    <MudTextField @bind-Value="_publishPayload" Label="payload" Placeholder="{\"hello\":\"world\"}"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" Lines="6" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
-                               OnClick="Publish" StartIcon="@Icons.Material.Filled.Send">
-                        발행
-                    </MudButton>
-                </div>
-            </div>
-        </MudItem>
-
-        <MudItem xs="12" md="6">
-            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
-                <div class="wb-panel-kicker">최근 수신</div>
-                <div class="wb-panel-heading">구독 중 들어온 메시지</div>
-
-                @if (inbound.Count == 0)
-                {
-                    <div class="wb-empty mt-3"><div>아직 수신 메시지가 없습니다</div></div>
-                }
-                else
-                {
-                    <div class="wb-scroll mt-3" style="max-height:420px;">
-                        @foreach (var message in inbound)
-                        {
-                            <div class="wb-scenario-step mb-2">
-                                <div class="wb-scenario-step-top">
-                                    <div class="wb-scenario-step-title">@message.Subject</div>
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@message.PayloadSize bytes</MudChip>
+                        <div class="wb-message-content">
+                            @if (selectedInboundSubscription == null)
+                            {
+                                <div class="wb-empty"><div>왼쪽에서 subject를 선택하세요</div></div>
+                            }
+                            else if (selectedInboundMessages.Count == 0)
+                            {
+                                <div class="wb-inline-note mb-2">subject: @selectedInboundSubscription.Subject · 아직 수신 메시지 없음</div>
+                                <div class="wb-empty"><div>이 subject로 수신된 메시지가 없습니다</div></div>
+                            }
+                            else
+                            {
+                                <div class="wb-inline-note mb-2">subject: @selectedInboundSubscription.Subject · 최근 @selectedInboundMessages.Count 개 메시지</div>
+                                <div class="wb-message-split">
+                                    <div class="wb-scroll wb-message-list">
+                                        @foreach (var message in selectedInboundMessages)
+                                        {
+                                            <button type="button"
+                                                    class="wb-call-row wb-message-row @(selectedInboundMessage?.MessageId == message.MessageId ? "is-selected" : null)"
+                                                    @onclick="@(() => _selectedInboundMessageId = message.MessageId)">
+                                                <div class="wb-message-row-main">
+                                                    <span class="wb-mono">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                    <span>@message.PayloadSize bytes</span>
+                                                </div>
+                                            </button>
+                                        }
+                                    </div>
+                                    <div class="wb-message-content">
+                                        @if (selectedInboundMessage != null)
+                                        {
+                                            <div class="wb-inline-note mb-2">@FormatMessageMeta(selectedInboundMessage)</div>
+                                            <MudToggleGroup T="NatsPayloadViewMode" Value="_inboundPayloadViewMode"
+                                                            ValueChanged="@((NatsPayloadViewMode mode) => _inboundPayloadViewMode = mode)"
+                                                            Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                                            SelectionMode="SelectionMode.SingleSelection">
+                                                <MudToggleItem Value="NatsPayloadViewMode.Auto" Text="자동" />
+                                                <MudToggleItem Value="NatsPayloadViewMode.Text" Text="텍스트" />
+                                                <MudToggleItem Value="NatsPayloadViewMode.Base64" Text="base64" />
+                                                <MudToggleItem Value="NatsPayloadViewMode.Hex" Text="hex" />
+                                            </MudToggleGroup>
+                                            @if (ResolvePayloadJson(selectedInboundMessage, _inboundPayloadViewMode) is string inboundJson)
+                                            {
+                                                <JsonDataView Json="@inboundJson" />
+                                            }
+                                            else
+                                            {
+                                                <div class="wb-code wb-code--accent">@ResolvePayloadView(selectedInboundMessage, _inboundPayloadViewMode)</div>
+                                            }
+                                        }
+                                    </div>
                                 </div>
-                                <div class="wb-inline-note">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</div>
-                                <MudTextField Value="@message.PayloadText" ReadOnly="true" Variant="Variant.Outlined" Lines="4" Margin="Margin.Dense" />
-                            </div>
-                        }
+                            }
+                        </div>
                     </div>
                 }
             </div>
@@ -130,29 +242,187 @@ else
 
         <MudItem xs="12" md="6">
             <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
-                <div class="wb-panel-kicker">최근 발행</div>
-                <div class="wb-panel-heading">보낸 subject와 payload 기록</div>
+                <div class="d-flex align-center mb-2" style="gap:8px;">
+                    <MudIcon Icon="@Icons.Material.Filled.NorthEast" Size="Size.Small" Color="Color.Primary" />
+                    <div>
+                        <div class="wb-panel-kicker">송신</div>
+                        <div class="wb-panel-heading">발행 subject와 보낸 payload를 추적합니다</div>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@outbound.Count 메시지</MudChip>
+                </div>
+
+                <div class="wb-subpanel mb-3 pa-3">
+                    <div class="wb-panel-kicker">발행 작성</div>
+                    <div class="wb-panel-heading">일반 subject 테스트와 스키마 기반 bridge 메시지 발행을 바로 보냅니다</div>
+
+                    <div class="mt-3">
+                        @if (_bridgeMessages.Count > 0)
+                        {
+                            <MudToggleGroup T="bool" Value="_bridgePublishMode" ValueChanged="OnBridgePublishModeChanged"
+                                            Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                            SelectionMode="SelectionMode.SingleSelection">
+                                <MudToggleItem Value="true" Text="정의 메시지" />
+                                <MudToggleItem Value="false" Text="수동" />
+                            </MudToggleGroup>
+                        }
+
+                        @if (_bridgePublishMode && _bridgeMessages.Count > 0)
+                        {
+                            <MudSelect T="string" Value="_selectedBridgeMessageType" ValueChanged="OnBridgeMessageTypeChanged"
+                                       Label="스키마 메시지" Variant="Variant.Outlined" Margin="Margin.Dense" FullWidth="true">
+                                @foreach (var option in _bridgeMessages)
+                                {
+                                    <MudSelectItem T="string" Value="@option.TypeName">@option.TypeName</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudTextField Value="@_publishSubject" Label="자동 생성 subject"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" FullWidth="true" ReadOnly="true" />
+
+                            <div class="d-flex flex-wrap align-center mt-2" style="gap:8px;">
+                                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);margin:0;">Payload 편집</MudText>
+                                <MudSpacer />
+                                @if (_publishSchemaFields.Count > 0)
+                                {
+                                    <MudToggleGroup T="bool" Value="_publishRawJsonMode" ValueChanged="OnPublishRawModeChanged"
+                                                    Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                                    SelectionMode="SelectionMode.SingleSelection">
+                                        <MudToggleItem Value="false" Text="필드" />
+                                        <MudToggleItem Value="true" Text="JSON" />
+                                    </MudToggleGroup>
+                                }
+                            </div>
+
+                            @if (!_publishRawJsonMode && _publishSchemaFields.Count > 0)
+                            {
+                                <div class="wb-scroll mt-2" style="max-height:34vh;overflow-y:auto;">
+                                    @foreach (var field in _publishSchemaFields)
+                                    {
+                                        <div class="mb-2">
+                                            <SchemaFormField Field="field" OnChanged="BuildPublishJsonFromForm" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <MudTextField @bind-Value="_publishPayload" Label="bridge payload JSON"
+                                              Variant="Variant.Outlined" Margin="Margin.Dense" Lines="8" FullWidth="true" Class="wb-mono" />
+                            }
+
+                            <div class="wb-inline-note mt-2">선택한 메시지는 현재 bridge 규칙에 맞춰 dds.sidecar.to-dds.&lt;MessageType&gt; subject로 protobuf binary 직렬화되어 발행됩니다.</div>
+                        }
+                        else
+                        {
+                            <MudTextField @bind-Value="_publishSubject" Label="발행 subject" Placeholder="example.subject"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" FullWidth="true" />
+                            <MudTextField @bind-Value="_publishPayload" Label="payload" Placeholder='{"hello":"world"}'
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Lines="8" FullWidth="true" Class="wb-mono" />
+                        }
+
+                        <div class="d-flex align-center flex-wrap mt-2" style="gap:8px;">
+                            <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                                       OnClick="Publish" StartIcon="@Icons.Material.Filled.Send">
+                                발행
+                            </MudButton>
+                            <div class="wb-inline-note">일반 subject는 UTF-8 텍스트로, bridge subject는 protobuf binary로 송신됩니다.</div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_bridgeLoadError))
+                        {
+                            <div class="wb-inline-note mt-2">@_bridgeLoadError</div>
+                        }
+                    </div>
+                </div>
 
                 @if (outbound.Count == 0)
                 {
-                    <div class="wb-empty mt-3"><div>아직 발행한 메시지가 없습니다</div></div>
+                    <div class="wb-empty"><div>아직 발행한 메시지가 없습니다</div></div>
                 }
                 else
                 {
-                    <div class="wb-scroll mt-3" style="max-height:420px;">
-                        @foreach (var message in outbound)
-                        {
-                            <div class="wb-scenario-step mb-2">
-                                <div class="wb-scenario-step-top">
-                                    <div class="wb-scenario-step-title">@message.Subject</div>
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@message.PayloadSize bytes</MudChip>
+                    <div class="wb-message-split">
+                        <div class="wb-scroll wb-message-list">
+                            @foreach (var subject in outboundSubjects)
+                            {
+                                var count = outbound.Count(x => x.Subject == subject);
+                                var last = outbound.First(x => x.Subject == subject);
+                                <button type="button"
+                                        class="wb-call-row @(selectedOutboundSubject == subject ? "is-selected" : null)"
+                                        @onclick="@(() => SelectOutboundSubject(subject))">
+                                    <div class="wb-call-row-top">
+                                        <span class="wb-mono wb-call-row-title">@subject</span>
+                                        <span class="wb-call-row-count">@count 개 송신</span>
+                                    </div>
+                                    <div class="wb-call-row-meta">
+                                        <span>@last.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        <span>최근 @last.PayloadSize bytes</span>
+                                    </div>
+                                </button>
+                            }
+                        </div>
+
+                        <div class="wb-message-content">
+                            @if (selectedOutboundMessage == null)
+                            {
+                                <div class="wb-empty"><div>왼쪽에서 발행 subject를 선택하세요</div></div>
+                            }
+                            else
+                            {
+                                <div class="wb-inline-note mb-2">subject: @selectedOutboundMessage.Subject · 최근 @selectedOutboundMessages.Count 개 송신</div>
+                                <div class="wb-message-split">
+                                    <div class="wb-scroll wb-message-list">
+                                        @foreach (var message in selectedOutboundMessages)
+                                        {
+                                            <button type="button"
+                                                    class="wb-call-row wb-message-row @(selectedOutboundMessage.MessageId == message.MessageId ? "is-selected" : null)"
+                                                    @onclick="@(() => _selectedOutboundMessageId = message.MessageId)">
+                                                <div class="wb-message-row-main">
+                                                    <span class="wb-mono">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                    <span>@message.PayloadSize bytes</span>
+                                                </div>
+                                            </button>
+                                        }
+                                    </div>
+                                    <div class="wb-message-content">
+                                        <div class="wb-inline-note mb-2">@FormatMessageMeta(selectedOutboundMessage)</div>
+                                        <MudToggleGroup T="NatsPayloadViewMode" Value="_outboundPayloadViewMode"
+                                                        ValueChanged="@((NatsPayloadViewMode mode) => _outboundPayloadViewMode = mode)"
+                                                        Color="Color.Primary" Size="Size.Small" CheckMark="false"
+                                                        SelectionMode="SelectionMode.SingleSelection">
+                                            <MudToggleItem Value="NatsPayloadViewMode.Auto" Text="자동" />
+                                            <MudToggleItem Value="NatsPayloadViewMode.Text" Text="텍스트" />
+                                            <MudToggleItem Value="NatsPayloadViewMode.Base64" Text="base64" />
+                                            <MudToggleItem Value="NatsPayloadViewMode.Hex" Text="hex" />
+                                        </MudToggleGroup>
+                                        @if (ResolvePayloadJson(selectedOutboundMessage, _outboundPayloadViewMode) is string outboundJson)
+                                        {
+                                            <JsonDataView Json="@outboundJson" />
+                                        }
+                                        else
+                                        {
+                                            <div class="wb-code wb-code--accent">@ResolvePayloadView(selectedOutboundMessage, _outboundPayloadViewMode)</div>
+                                        }
+                                    </div>
                                 </div>
-                                <div class="wb-inline-note">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</div>
-                                <MudTextField Value="@message.PayloadText" ReadOnly="true" Variant="Variant.Outlined" Lines="4" Margin="Margin.Dense" />
-                            </div>
-                        }
+                            }
+                        </div>
                     </div>
                 }
+            </div>
+        </MudItem>
+
+        <MudItem xs="12">
+            <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
+                <div class="d-flex align-center mb-2" style="gap:8px;">
+                    <MudIcon Icon="@Icons.Material.Filled.AutoMode" Size="Size.Small" Color="Color.Primary" />
+                    <div>
+                        <div class="wb-panel-kicker">NATS 자동화</div>
+                        <div class="wb-panel-heading">DDS처럼 시나리오 단계와 자동 실행을 한 세션 안에서 함께 구성합니다</div>
+                    </div>
+                </div>
+
+                <NatsScenarioPanel Session="Session" Embedded="true" />
+                <NatsTriggerPanel Session="Session" Embedded="true" />
             </div>
         </MudItem>
     </MudGrid>
@@ -161,12 +431,40 @@ else
 @code {
     [Parameter] public NatsSession? Session { get; set; }
 
+    private enum NatsPayloadViewMode
+    {
+        Auto,
+        Text,
+        Base64,
+        Hex,
+    }
+
+    private sealed class BridgeMessageOption
+    {
+        public string TypeName { get; init; } = string.Empty;
+        public string? InputSchema { get; init; }
+    }
+
     private readonly CancellationTokenSource _cts = new();
     private PeriodicTimer? _uiTimer;
     private bool _disposed;
     private string _subscribeSubject = string.Empty;
     private string _publishSubject = string.Empty;
     private string _publishPayload = "{}";
+    private string? _selectedInboundSubject;
+    private string? _selectedOutboundSubject;
+    private string? _selectedInboundMessageId;
+    private string? _selectedOutboundMessageId;
+    private readonly List<BridgeMessageOption> _bridgeMessages = [];
+    private readonly List<SchemaField> _publishSchemaFields = [];
+    private string? _selectedBridgeMessageType;
+    private string? _bridgeLoadError;
+    private bool _bridgePublishMode = true;
+    private bool _publishRawJsonMode;
+    private NatsPayloadViewMode _inboundPayloadViewMode;
+    private NatsPayloadViewMode _outboundPayloadViewMode;
+
+    private static readonly string[] SubscriptionPresets = [">", "dds.sidecar.to-dds.*", "telemetry.*", "events.>"];
 
     protected override void OnInitialized()
     {
@@ -189,6 +487,11 @@ else
         });
     }
 
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBridgeMessagesAsync();
+    }
+
     private async Task AddSubscription()
     {
         if (Session == null)
@@ -199,6 +502,8 @@ else
             await NatsSessions.StartSubscriptionAsync(Session.SessionId, _subscribeSubject);
             Snackbar.Add($"구독 시작: {_subscribeSubject}", Severity.Success);
             _publishSubject = string.IsNullOrWhiteSpace(_publishSubject) ? _subscribeSubject : _publishSubject;
+            _selectedInboundSubject = _subscribeSubject.Trim();
+            _selectedInboundMessageId = null;
             _subscribeSubject = string.Empty;
         }
         catch (Exception ex)
@@ -207,14 +512,28 @@ else
         }
     }
 
+    private void ApplySubscriptionPreset(string subject)
+    {
+        _subscribeSubject = subject;
+    }
+
     private async Task RemoveSubscription(string subject)
     {
         if (Session == null)
             return;
 
         await NatsSessions.StopSubscriptionAsync(Session.SessionId, subject);
+        if (_selectedInboundSubject == subject)
+        {
+            _selectedInboundSubject = null;
+            _selectedInboundMessageId = null;
+        }
+
         Snackbar.Add($"구독 중지: {subject}", Severity.Info);
     }
+
+    private Task RemoveSelectedSubscription()
+        => string.IsNullOrWhiteSpace(_selectedInboundSubject) ? Task.CompletedTask : RemoveSubscription(_selectedInboundSubject);
 
     private async Task Publish()
     {
@@ -223,12 +542,420 @@ else
 
         try
         {
-            await NatsSessions.PublishTextAsync(Session.SessionId, _publishSubject, _publishPayload);
+            if (_bridgePublishMode && SelectedBridgeMessage != null)
+            {
+                if (!_publishRawJsonMode && _publishSchemaFields.Count > 0)
+                    BuildPublishJsonFromForm();
+
+                var subject = BuildBridgeSubject(SelectedBridgeMessage.TypeName);
+                var messageType = ResolveBridgeMessageType(SelectedBridgeMessage.TypeName)
+                    ?? throw new InvalidOperationException($"Bridge message type not found: {SelectedBridgeMessage.TypeName}");
+                var message = await JsonMessageConverter.JsonToMessageAsync(_publishPayload, messageType);
+                await NatsSessions.PublishBinaryAsync(Session.SessionId, subject, message.ToByteArray(), _publishPayload);
+                _publishSubject = subject;
+            }
+            else
+            {
+                await NatsSessions.PublishTextAsync(Session.SessionId, _publishSubject, _publishPayload);
+            }
+
+            _selectedOutboundSubject = _publishSubject.Trim();
+            _selectedOutboundMessageId = null;
             Snackbar.Add($"발행 완료: {_publishSubject}", Severity.Success);
         }
         catch (Exception ex)
         {
             Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void SelectInboundSubject(string subject)
+    {
+        _selectedInboundSubject = subject;
+        _selectedInboundMessageId = null;
+    }
+
+    private void SelectOutboundSubject(string subject)
+    {
+        _selectedOutboundSubject = subject;
+        _selectedOutboundMessageId = null;
+    }
+
+    private static List<string> GetInboundSubjects(IReadOnlyList<NatsSubscriptionInfo> subscriptions, IReadOnlyList<NatsMessageEntry> inbound)
+        => subscriptions.Select(x => x.Subject)
+            .Concat(inbound.Select(x => x.Subject))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x)
+            .ToList();
+
+    private static List<string> GetOutboundSubjects(IReadOnlyList<NatsMessageEntry> outbound)
+        => outbound.Select(x => x.Subject)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x)
+            .ToList();
+
+    private static string? ResolveSelectedSubject(IReadOnlyList<string> subjects, string? selected)
+    {
+        if (subjects.Count == 0)
+            return null;
+
+        return !string.IsNullOrWhiteSpace(selected) && subjects.Contains(selected, StringComparer.Ordinal)
+            ? selected
+            : subjects[0];
+    }
+
+    private static NatsMessageEntry? ResolveSelectedMessage(IReadOnlyList<NatsMessageEntry> messages, string? selectedMessageId)
+    {
+        if (messages.Count == 0)
+            return null;
+
+        return messages.FirstOrDefault(x => x.MessageId == selectedMessageId) ?? messages[0];
+    }
+
+    private static string BuildSubjectSummary(IReadOnlyList<string> subjects, string emptyText)
+    {
+        if (subjects.Count == 0)
+            return emptyText;
+
+        if (subjects.Count <= 2)
+            return string.Join("\n", subjects);
+
+        return $"{subjects[0]}\n{subjects[1]}\n외 {subjects.Count - 2}개";
+    }
+
+    private static string FormatMessageMeta(NatsMessageEntry message)
+        => $"{message.Direction} · {message.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss} · {message.PayloadSize} bytes · {message.Subject}";
+
+    private BridgeMessageOption? SelectedBridgeMessage
+        => _bridgeMessages.FirstOrDefault(x => x.TypeName == _selectedBridgeMessageType);
+
+    private async Task LoadBridgeMessagesAsync()
+    {
+        try
+        {
+            var path = Path.Combine(WebHostEnv.WebRootPath, "proto", "DDSSim.proto");
+            var protoBytes = await File.ReadAllBytesAsync(path);
+            var services = await ProtoLoader.LoadProtoServicesAsync(protoBytes);
+            var next = services
+                .SelectMany(service => service.Methods)
+                .Where(method => !string.IsNullOrWhiteSpace(method.InputType) && !string.Equals(method.InputType, "google.protobuf.Empty", StringComparison.Ordinal))
+                .GroupBy(method => method.InputType, StringComparer.Ordinal)
+                .Select(group => new BridgeMessageOption
+                {
+                    TypeName = group.Key,
+                    InputSchema = group.Select(method => method.InputSchema).FirstOrDefault(schema => !string.IsNullOrWhiteSpace(schema))
+                })
+                .OrderBy(option => option.TypeName, StringComparer.Ordinal)
+                .ToList();
+
+            _bridgeMessages.Clear();
+            _bridgeMessages.AddRange(next);
+            if (_bridgeMessages.Count == 0)
+            {
+                _bridgePublishMode = false;
+                return;
+            }
+
+            _selectedBridgeMessageType = _bridgeMessages[0].TypeName;
+            ApplySelectedBridgeMessage();
+        }
+        catch (Exception ex)
+        {
+            _bridgeLoadError = $"스키마 bridge 메시지 로드 실패: {ex.Message}";
+            _bridgePublishMode = false;
+        }
+    }
+
+    private Task OnBridgePublishModeChanged(bool bridgeMode)
+    {
+        _bridgePublishMode = bridgeMode;
+        if (_bridgePublishMode && SelectedBridgeMessage != null)
+            ApplySelectedBridgeMessage();
+
+        return Task.CompletedTask;
+    }
+
+    private Task OnBridgeMessageTypeChanged(string typeName)
+    {
+        _selectedBridgeMessageType = typeName;
+        ApplySelectedBridgeMessage();
+        return Task.CompletedTask;
+    }
+
+    private void ApplySelectedBridgeMessage()
+    {
+        var option = SelectedBridgeMessage;
+        if (option == null)
+            return;
+
+        _publishSubject = BuildBridgeSubject(option.TypeName);
+        _publishSchemaFields.Clear();
+        _publishSchemaFields.AddRange(ParseSchemaFields(option.InputSchema));
+        _publishRawJsonMode = false;
+
+        if (_publishSchemaFields.Count > 0)
+            BuildPublishJsonFromForm();
+        else
+            _publishPayload = "{}";
+    }
+
+    private static string BuildBridgeSubject(string typeName) => $"dds.sidecar.to-dds.{typeName}";
+
+    private static Type? ResolveBridgeMessageType(string typeName)
+        => typeof(DDSSimReflection).Assembly.GetType($"DdsSim.{typeName}", throwOnError: false, ignoreCase: false);
+
+    private void OnPublishRawModeChanged(bool raw)
+    {
+        _publishRawJsonMode = raw;
+        if (_publishSchemaFields.Count == 0)
+            return;
+
+        if (raw)
+            BuildPublishJsonFromForm();
+        else
+            TryPopulateSchemaFieldsFromJson(_publishSchemaFields, _publishPayload);
+    }
+
+    private void BuildPublishJsonFromForm()
+    {
+        _publishPayload = JsonSerializer.Serialize(
+            BuildJsonObject(_publishSchemaFields),
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static List<SchemaField> ParseSchemaFields(string? schema)
+    {
+        if (string.IsNullOrEmpty(schema))
+            return [];
+
+        try
+        {
+            using var doc = JsonDocument.Parse(schema);
+            return ParsePropertiesElement(doc.RootElement);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static List<SchemaField> ParsePropertiesElement(JsonElement element)
+    {
+        if (!element.TryGetProperty("properties", out var props))
+            return [];
+
+        var fields = new List<SchemaField>();
+        foreach (var prop in props.EnumerateObject())
+            fields.Add(ParseFieldElement(prop.Name, prop.Value));
+
+        return fields;
+    }
+
+    private static SchemaField ParseFieldElement(string name, JsonElement schema)
+    {
+        var field = new SchemaField { Name = name };
+
+        if (schema.TryGetProperty("enum", out var enumProp))
+        {
+            field.Type = "enum";
+            field.EnumValues = enumProp.EnumerateArray().Select(value => value.GetString() ?? string.Empty).ToArray();
+            field.Value = field.EnumValues.FirstOrDefault() ?? string.Empty;
+            return field;
+        }
+
+        if (!schema.TryGetProperty("type", out var typeProp))
+            return field;
+
+        field.Type = typeProp.GetString() ?? "string";
+        switch (field.Type)
+        {
+            case "object":
+                field.Children = ParsePropertiesElement(schema);
+                field.Value = "{}";
+                break;
+            case "array":
+                if (schema.TryGetProperty("items", out var itemsEl))
+                    field.ItemTemplate = ParseFieldElement("0", itemsEl);
+                field.Value = "[]";
+                break;
+            case "integer":
+            case "number":
+                field.Value = "0";
+                break;
+            default:
+                field.Value = string.Empty;
+                break;
+        }
+
+        return field;
+    }
+
+    private static Dictionary<string, object?> BuildJsonObject(List<SchemaField> fields)
+    {
+        var obj = new Dictionary<string, object?>();
+        foreach (var field in fields)
+            obj[field.Name] = BuildFieldValue(field);
+        return obj;
+    }
+
+    private static bool TryPopulateSchemaFieldsFromJson(List<SchemaField> fields, string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return false;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return false;
+
+            ApplyObjectToFields(fields, doc.RootElement);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ApplyObjectToFields(List<SchemaField> fields, JsonElement element)
+    {
+        foreach (var field in fields)
+        {
+            if (!element.TryGetProperty(field.Name, out var value))
+                continue;
+
+            ApplyJsonToField(field, value);
+        }
+    }
+
+    private static void ApplyJsonToField(SchemaField field, JsonElement value)
+    {
+        switch (field.Type)
+        {
+            case "boolean":
+                field.BoolValue = value.ValueKind == JsonValueKind.True || (value.ValueKind == JsonValueKind.False ? false : field.BoolValue);
+                break;
+            case "integer":
+            case "number":
+            case "string":
+            case "enum":
+                field.Value = value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
+                break;
+            case "object":
+                if (field.Children.Count > 0 && value.ValueKind == JsonValueKind.Object)
+                    ApplyObjectToFields(field.Children, value);
+                else
+                    field.Value = value.GetRawText();
+                break;
+            case "array":
+                if (field.ItemTemplate != null && value.ValueKind == JsonValueKind.Array)
+                {
+                    field.ArrayItems.Clear();
+                    var index = 0;
+                    foreach (var item in value.EnumerateArray())
+                    {
+                        var clone = field.ItemTemplate.DeepClone(index.ToString());
+                        ApplyJsonToField(clone, item);
+                        field.ArrayItems.Add(clone);
+                        index++;
+                    }
+                }
+                else
+                {
+                    field.Value = value.GetRawText();
+                }
+                break;
+            default:
+                field.Value = value.ToString();
+                break;
+        }
+    }
+
+    private static object? BuildFieldValue(SchemaField field) => field.Type switch
+    {
+        "boolean" => field.BoolValue,
+        "integer" => long.TryParse(field.Value, out var longValue) ? longValue : 0L,
+        "number" => double.TryParse(field.Value, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var doubleValue) ? doubleValue : 0.0,
+        "object" when field.Children.Count > 0 => BuildJsonObject(field.Children),
+        "object" => TryParseRaw(field.Value),
+        "array" when field.ItemTemplate != null => field.ArrayItems.Select(BuildFieldValue).ToArray(),
+        "array" => TryParseRaw(field.Value),
+        _ => (object?)field.Value
+    };
+
+    private static object? TryParseRaw(string value)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            return value;
+        }
+    }
+
+    private static string ResolvePayloadView(NatsMessageEntry message, NatsPayloadViewMode mode)
+        => mode switch
+        {
+            NatsPayloadViewMode.Text => message.PayloadText,
+            NatsPayloadViewMode.Base64 => message.PayloadBase64,
+            NatsPayloadViewMode.Hex => ConvertBase64ToHex(message.PayloadBase64),
+            _ => message.PayloadText,
+        };
+
+    private static string? ResolvePayloadJson(NatsMessageEntry? message, NatsPayloadViewMode mode)
+    {
+        if (message == null || mode != NatsPayloadViewMode.Auto)
+            return null;
+
+        return TryPrettyJson(ResolvePayloadView(message, mode));
+    }
+
+    private static string ConvertBase64ToHex(string base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64))
+            return string.Empty;
+
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            if (bytes.Length == 0)
+                return string.Empty;
+
+            var builder = new StringBuilder(bytes.Length * 3);
+            for (var index = 0; index < bytes.Length; index++)
+            {
+                if (index > 0)
+                    builder.Append(index % 16 == 0 ? '\n' : ' ');
+
+                builder.Append(bytes[index].ToString("X2"));
+            }
+
+            return builder.ToString();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string? TryPrettyJson(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -240,3 +967,4 @@ else
         _uiTimer?.Dispose();
     }
 }
+

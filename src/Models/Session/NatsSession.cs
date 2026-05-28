@@ -1,3 +1,5 @@
+using ASAP.Models.Nats;
+
 namespace ASAP.Models.Session;
 
 public class NatsSession
@@ -7,4 +9,5 @@ public class NatsSession
     public string Url { get; set; } = "nats://localhost:4222";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastAccessedAt { get; set; } = DateTime.UtcNow;
+    public List<NatsScenarioStep> ScenarioSteps { get; set; } = [];
 }
