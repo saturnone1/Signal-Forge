@@ -19,7 +19,7 @@
 **/node_modules
 **/npm-debug.log
 **/obj
-/artifacts/agent-build
+/artifacts/
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE
