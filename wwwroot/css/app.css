@@ -1035,7 +1035,7 @@ select,
 }
 
 .dds-message-panel {
-  min-height: 330px;
+  min-height: 250px;
 }
 
 .dds-message-list {
@@ -1046,7 +1046,7 @@ select,
 }
 
 .dds-message-empty {
-  min-height: 270px;
+  min-height: 190px;
 }
 
 .dds-message-item {
@@ -1129,6 +1129,165 @@ select,
 @media (max-width: 600px) {
   .dds-status-grid { grid-template-columns: 1fr; }
   .dds-latency-chart-head { align-items: flex-start; flex-direction: column; }
+}
+
+/* ── Readability and progressive disclosure ───────────────────────────── */
+body {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.wb-page.pa-3 {
+  max-width: 1500px;
+  margin-inline: auto;
+  padding: 22px !important;
+}
+
+.wb-panel {
+  border-radius: 14px;
+}
+
+.wb-panel-kicker {
+  font-size: .75rem;
+  line-height: 1.4;
+  letter-spacing: .07em;
+}
+
+.wb-panel-heading {
+  margin-top: 3px;
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+
+.wb-inline-note,
+.wb-code {
+  font-size: .875rem;
+  line-height: 1.6;
+}
+
+.wb-session-tab-title { font-size: .94rem; }
+.wb-session-tab-note { font-size: .8rem; line-height: 1.45; }
+.wb-session-tab { padding: 12px 14px 11px; }
+
+.mud-button-root {
+  min-height: 38px;
+  font-size: .875rem;
+  letter-spacing: 0;
+}
+
+.mud-input,
+.mud-input-control,
+.mud-select,
+.mud-list-item-text {
+  font-size: .94rem;
+}
+
+.mud-input-label { font-size: .875rem; }
+.mud-chip { font-size: .8rem; min-height: 28px; }
+
+.wb-subpanel { padding: 14px; }
+.wb-empty { font-size: .9rem; line-height: 1.6; padding: 36px 16px; }
+
+.dds-status-grid { gap: 12px; }
+.dds-status-metric { padding: 14px; }
+.dds-status-metric span { font-size: .78rem; }
+.dds-status-metric b { margin-top: 5px; font-size: .96rem; line-height: 1.45; }
+.dds-message-topic { font-size: .9rem; }
+.dds-message-time { font-size: .78rem; }
+.dds-message-item { min-height: 50px; padding: 11px 14px; }
+.dds-latency-legend,
+.dds-latency-stats { font-size: .78rem; }
+
+.wb-scenario-step { padding: 14px; }
+.wb-scenario-step-order,
+.wb-scenario-label { font-size: .76rem; }
+.wb-scenario-step-title { font-size: .94rem; }
+.wb-scenario-value { font-size: .84rem; line-height: 1.55; }
+.wb-scenario-step-actions { gap: 9px; margin-top: 12px; }
+.wb-trigger-card .mud-button-root,
+.wb-scenario-step .mud-button-root { min-height: 36px; }
+
+.wb-disclosure {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--mud-palette-lines-default) 88%, white 5%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mud-palette-surface) 96%, white 1%);
+  overflow: hidden;
+}
+
+.wb-disclosure > summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 12px 48px 12px 16px;
+  color: var(--mud-palette-text-primary);
+  font-size: .96rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.wb-disclosure > summary::-webkit-details-marker { display: none; }
+.wb-disclosure > summary::after {
+  content: "›";
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  color: var(--mud-palette-primary);
+  font-size: 1.45rem;
+  line-height: 1;
+  transform: translateY(-50%) rotate(90deg);
+  transition: transform 140ms ease;
+}
+
+.wb-disclosure[open] > summary::after {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.wb-disclosure > summary:hover,
+.wb-disclosure > summary:focus-visible {
+  background: color-mix(in srgb, var(--mud-palette-primary) 9%, transparent);
+  outline: none;
+}
+
+.wb-disclosure-hint {
+  margin-left: auto;
+  color: var(--mud-palette-text-secondary);
+  font-size: .82rem;
+  font-weight: 500;
+  text-align: right;
+}
+
+.wb-disclosure--major > .wb-panel {
+  border: 0;
+  border-top: 1px solid var(--mud-palette-lines-default);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wb-disclosure--subtle {
+  background: color-mix(in srgb, var(--mud-palette-background) 30%, transparent);
+}
+
+.wb-disclosure--subtle > summary {
+  min-height: 48px;
+  font-size: .88rem;
+}
+
+@media (max-width: 700px) {
+  .wb-page.pa-3 { padding: 12px !important; }
+  .wb-session-tabs {
+    flex-flow: row nowrap;
+    overflow-x: auto;
+    align-items: stretch;
+    padding-inline: 2px;
+  }
+  .wb-session-tab { flex: 0 0 min(78vw, 300px); }
+  .wb-disclosure > summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .wb-disclosure-hint { margin-left: 0; text-align: left; }
 }
 
 /* MudTextField applies its Style parameter to the inner input element.
@@ -1310,10 +1469,6 @@ select,
   .wb-request-header,
   .wb-request-method-selectors {
     grid-template-columns: 1fr;
-  }
-
-  .wb-session-tabs {
-    flex-direction: column;
   }
 
   .wb-editor-shell {

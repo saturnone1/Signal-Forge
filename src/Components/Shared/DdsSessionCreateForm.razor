@@ -8,8 +8,8 @@
 @inject IJSRuntime JS
 
 <div class="wb-panel wb-panel--contain pa-3">
-    <div class="wb-panel-kicker">새 DDS 세션</div>
-    <div class="wb-panel-heading">개인 XML 프로필로 DDS 작업 공간 열기</div>
+    <div class="wb-panel-kicker">1단계</div>
+    <div class="wb-panel-heading">DDS XML 프로필 선택</div>
     <div class="wb-inline-note mt-2">
         프로필은 Signal Forge 서비스에 저장되어 모든 접속 화면에서 공유됩니다. DDSSim.xml, topics.xml, qos_profiles.xml 세 파일을 한 묶음으로 관리할 수 있어요.
     </div>
@@ -42,19 +42,6 @@
                            OnClick="BeginEditProfile" Disabled="@(SelectedProfile == null || SelectedProfileActiveSessionCount > 0)">편집</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.CreateNewFolder"
                            OnClick="BeginNewDefaultProfile">새 프로필</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy"
-                           OnClick="BeginNewProfile" Disabled="@(SelectedProfile == null)">복제</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Download"
-                           OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">세 XML 내보내기</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh"
-                           OnClick="ReloadProfiles">새로고침</MudButton>
-                <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="ImportProfileFiles"
-                               Accept=".xml,text/xml,application/xml" MaximumFileCount="3">
-                    <ActivatorContent>
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Upload">세 XML 가져오기</MudButton>
-                    </ActivatorContent>
-                </MudFileUpload>
             </div>
 
             @if (_selectedValidation != null)
@@ -64,6 +51,28 @@
                     · 마지막 저장 @SelectedProfile?.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
                 </div>
             }
+
+            <details class="wb-disclosure wb-disclosure--subtle mt-2">
+                <summary>
+                    <span>프로필 가져오기·내보내기 및 기타 관리</span>
+                    <span class="wb-disclosure-hint">복제 · 세 XML · 새로고침</span>
+                </summary>
+                <div class="d-flex align-center flex-wrap mt-3" style="gap:10px;">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy"
+                               OnClick="BeginNewProfile" Disabled="@(SelectedProfile == null)">복제</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Download"
+                               OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">세 XML 내보내기</MudButton>
+                    <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="ImportProfileFiles"
+                                   Accept=".xml,text/xml,application/xml" MaximumFileCount="3">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Upload">세 XML 가져오기</MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh"
+                               OnClick="ReloadProfiles">새로고침</MudButton>
+                </div>
+            </details>
             @if (SelectedProfileActiveSessionCount > 0)
             {
                 <div class="wb-inline-note mt-2" style="color:var(--mud-palette-warning);">
@@ -354,6 +363,10 @@
         }
     </div>
 
+    <div class="mt-4">
+        <div class="wb-panel-kicker">2단계</div>
+        <div class="wb-panel-heading">세션과 네트워크 설정</div>
+    </div>
     <div class="wb-home-form mt-3">
         <MudTextField @bind-Value="_name" Label="세션 이름"
                       Placeholder="비워 두면 프로필 이름으로 자동 생성"

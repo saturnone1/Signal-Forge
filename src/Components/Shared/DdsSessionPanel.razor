@@ -27,16 +27,6 @@ else
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count 토픽</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count 타입</MudChip>
-            @if (!string.IsNullOrWhiteSpace(Session.ProfileName))
-            {
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
-                    프로필 스냅샷: @Session.ProfileName · @Session.ProfileUpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
-                </MudChip>
-            }
-            @if (Session.QosProfiles.Count > 0)
-            {
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">QoS: @string.Join(",", Session.QosProfiles)</MudChip>
-            }
         </div>
 
         <div class="wb-subpanel mb-3 pa-3">
@@ -49,27 +39,6 @@ else
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">세션 @Session.SessionId[..8]</MudChip>
             </div>
 
-            <div class="wb-summary-grid mt-3">
-                <div class="wb-code wb-summary-card">
-                    <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
-                    @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                </div>
-                <div class="wb-code wb-summary-card">
-                    <span style="color:var(--mud-palette-text-secondary);">네트워크</span><br />
-                    domain @Session.Transport.DomainId · @DiscoveryModeLabel
-                </div>
-                <div class="wb-code wb-summary-card">
-                    <span style="color:var(--mud-palette-text-secondary);">버퍼</span><br />
-                    send @(Session.Transport.SendBufferSize?.ToString() ?? "default") / receive @(Session.Transport.ReceiveBufferSize?.ToString() ?? "default")
-                </div>
-                <div class="wb-code wb-summary-card">
-                    <span style="color:var(--mud-palette-text-secondary);">로드된 파일</span><br />
-                    DDSSim.xml<br />
-                    topics.xml<br />
-                    qos_profiles.xml
-                </div>
-            </div>
-
             <div class="dds-status-grid mt-3">
                 <div class="dds-status-metric"><span>세션</span><b>연결됨 · Domain @Session.Transport.DomainId</b></div>
                 <div class="dds-status-metric"><span>검색 방식</span><b>@DiscoveryModeLabel</b></div>
@@ -78,9 +47,44 @@ else
             </div>
             <DdsLatencyChart SendValues="SendLatencyValues" ReceiveValues="ReceiveLatencyValues" />
 
-            <div class="wb-inline-note mt-3">
-                이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 중심이에요. 원본 파일명과 네트워크 설정만 남기고 미리보기는 뺐어요.
-            </div>
+            <details class="wb-disclosure wb-disclosure--subtle mt-3">
+                <summary>
+                    <span>세션 및 XML 상세</span>
+                    <span class="wb-disclosure-hint">생성 시각 · 버퍼 · 로드된 파일</span>
+                </summary>
+                <div class="wb-summary-grid mt-3">
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">생성 시각</span><br />
+                        @Session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                    </div>
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">네트워크</span><br />
+                        domain @Session.Transport.DomainId · @DiscoveryModeLabel
+                    </div>
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">버퍼</span><br />
+                        send @(Session.Transport.SendBufferSize?.ToString() ?? "default") / receive @(Session.Transport.ReceiveBufferSize?.ToString() ?? "default")
+                    </div>
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">로드된 파일</span><br />
+                        DDSSim.xml<br />
+                        topics.xml<br />
+                        qos_profiles.xml
+                    </div>
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">프로필 스냅샷</span><br />
+                        @(string.IsNullOrWhiteSpace(Session.ProfileName) ? "-" : Session.ProfileName)<br />
+                        @Session.ProfileUpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </div>
+                    <div class="wb-code wb-summary-card">
+                        <span style="color:var(--mud-palette-text-secondary);">QoS</span><br />
+                        @(Session.QosProfiles.Count == 0 ? "-" : string.Join(", ", Session.QosProfiles))
+                    </div>
+                </div>
+                <div class="wb-inline-note mt-3">
+                    이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 중심이에요. 원본 파일명과 네트워크 설정만 남기고 미리보기는 뺐어요.
+                </div>
+            </details>
         </div>
 
     </div>
@@ -91,7 +95,7 @@ else
                         <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Info" />
                         <div>
                             <div class="wb-panel-kicker">수신</div>
-                            <div class="wb-panel-heading">수신 토픽과 샘플</div>
+                            <div class="wb-panel-heading">수신 설정</div>
                         </div>
                         <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">@ActiveSubscriptions.Count 활성</MudChip>
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@SelectedReceivableTopicCount 선택</MudChip>
@@ -106,10 +110,7 @@ else
                     {
                         <div class="wb-subpanel mb-3 pa-3">
                             <div class="d-flex align-center mb-2" style="gap:8px;">
-                                <div>
-                                    <div class="wb-panel-kicker">수신 토픽 선택</div>
-                                    <div class="wb-panel-heading">팝업에서 수신 토픽을 선택하고 한 번에 시작/중지</div>
-                                </div>
+                                <div class="wb-panel-heading">1. 토픽 선택 → 2. 수신 시작</div>
                                 <MudSpacer />
                                 <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
                                            StartIcon="@Icons.Material.Filled.Checklist"
@@ -162,6 +163,11 @@ else
             </MudItem>
 
             <MudItem xs="12">
+                <details class="wb-disclosure wb-disclosure--major">
+                    <summary>
+                        <span>DDS 자동화 및 시나리오</span>
+                        <span class="wb-disclosure-hint">@Session.ScenarioSteps.Count 단계 · 필요할 때 펼쳐서 편집</span>
+                    </summary>
                 <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
                     <div class="d-flex align-center mb-2" style="gap:8px;">
                         <MudIcon Icon="@Icons.Material.Filled.AutoMode" Size="Size.Small" Color="Color.Primary" />
@@ -308,9 +314,15 @@ else
                         }
                     </div>
                 </div>
+                </details>
             </MudItem>
 
             <MudItem xs="12">
+                <details class="wb-disclosure wb-disclosure--major">
+                    <summary>
+                        <span>세션 및 시스템 로그</span>
+                        <span class="wb-disclosure-hint">@Session.LogEntries.Count 건 · 문제 확인용</span>
+                    </summary>
                 <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
                     <div class="d-flex align-center mb-2" style="gap:8px;">
                         <MudIcon Icon="@Icons.Material.Filled.Feed" Size="Size.Small" Color="Color.Info" />
@@ -347,6 +359,7 @@ else
                         </div>
                     }
                 </div>
+                </details>
             </MudItem>
         </MudGrid>
 
