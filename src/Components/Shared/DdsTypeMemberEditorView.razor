@@ -1,0 +1,81 @@
+@using ASAP.Services
+
+<div class="wb-subpanel pa-2 mb-2">
+    <div class="d-flex align-center flex-wrap" style="gap:8px;">
+        <MudTextField T="string" Value="Member.Name" ValueChanged="UpdateName"
+                      Label="멤버 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Style="flex:1 1 180px;" Immediate="true" />
+        <MudSelect T="string" Value="Member.TypeName" ValueChanged="UpdateType"
+                   Label="IDL 타입" Variant="Variant.Outlined" Margin="Margin.Dense"
+                   Style="flex:1 1 220px;">
+            @foreach (var typeName in TypeOptions)
+            {
+                <MudSelectItem T="string" Value="@typeName">@typeName</MudSelectItem>
+            }
+        </MudSelect>
+        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" Size="Size.Small"
+                       title="멤버 삭제" OnClick="Delete" />
+    </div>
+
+    <div class="d-flex align-center flex-wrap mt-2" style="gap:8px;">
+        <MudTextField T="string" Value="Member.StringMaxLength" ValueChanged="UpdateStringBound"
+                      Label="string/wstring 최대 길이" Placeholder="비움=unbounded, -1 또는 상수"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 190px;" Immediate="true" />
+        <MudTextField T="string" Value="Member.SequenceMaxLength" ValueChanged="UpdateSequenceBound"
+                      Label="sequence 최대 길이" Placeholder="비움=scalar, -1=unbounded"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 190px;" Immediate="true" />
+        <MudTextField T="string" Value="Member.ArrayDimensions" ValueChanged="UpdateArrayDimensions"
+                      Label="배열 차원" Placeholder="예: 4 또는 2,3"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 180px;" Immediate="true" />
+    </div>
+
+    <div class="d-flex align-center flex-wrap mt-2" style="gap:12px;">
+        @if (AllowKeyOptional)
+        {
+            <MudCheckBox T="bool" Value="Member.Key" ValueChanged="UpdateKey" Label="Key" Color="Color.Primary" />
+            <MudCheckBox T="bool" Value="Member.Optional" ValueChanged="UpdateOptional" Label="Optional" Color="Color.Primary" />
+        }
+        <MudCheckBox T="bool" Value="Member.External" ValueChanged="UpdateExternal" Label="External" Color="Color.Primary" />
+        <MudTextField T="string" Value="Member.MemberId" ValueChanged="UpdateMemberId"
+                      Label="Member ID" Placeholder="0~268435455"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:150px;" Immediate="true" />
+        <MudTextField T="string" Value="Member.DefaultValue" ValueChanged="UpdateDefault"
+                      Label="기본값" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Style="flex:1 1 150px;" Immediate="true" />
+        <MudTextField T="string" Value="Member.MinValue" ValueChanged="UpdateMin"
+                      Label="최솟값" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Style="width:130px;" Immediate="true" />
+        <MudTextField T="string" Value="Member.MaxValue" ValueChanged="UpdateMax"
+                      Label="최댓값" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Style="width:130px;" Immediate="true" />
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DdsTypeMemberEditor Member { get; set; } = null!;
+    [Parameter] public IReadOnlyList<string> KnownTypes { get; set; } = [];
+    [Parameter] public bool AllowKeyOptional { get; set; } = true;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+
+    private IEnumerable<string> TypeOptions => DdsTypeProfileEditor.PrimitiveTypes
+        .Concat(KnownTypes)
+        .Append(Member.TypeName)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private Task Changed() => OnChanged.InvokeAsync();
+    private async Task UpdateName(string value) { Member.Name = value; await Changed(); }
+    private async Task UpdateType(string value) { Member.TypeName = value; await Changed(); }
+    private async Task UpdateStringBound(string value) { Member.StringMaxLength = value; await Changed(); }
+    private async Task UpdateSequenceBound(string value) { Member.SequenceMaxLength = value; await Changed(); }
+    private async Task UpdateArrayDimensions(string value) { Member.ArrayDimensions = value; await Changed(); }
+    private async Task UpdateMemberId(string value) { Member.MemberId = value; await Changed(); }
+    private async Task UpdateDefault(string value) { Member.DefaultValue = value; await Changed(); }
+    private async Task UpdateMin(string value) { Member.MinValue = value; await Changed(); }
+    private async Task UpdateMax(string value) { Member.MaxValue = value; await Changed(); }
+    private async Task UpdateKey(bool value) { Member.Key = value; if (value) Member.Optional = false; await Changed(); }
+    private async Task UpdateOptional(bool value) { Member.Optional = value; if (value) Member.Key = false; await Changed(); }
+    private async Task UpdateExternal(bool value) { Member.External = value; await Changed(); }
+    private Task Delete() => OnDelete.InvokeAsync();
+}

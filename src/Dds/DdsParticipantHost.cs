@@ -25,6 +25,7 @@ public sealed class DdsParticipantHost : IAsyncDisposable
     private readonly Publisher _publisher;
     private readonly Subscriber _subscriber;
     private readonly ILogger<DdsParticipantHost> _logger;
+    private readonly string _temporaryDirectory;
 
     private readonly ConcurrentDictionary<string, Topic<DynamicData>> _topics = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DataReader<DynamicData>> _readers = new(StringComparer.OrdinalIgnoreCase);
@@ -36,10 +37,12 @@ public sealed class DdsParticipantHost : IAsyncDisposable
     public DdsParticipantHost(
         DomainParticipant participant,
         QosProvider qosProvider,
+        string temporaryDirectory,
         ILogger<DdsParticipantHost> logger)
     {
         _participant = participant;
         _qosProvider = qosProvider;
+        _temporaryDirectory = temporaryDirectory;
         _publisher = participant.ImplicitPublisher;
         _subscriber = participant.ImplicitSubscriber;
         _logger = logger;
@@ -73,10 +76,8 @@ public sealed class DdsParticipantHost : IAsyncDisposable
         return _readers.GetOrAdd(topicName, _ =>
         {
             var topic = GetOrCreateTopic(topicName, typeName);
-            var readerQos = TryGetDataReaderQos(qosProfileFullName);
-            return readerQos is not null
-                ? _subscriber.CreateDataReader(topic, readerQos)
-                : _subscriber.CreateDataReader(topic);
+            var readerQos = _qosProvider.GetDataReaderQos(qosProfileFullName);
+            return _subscriber.CreateDataReader(topic, readerQos);
         });
     }
 
@@ -88,10 +89,8 @@ public sealed class DdsParticipantHost : IAsyncDisposable
         return _writers.GetOrAdd(topicName, _ =>
         {
             var topic = GetOrCreateTopic(topicName, typeName);
-            var writerQos = TryGetDataWriterQos(qosProfileFullName);
-            return writerQos is not null
-                ? _publisher.CreateDataWriter(topic, writerQos)
-                : _publisher.CreateDataWriter(topic);
+            var writerQos = _qosProvider.GetDataWriterQos(qosProfileFullName);
+            return _publisher.CreateDataWriter(topic, writerQos);
         });
     }
 
@@ -101,6 +100,12 @@ public sealed class DdsParticipantHost : IAsyncDisposable
             _qosProvider.GetType(n)
                 ?? throw new InvalidOperationException($"DDS 타입을 찾을 수 없음: {n}"));
         return new DynamicData(dynType);
+    }
+
+    public void ValidateQosProfile(string fullProfileName)
+    {
+        _ = _qosProvider.GetDataReaderQos(fullProfileName);
+        _ = _qosProvider.GetDataWriterQos(fullProfileName);
     }
 
     public void RemoveReader(string topicName)
@@ -121,26 +126,6 @@ public sealed class DdsParticipantHost : IAsyncDisposable
         }
     }
 
-    private DataReaderQos? TryGetDataReaderQos(string fullProfileName)
-    {
-        try { return _qosProvider.GetDataReaderQos(fullProfileName); }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "DataReaderQos 로드 실패, 기본 QoS 사용: {Profile}", fullProfileName);
-            return null;
-        }
-    }
-
-    private DataWriterQos? TryGetDataWriterQos(string fullProfileName)
-    {
-        try { return _qosProvider.GetDataWriterQos(fullProfileName); }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "DataWriterQos 로드 실패, 기본 QoS 사용: {Profile}", fullProfileName);
-            return null;
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
@@ -155,6 +140,12 @@ public sealed class DdsParticipantHost : IAsyncDisposable
 
         try { _qosProvider.Dispose(); } catch { /* swallow */ }
         try { _participant.Dispose(); } catch { /* swallow */ }
+        try
+        {
+            if (Directory.Exists(_temporaryDirectory))
+                Directory.Delete(_temporaryDirectory, recursive: true);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "DDS 임시 디렉터리 삭제 실패: {Path}", _temporaryDirectory); }
 
         await Task.CompletedTask;
     }
@@ -181,6 +172,8 @@ public sealed class DdsParticipantHostFactory
         // RTI QosProvider는 파일 경로로 동작 → 임시 디렉토리에 두 XML을 쓴다.
         var sessionTempDir = Path.Combine(Path.GetTempPath(), "asap-dds", System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(sessionTempDir);
+        try
+        {
         var typesPath = Path.Combine(sessionTempDir, "types.xml");
         File.WriteAllText(typesPath, typesXmlContent);
 
@@ -204,7 +197,13 @@ public sealed class DdsParticipantHostFactory
             transport.DomainId, participantQos);
 
         var hostLogger = _loggerFactory.CreateLogger<DdsParticipantHost>();
-        return new DdsParticipantHost(participant, qosProvider, hostLogger);
+        return new DdsParticipantHost(participant, qosProvider, sessionTempDir, hostLogger);
+        }
+        catch
+        {
+            try { Directory.Delete(sessionTempDir, recursive: true); } catch { }
+            throw;
+        }
     }
 
     private static DomainParticipantQos ApplyTransport(

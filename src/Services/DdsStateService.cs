@@ -10,10 +10,12 @@ namespace ASAP.Services;
 /// DDS 세션 운영 상태 — 활성 구독, 최근 샘플, 발행 이력을 관리.
 /// UI는 StateChanged 이벤트를 구독하고 Snapshot으로 표시한다.
 /// </summary>
-public sealed class DdsStateService
+public sealed class DdsStateService : IDisposable
 {
-    private const int MaxSamplesPerSubscription = 100;
-    private const int MaxOutboundLogPerSession = 100;
+    private const int MaxSamplesPerSubscription = 50;
+    private const int MaxOutboundLogPerSession = 50;
+    private const int MaxRetainedPayloadChars = 64 * 1024;
+    private const int MaxPublishPayloadChars = 1024 * 1024;
 
     private readonly IDdsSessionService _sessions;
     private readonly ILogger<DdsStateService> _logger;
@@ -22,6 +24,9 @@ public sealed class DdsStateService
     private readonly ConcurrentDictionary<string, ConcurrentQueue<DdsSampleEntry>> _samples = new();
     private readonly ConcurrentDictionary<string, ConcurrentQueue<DdsOutboundEntry>> _outbound = new();
     private readonly ConcurrentDictionary<string, long> _publishSeq = new();
+    private readonly ConcurrentDictionary<string, (DataReader<DynamicData> Reader, DataAvailableEventHandler Handler)> _readerHandlers = new();
+    private readonly Timer _receiveNotificationTimer;
+    private int _receiveNotificationPending;
 
     public event Action? StateChanged;
     public event Action<DdsSubscriptionInfo, DdsSampleEntry>? SampleReceived;
@@ -30,6 +35,12 @@ public sealed class DdsStateService
     {
         _sessions = sessions;
         _logger = logger;
+        _sessions.SessionDeleting += RemoveSession;
+        _receiveNotificationTimer = new Timer(_ =>
+        {
+            Interlocked.Exchange(ref _receiveNotificationPending, 0);
+            StateChanged?.Invoke();
+        });
     }
 
     // ── Subscriptions ─────────────────────────────────────────────
@@ -40,7 +51,7 @@ public sealed class DdsStateService
         var host = _sessions.GetHost(sessionId)
             ?? throw new InvalidOperationException($"DDS 세션 없음: {sessionId}");
 
-        var fullQos = QualifyProfile(qosProfileName);
+        var fullQos = QualifyProfile(sessionId, qosProfileName);
         var reader = host.GetOrCreateReader(topicName, typeName, fullQos);
 
         var info = new DdsSubscriptionInfo
@@ -55,7 +66,9 @@ public sealed class DdsStateService
         _samples[info.SubscriptionId] = new ConcurrentQueue<DdsSampleEntry>();
 
         // DataAvailable 이벤트 구독 — 같은 reader에 여러 subscription이 붙으면 모두에게 broadcast
-        reader.DataAvailable += anyReader => HandleDataAvailable(anyReader, info);
+        DataAvailableEventHandler handler = anyReader => HandleDataAvailable(anyReader, info);
+        reader.DataAvailable += handler;
+        _readerHandlers[info.SubscriptionId] = (reader, handler);
 
         _logger.LogInformation("DDS 구독 시작: {Topic} ({Sub})", topicName, info.SubscriptionId);
         StateChanged?.Invoke();
@@ -68,6 +81,8 @@ public sealed class DdsStateService
         {
             info.IsActive = false;
             _samples.TryRemove(subscriptionId, out _);
+            if (_readerHandlers.TryRemove(subscriptionId, out var registration))
+                registration.Reader.DataAvailable -= registration.Handler;
 
             // 같은 topic을 다른 sub가 더 보고 있지 않으면 reader 제거
             var stillUsed = _subscriptions.Values.Any(s =>
@@ -99,10 +114,12 @@ public sealed class DdsStateService
         string sessionId, string topicName, string typeName,
         string qosProfileName, string jsonPayload)
     {
+        if (jsonPayload.Length > MaxPublishPayloadChars)
+            return new DdsPublishResult(false, "DDS 메시지 payload는 1MB를 초과할 수 없습니다.");
         var host = _sessions.GetHost(sessionId)
             ?? throw new InvalidOperationException($"DDS 세션 없음: {sessionId}");
 
-        var fullQos = QualifyProfile(qosProfileName);
+        var fullQos = QualifyProfile(sessionId, qosProfileName);
         var writer = host.GetOrCreateWriter(topicName, typeName, fullQos);
 
         using var sample = host.CreateSample(typeName);
@@ -119,7 +136,7 @@ public sealed class DdsStateService
                 Timestamp = DateTime.UtcNow,
                 TopicName = topicName,
                 TypeName = typeName,
-                JsonPayload = jsonPayload,
+                JsonPayload = RetainPayload(jsonPayload),
                 Success = false,
                 Error = ex.Message,
             });
@@ -132,7 +149,7 @@ public sealed class DdsStateService
             Timestamp = DateTime.UtcNow,
             TopicName = topicName,
             TypeName = typeName,
-            JsonPayload = jsonPayload,
+            JsonPayload = RetainPayload(jsonPayload),
             Success = true,
         });
         StateChanged?.Invoke();
@@ -158,7 +175,7 @@ public sealed class DdsStateService
             Timestamp = DateTime.UtcNow,
             TopicName = topicName,
             TypeName = typeName,
-            JsonPayload = jsonPayload,
+            JsonPayload = RetainPayload(jsonPayload),
             Success = success,
             Error = error,
         });
@@ -184,7 +201,7 @@ public sealed class DdsStateService
                     TopicName = info.TopicName,
                     TypeName = info.TypeName,
                     ReceivedAt = DateTime.UtcNow,
-                    JsonData = json,
+                    JsonData = RetainPayload(json),
                     SourceTimestampNs = s.Info.SourceTimestamp.Seconds * 1_000_000_000L
                                         + s.Info.SourceTimestamp.Nanoseconds,
                 };
@@ -192,7 +209,7 @@ public sealed class DdsStateService
                 EnqueueBounded(_samples[info.SubscriptionId], entry, MaxSamplesPerSubscription);
                 SampleReceived?.Invoke(info, entry);
             }
-            StateChanged?.Invoke();
+            RequestReceiveStateChanged();
         }
         catch (Exception ex)
         {
@@ -214,10 +231,43 @@ public sealed class DdsStateService
         while (q.Count > max) q.TryDequeue(out _);
     }
 
-    private static string QualifyProfile(string profileName)
+    private string QualifyProfile(string sessionId, string profileName)
     {
         if (string.IsNullOrWhiteSpace(profileName)) return string.Empty;
-        return profileName.Contains("::") ? profileName : $"AmbassadorProfiles::{profileName}";
+        if (profileName.Contains("::")) return profileName;
+        var library = _sessions.Get(sessionId)?.QosLibraryName;
+        if (string.IsNullOrWhiteSpace(library))
+            throw new InvalidOperationException("QoS 라이브러리 이름이 없습니다.");
+        return $"{library}::{profileName}";
+    }
+
+    private static string RetainPayload(string value)
+        => value.Length <= MaxRetainedPayloadChars
+            ? value
+            : value[..MaxRetainedPayloadChars] + "\n/* retained payload truncated */";
+
+    private void RequestReceiveStateChanged()
+    {
+        if (Interlocked.CompareExchange(ref _receiveNotificationPending, 1, 0) == 0)
+            _receiveNotificationTimer.Change(100, Timeout.Infinite);
+    }
+
+    private void RemoveSession(string sessionId)
+    {
+        foreach (var subscriptionId in _subscriptions.Values
+                     .Where(item => item.SessionId == sessionId)
+                     .Select(item => item.SubscriptionId).ToList())
+            StopSubscription(subscriptionId);
+        _outbound.TryRemove(sessionId, out _);
+        _publishSeq.TryRemove(sessionId, out _);
+    }
+
+    public void Dispose()
+    {
+        _sessions.SessionDeleting -= RemoveSession;
+        foreach (var subscriptionId in _subscriptions.Keys.ToList())
+            StopSubscription(subscriptionId);
+        _receiveNotificationTimer.Dispose();
     }
 }
 

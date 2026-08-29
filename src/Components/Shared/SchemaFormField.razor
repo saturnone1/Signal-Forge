@@ -38,6 +38,23 @@ else if (Field.Type == "object" && Field.Children.Count > 0)
         }
     </div>
 }
+else if (Field.Type == "union" && Field.Children.Count > 0)
+{
+    <div class="wb-subpanel pa-2 mb-2">
+        <MudSelect T="string" Label="@($"{Field.Name} 활성 case")" Value="Field.Value"
+                   ValueChanged="@((string value) => { Field.Value = value; OnChanged.InvokeAsync(); })"
+                   Variant="Variant.Outlined" Margin="Margin.Dense">
+            @foreach (var child in Field.Children)
+            {
+                <MudSelectItem T="string" Value="@child.Name">@child.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (Field.Children.FirstOrDefault(child => child.Name == Field.Value) is { } selected)
+        {
+            <SchemaFormField Field="selected" OnChanged="OnChanged" />
+        }
+    </div>
+}
 else if (Field.Type == "array" && Field.ItemTemplate != null)
 {
     <div class="mb-1">

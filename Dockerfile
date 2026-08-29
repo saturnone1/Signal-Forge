@@ -17,5 +17,6 @@ COPY --from=build /app/publish ./
 
 ENV ASPNETCORE_URLS=http://+:5226
 EXPOSE 5226
+VOLUME ["/app/data"]
 
 ENTRYPOINT ["dotnet", "ASAP.dll"]

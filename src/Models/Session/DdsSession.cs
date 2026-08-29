@@ -7,6 +7,11 @@ public class DdsSession
     public string SessionId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
 
+    // 세션 생성 시점의 프로필 식별 정보. XML 본문은 아래 byte[]에 독립 스냅샷으로 보관한다.
+    public string ProfileId { get; set; } = string.Empty;
+    public string ProfileName { get; set; } = string.Empty;
+    public DateTimeOffset ProfileUpdatedAtUtc { get; set; }
+
     public DdsTransportSettings Transport { get; set; } = new();
 
     // 사용자가 업로드한 원본 XML — 재로드/내보내기용
@@ -23,6 +28,7 @@ public class DdsSession
 
     // QoS 프로파일 이름 (config에서 추출)
     public List<string> QosProfiles { get; set; } = [];
+    public string QosLibraryName { get; set; } = string.Empty;
 
     // DDS 시나리오 (세션 범위 유지)
     public List<DdsScenarioStep> ScenarioSteps { get; set; } = [];

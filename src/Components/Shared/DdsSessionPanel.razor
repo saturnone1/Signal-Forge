@@ -27,6 +27,12 @@ else
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count 토픽</MudChip>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count 타입</MudChip>
+            @if (!string.IsNullOrWhiteSpace(Session.ProfileName))
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">
+                    프로필 스냅샷: @Session.ProfileName · @Session.ProfileUpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                </MudChip>
+            }
             @if (Session.QosProfiles.Count > 0)
             {
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">QoS: @string.Join(",", Session.QosProfiles)</MudChip>
@@ -843,6 +849,24 @@ else
                     Children = nestedType.Members.Select(BuildSchemaField).ToList(),
                 };
             }
+
+            if (nestedType.Kind == DdsTypeKind.Alias && !string.IsNullOrWhiteSpace(nestedType.AliasTargetName))
+            {
+                var aliasField = BuildSchemaField(new DdsTypeMember
+                {
+                    Name = member.Name, TypeName = nestedType.AliasTargetName,
+                    IsSequence = nestedType.AliasIsSequence, IsArray = nestedType.AliasArrayDimensions is { Length: > 0 },
+                    SequenceMaxLength = nestedType.AliasSequenceMaxLength, ArrayDimensions = nestedType.AliasArrayDimensions,
+                    StringMaxLength = nestedType.AliasStringMaxLength,
+                });
+                return aliasField;
+            }
+
+            if (nestedType.Kind == DdsTypeKind.Union)
+            {
+                var cases = nestedType.UnionCases.Select(item => BuildSchemaField(item.Member)).ToList();
+                return new SchemaField { Name = member.Name, Type = "union", Children = cases, Value = cases.FirstOrDefault()?.Name ?? string.Empty };
+            }
         }
 
         return new SchemaField
@@ -878,6 +902,13 @@ else
                     EnumValues = nestedType.EnumValues.Keys.ToArray(),
                     Value = nestedType.EnumValues.Keys.FirstOrDefault() ?? string.Empty,
                 };
+            }
+            if (nestedType.Kind == DdsTypeKind.Alias && !string.IsNullOrWhiteSpace(nestedType.AliasTargetName))
+                return BuildSchemaField(new DdsTypeMember { Name = "0", TypeName = nestedType.AliasTargetName });
+            if (nestedType.Kind == DdsTypeKind.Union)
+            {
+                var cases = nestedType.UnionCases.Select(item => BuildSchemaField(item.Member)).ToList();
+                return new SchemaField { Name = "0", Type = "union", Children = cases, Value = cases.FirstOrDefault()?.Name ?? string.Empty };
             }
         }
 
@@ -946,6 +977,9 @@ else
             System.Globalization.CultureInfo.InvariantCulture, out var doubleValue) ? doubleValue : 0.0,
         "object" when field.Children.Count > 0 => BuildJsonObject(field.Children),
         "object" => TryParseRaw(field.Value),
+        "union" => field.Children.FirstOrDefault(child => child.Name == field.Value) is { } active
+            ? new Dictionary<string, object?> { [active.Name] = BuildFieldValue(active) }
+            : new Dictionary<string, object?>(),
         "array" when field.ItemTemplate != null => field.ArrayItems.Select(BuildFieldValue).ToArray(),
         "array" => TryParseRaw(field.Value),
         _ => (object?)field.Value
@@ -1009,6 +1043,18 @@ else
                     ApplyObjectToFields(field.Children, value);
                 else
                     field.Value = value.GetRawText();
+                break;
+            case "union":
+                if (value.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var child in field.Children)
+                    {
+                        if (!value.TryGetProperty(child.Name, out var unionValue)) continue;
+                        field.Value = child.Name;
+                        ApplyJsonToField(child, unionValue);
+                        break;
+                    }
+                }
                 break;
             case "array":
                 if (field.ItemTemplate != null && value.ValueKind == JsonValueKind.Array)
@@ -1816,7 +1862,8 @@ else
     {
         if (Session == null || info.SessionId != Session.SessionId) return;
         _selectedSubscriptionId ??= info.SubscriptionId;
-        AppendLog("session", "INFO", $"수신: {info.TopicName} #{sample.SequenceNumber}");
+        if (sample.SequenceNumber == 1 || sample.SequenceNumber % 100 == 0)
+            AppendLog("session", "INFO", $"수신: {info.TopicName} #{sample.SequenceNumber} (100건 단위 요약)");
     }
 
     private DdsTopicConfig? FindTopic(string topicName)

@@ -12,7 +12,53 @@ and assembling repeatable trigger and scenario workflows.
 - Schema-driven payload forms and JSON views
 - Periodic, bulk, and receive-driven DDS triggers
 - Repeatable DDS scenarios with import and export
+- Service-persisted DDS XML profiles with create, clone, edit, import, and export workflows
+- Structured topic and QoS editing, including direction, reliability, history, and durability
 - Docker and offline-build support for controlled environments
+
+## DDS XML profiles
+
+The new-session screen seeds a `기본 DDSSim` profile from `samples/dds` on first
+use. Each profile bundles the RTI type XML with its topic/QoS configuration so a
+user can keep multiple message contracts without rebuilding the application.
+Profiles are stored by the Signal Forge service in `data/dds-profiles.json`,
+shared across connected browsers, validated before saving, and can be exported
+or imported as JSON. Set `DdsProfiles__StoragePath` to use another path.
+
+The profile store keeps a `.bak` recovery copy, uses an inter-process lock, and limits profile/XML sizes.
+For a shared deployment, set `AccessControl__Username` and `AccessControl__Password` to require HTTP Basic authentication.
+Run one application replica per profile volume; use a database-backed store before scaling replicas across hosts.
+The profile editor provides topic CRUD and common writer/reader QoS controls.
+Advanced RTI policies remain available in the raw XML editor and are preserved
+when structured changes are applied.
+
+Message types are edited with structured forms instead of requiring full XML
+editing. The editor covers the Connext 7.3 runtime type constructs used by
+DynamicData: nested modules, constants, typedefs, enums, structs, unions,
+primitive and referenced member types, bounded/unbounded strings and sequences,
+multidimensional arrays, inheritance, extensibility, auto IDs, keys, optional
+members, explicit member IDs, defaults, and numeric ranges. Existing annotations,
+includes, directives, and other RTI-specific XML that is not modeled by the form
+is preserved during round trips and remains available in the advanced XML tab.
+
+The editor intentionally does not offer map, bitmask, or bitset as normal
+Connext 7.3 message constructs because that runtime version does not support
+them through the Extensible Types implementation, even though some names remain
+in its XML schema for tooling or compatibility.
+
+For Docker deployments, mount a persistent volume at `/app/data` so profiles
+survive container replacement. Concurrent editors are protected by a revision
+check; refresh the profile list before retrying if another user saved first.
+
+An existing DDS session keeps the XML that was active when the session was
+created as an immutable session snapshot. While a session is active, its source
+profile cannot be edited or deleted; clone the profile to prepare a different
+configuration. Close the active sessions before changing the original profile,
+then create a new session to apply the changed XML and QoS.
+
+Session creation rechecks the selected profile against the service store so a
+stale browser cannot start DDS with a profile that another user has changed or
+deleted in the meantime.
 
 ## Technology
 

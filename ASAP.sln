@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ASAP", "ASAP.csproj", "{8B3E6C7A-5F6D-4F2A-9C3B-123456789ABC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SignalForge.SmokeTests", "tests\SignalForge.SmokeTests\SignalForge.SmokeTests.csproj", "{62DAD0E4-AD36-4EF9-97FC-62C418A93317}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{8B3E6C7A-5F6D-4F2A-9C3B-123456789ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8B3E6C7A-5F6D-4F2A-9C3B-123456789ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8B3E6C7A-5F6D-4F2A-9C3B-123456789ABC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{62DAD0E4-AD36-4EF9-97FC-62C418A93317}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{62DAD0E4-AD36-4EF9-97FC-62C418A93317}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{62DAD0E4-AD36-4EF9-97FC-62C418A93317}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{62DAD0E4-AD36-4EF9-97FC-62C418A93317}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

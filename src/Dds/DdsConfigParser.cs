@@ -14,6 +14,7 @@ public static class DdsConfigParser
     public sealed record ParseResult(
         IReadOnlyList<DdsTopicConfig> Topics,
         IReadOnlyList<string> QosProfileNames,
+        string QosLibraryName,
         string? QosProfilesXml);
 
     public static ParseResult Parse(string xmlContent)
@@ -24,19 +25,24 @@ public static class DdsConfigParser
         // 두 root 형식 모두 처리
         var ddsElement = root.Name.LocalName == "dds"
             ? root
-            : root.Element("dds");
+            : Child(root, "dds");
 
-        var topicsElement = root.Element("topics");
+        var topicsElement = Child(root, "topics");
 
         var qosProfileNames = new List<string>();
+        var qosLibraryName = string.Empty;
         string? qosProfilesXml = null;
 
         if (ddsElement is not null)
         {
-            var qosLibrary = ddsElement.Element("qos_library");
+            var libraries = Children(ddsElement, "qos_library").ToList();
+            if (libraries.Count > 1)
+                throw new InvalidOperationException("Signal Forge 프로필에서는 QoS 라이브러리를 하나만 사용할 수 있습니다.");
+            var qosLibrary = libraries.SingleOrDefault();
             if (qosLibrary is not null)
             {
-                foreach (var profile in qosLibrary.Elements("qos_profile"))
+                qosLibraryName = qosLibrary.Attribute("name")?.Value?.Trim() ?? string.Empty;
+                foreach (var profile in Children(qosLibrary, "qos_profile"))
                 {
                     var name = profile.Attribute("name")?.Value;
                     if (!string.IsNullOrWhiteSpace(name))
@@ -53,12 +59,12 @@ public static class DdsConfigParser
         var topics = new List<DdsTopicConfig>();
         if (topicsElement is not null)
         {
-            foreach (var t in topicsElement.Elements("topic"))
+            foreach (var t in Children(topicsElement, "topic"))
             {
-                var topicName = t.Element("topic_name")?.Value?.Trim();
-                var typeName = t.Element("type_name")?.Value?.Trim();
-                var directionRaw = t.Element("direction")?.Value?.Trim();
-                var qos = t.Element("qos_profile")?.Value?.Trim();
+                var topicName = Child(t, "topic_name")?.Value?.Trim();
+                var typeName = Child(t, "type_name")?.Value?.Trim();
+                var directionRaw = Child(t, "direction")?.Value?.Trim();
+                var qos = Child(t, "qos_profile")?.Value?.Trim();
 
                 if (string.IsNullOrEmpty(topicName) ||
                     string.IsNullOrEmpty(typeName) ||
@@ -67,7 +73,7 @@ public static class DdsConfigParser
                     continue;
 
                 if (!Enum.TryParse<DdsTopicDirection>(directionRaw, ignoreCase: true, out var direction))
-                    direction = DdsTopicDirection.Both;
+                    throw new InvalidOperationException($"토픽 '{topicName}'의 direction 값이 올바르지 않습니다: {directionRaw}");
 
                 topics.Add(new DdsTopicConfig
                 {
@@ -79,6 +85,12 @@ public static class DdsConfigParser
             }
         }
 
-        return new ParseResult(topics, qosProfileNames, qosProfilesXml);
+        return new ParseResult(topics, qosProfileNames, qosLibraryName, qosProfilesXml);
     }
+
+    private static XElement? Child(XElement parent, string localName)
+        => parent.Elements().FirstOrDefault(element => element.Name.LocalName == localName);
+
+    private static IEnumerable<XElement> Children(XElement parent, string localName)
+        => parent.Elements().Where(element => element.Name.LocalName == localName);
 }

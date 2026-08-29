@@ -11,6 +11,7 @@ public sealed class DdsTriggerService : IAsyncDisposable
 {
     private readonly DdsStateService _dds;
     private readonly ILogger<DdsTriggerService> _logger;
+    private readonly IDdsSessionService _sessions;
 
     private readonly ConcurrentDictionary<string, DdsTrigger> _triggers = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _periodicCts = new();
@@ -19,11 +20,13 @@ public sealed class DdsTriggerService : IAsyncDisposable
 
     public event Action? Changed;
 
-    public DdsTriggerService(DdsStateService dds, ILogger<DdsTriggerService> logger)
+    public DdsTriggerService(DdsStateService dds, IDdsSessionService sessions, ILogger<DdsTriggerService> logger)
     {
         _dds = dds;
         _logger = logger;
+        _sessions = sessions;
         _dds.SampleReceived += OnSampleReceived;
+        _sessions.SessionDeleting += RemoveSession;
     }
 
     public IReadOnlyList<DdsTrigger> Snapshot(string? sessionId = null) =>
@@ -64,6 +67,8 @@ public sealed class DdsTriggerService : IAsyncDisposable
     {
         StopPeriodic(triggerId);
         _triggers.TryRemove(triggerId, out _);
+        _lastOnIncomingFireAt.TryRemove(triggerId, out _);
+        _onIncomingFireWindow.TryRemove(triggerId, out _);
         Changed?.Invoke();
     }
 
@@ -78,6 +83,8 @@ public sealed class DdsTriggerService : IAsyncDisposable
         {
             StopPeriodic(triggerId);
             _triggers.TryRemove(triggerId, out _);
+            _lastOnIncomingFireAt.TryRemove(triggerId, out _);
+            _onIncomingFireWindow.TryRemove(triggerId, out _);
             _lastOnIncomingFireAt.TryRemove(triggerId, out _);
             _onIncomingFireWindow.TryRemove(triggerId, out _);
         }
@@ -224,10 +231,17 @@ public sealed class DdsTriggerService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _dds.SampleReceived -= OnSampleReceived;
+        _sessions.SessionDeleting -= RemoveSession;
         foreach (var id in _periodicCts.Keys.ToList())
             StopPeriodic(id);
         _lastOnIncomingFireAt.Clear();
         _onIncomingFireWindow.Clear();
         await Task.CompletedTask;
+    }
+
+    private void RemoveSession(string sessionId)
+    {
+        foreach (var triggerId in _triggers.Values.Where(item => item.SessionId == sessionId).Select(item => item.Id).ToList())
+            Remove(triggerId);
     }
 }

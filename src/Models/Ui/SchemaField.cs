@@ -3,7 +3,7 @@ namespace ASAP.Models.Ui;
 public class SchemaField
 {
     public string Name { get; set; } = "";
-    /// <summary>string | integer | number | boolean | enum | object | array</summary>
+    /// <summary>string | integer | number | boolean | enum | object | array | union</summary>
     public string Type { get; set; } = "string";
     public string[] EnumValues { get; set; } = [];
     /// <summary>스칼라/fallback 값 (JSON 텍스트)</summary>
@@ -26,6 +26,7 @@ public class SchemaField
             "enum"   => EnumValues.FirstOrDefault() ?? "",
             "object" => "{}",
             "array"  => "[]",
+            "union" => Value,
             "integer" or "number" => "0",
             _ => ""
         },

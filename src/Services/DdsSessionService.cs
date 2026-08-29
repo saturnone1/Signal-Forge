@@ -10,13 +10,18 @@ public interface IDdsSessionService
     DdsSession Create(DdsSessionCreateRequest request);
     DdsSession? Get(string sessionId);
     DdsParticipantHost? GetHost(string sessionId);
+    IReadOnlyList<DdsSession> GetByProfileId(string profileId);
     Task DeleteAsync(string sessionId);
     IReadOnlyList<DdsSession> GetAll();
+    event Action<string>? SessionDeleting;
 }
 
 public sealed class DdsSessionCreateRequest
 {
     public required string Name { get; init; }
+    public required string ProfileId { get; init; }
+    public required string ProfileName { get; init; }
+    public required DateTimeOffset ProfileUpdatedAtUtc { get; init; }
     public required DdsTransportSettings Transport { get; init; }
     public required string TypesXmlContent { get; init; }
     public string? TypesXmlFileName { get; init; }
@@ -26,6 +31,7 @@ public sealed class DdsSessionCreateRequest
 
 public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
 {
+    public event Action<string>? SessionDeleting;
     private readonly DdsParticipantHostFactory _hostFactory;
     private readonly ILogger<DdsSessionService> _logger;
 
@@ -46,11 +52,26 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
         var types = DdsTypeParser.Parse(request.TypesXmlContent);
 
         var host = _hostFactory.Create(request.Transport, request.TypesXmlContent, configParse.QosProfilesXml);
+        try
+        {
+            if (string.IsNullOrWhiteSpace(configParse.QosLibraryName))
+                throw new InvalidOperationException("QoS 라이브러리 이름이 없습니다.");
+            foreach (var profileName in configParse.QosProfileNames.Distinct(StringComparer.OrdinalIgnoreCase))
+                host.ValidateQosProfile($"{configParse.QosLibraryName}::{profileName}");
+        }
+        catch
+        {
+            host.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            throw;
+        }
 
         var session = new DdsSession
         {
             SessionId = System.Guid.NewGuid().ToString(),
             Name = request.Name,
+            ProfileId = request.ProfileId,
+            ProfileName = request.ProfileName,
+            ProfileUpdatedAtUtc = request.ProfileUpdatedAtUtc,
             Transport = request.Transport,
             TypesXmlContent = System.Text.Encoding.UTF8.GetBytes(request.TypesXmlContent),
             TypesXmlFileName = request.TypesXmlFileName,
@@ -59,6 +80,7 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
             Topics = configParse.Topics.ToList(),
             Types = types,
             QosProfiles = configParse.QosProfileNames.ToList(),
+            QosLibraryName = configParse.QosLibraryName,
         };
 
         _sessions[session.SessionId] = session;
@@ -84,8 +106,15 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
     public DdsParticipantHost? GetHost(string sessionId)
         => _hosts.TryGetValue(sessionId, out var h) ? h : null;
 
+    public IReadOnlyList<DdsSession> GetByProfileId(string profileId)
+        => _sessions.Values
+            .Where(session => string.Equals(session.ProfileId, profileId, StringComparison.Ordinal))
+            .OrderBy(session => session.CreatedAt)
+            .ToList();
+
     public async Task DeleteAsync(string sessionId)
     {
+        SessionDeleting?.Invoke(sessionId);
         if (_hosts.TryRemove(sessionId, out var host))
         {
             try { await host.DisposeAsync(); }

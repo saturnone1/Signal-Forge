@@ -1,0 +1,363 @@
+@using ASAP.Services
+@inject IDialogService DialogService
+
+<div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
+    <span class="wb-inline-note">
+        RTI Connext 7.3 IDL/XML 구조 편집 · @State.Declarations.Count 개 선언 · @State.ModulePaths.Count(path => path.Length > 0) 개 모듈
+    </span>
+    @if (State.PreservedUnsupportedElementCount > 0)
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">
+            고급 XML 요소 @State.PreservedUnsupportedElementCount 개 보존
+        </MudChip>
+    }
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.CreateNewFolder"
+               OnClick="AddModule">모듈 추가</MudButton>
+    <MudMenu Label="타입 선언 추가" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+             StartIcon="@Icons.Material.Filled.Add">
+        <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.StructKind))">Struct</MudMenuItem>
+        <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.EnumKind))">Enum</MudMenuItem>
+        <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.UnionKind))">Union</MudMenuItem>
+        <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.TypedefKind))">Typedef</MudMenuItem>
+        <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.ConstKind))">Const</MudMenuItem>
+    </MudMenu>
+</div>
+
+@if (_addingModule)
+{
+    <div class="wb-subpanel pa-2 mb-2 d-flex align-center flex-wrap" style="gap:8px;">
+        <MudTextField @bind-Value="_newModulePath" Label="새 모듈 경로" Placeholder="예: Company::Messages"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 260px;" Immediate="true" />
+        <MudButton Variant="Variant.Filled" Size="Size.Small" OnClick="ConfirmModule">추가</MudButton>
+        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CancelModule">취소</MudButton>
+    </div>
+}
+
+@if (State.Declarations.Count == 0)
+{
+    <div class="wb-inline-note">타입 선언 추가 메뉴에서 struct, enum, union, typedef 또는 const를 추가하세요.</div>
+}
+else
+{
+    <MudSelect T="string" Value="_selectedId" ValueChanged="SelectDeclaration"
+               Label="편집할 타입 선언" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+        @foreach (var item in State.Declarations.OrderBy(DdsTypeProfileEditor.QualifiedName))
+        {
+            <MudSelectItem T="string" Value="@item.Id">@DeclarationLabel(item)</MudSelectItem>
+        }
+    </MudSelect>
+
+    @if (Selected is { } declaration)
+    {
+        <div class="wb-panel pa-3">
+            <div class="d-flex align-center flex-wrap" style="gap:8px;">
+                <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">
+                    @declaration.Kind.ToUpperInvariant()
+                </MudChip>
+                <MudSelect T="string" Value="declaration.ModulePath" ValueChanged="UpdateModule"
+                           Label="모듈" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 220px;">
+                    @foreach (var path in State.ModulePaths)
+                    {
+                        <MudSelectItem T="string" Value="@path">@(path.Length == 0 ? "(최상위)" : path)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField T="string" Value="declaration.Name" ValueChanged="UpdateName"
+                              Label="선언 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Style="flex:1 1 220px;" Immediate="true" />
+                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
+                               title="타입 선언 삭제" OnClick="DeleteDeclaration" />
+            </div>
+
+            @if (declaration.Kind is DdsTypeProfileEditor.StructKind or DdsTypeProfileEditor.UnionKind)
+            {
+                <div class="d-flex align-center flex-wrap mt-2" style="gap:8px;">
+                    <MudSelect T="string" Value="declaration.Extensibility" ValueChanged="UpdateExtensibility"
+                               Label="Extensibility" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:170px;">
+                        <MudSelectItem T="string" Value="@string.Empty">(기본값)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("final")">Final</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("appendable")">Appendable</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("mutable")">Mutable</MudSelectItem>
+                    </MudSelect>
+                    <MudSelect T="string" Value="declaration.AutoId" ValueChanged="UpdateAutoId"
+                               Label="Auto ID" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:170px;">
+                        <MudSelectItem T="string" Value="@string.Empty">(기본값)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("hash")">Hash</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("sequential")">Sequential</MudSelectItem>
+                    </MudSelect>
+                    @if (declaration.Kind == DdsTypeProfileEditor.StructKind)
+                    {
+                        <MudTextField T="string" Value="declaration.BaseType" ValueChanged="UpdateBaseType"
+                                      Label="상속 Base type" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Style="flex:1 1 220px;" Immediate="true" />
+                        <MudCheckBox T="bool" Value="declaration.Nested" ValueChanged="UpdateNested"
+                                     Label="Nested type" Color="Color.Primary" />
+                    }
+                </div>
+            }
+
+            @if (declaration.Kind == DdsTypeProfileEditor.StructKind)
+            {
+                <div class="d-flex align-center mt-3 mb-2" style="gap:8px;">
+                    <div class="wb-panel-heading">Members</div>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AddMember">멤버 추가</MudButton>
+                </div>
+                @foreach (var member in declaration.Members)
+                {
+                    <DdsTypeMemberEditorView @key="member.Id" Member="member" KnownTypes="KnownTypes"
+                                             OnChanged="Changed" OnDelete="@(() => DeleteMember(member))" />
+                }
+            }
+            else if (declaration.Kind == DdsTypeProfileEditor.EnumKind)
+            {
+                <div class="d-flex align-center mt-3 mb-2" style="gap:8px;">
+                    <div class="wb-panel-heading">Enumerators</div>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AddEnumValue">값 추가</MudButton>
+                </div>
+                @foreach (var value in declaration.EnumValues)
+                {
+                    <div @key="value.Id" class="wb-subpanel pa-2 mb-2 d-flex align-center flex-wrap" style="gap:8px;">
+                        <MudTextField T="string" Value="value.Name" ValueChanged="@((string text) => UpdateEnumName(value, text))"
+                                      Label="이름" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Style="flex:1 1 180px;" Immediate="true" />
+                        <MudTextField T="string" Value="value.Value" ValueChanged="@((string text) => UpdateEnumValue(value, text))"
+                                      Label="값 (비우면 자동)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Style="flex:1 1 160px;" Immediate="true" />
+                        <MudCheckBox T="bool" Value="value.DefaultLiteral"
+                                     ValueChanged="@((bool selected) => SetDefaultEnumValue(value, selected))"
+                                     Label="기본 값" Color="Color.Primary" />
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" Size="Size.Small"
+                                       OnClick="@(() => DeleteEnumValue(value))" />
+                    </div>
+                }
+            }
+            else if (declaration.Kind == DdsTypeProfileEditor.UnionKind)
+            {
+                <MudSelect T="string" Value="declaration.DiscriminatorTypeName" ValueChanged="UpdateDiscriminator"
+                           Label="Discriminator 타입" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3">
+                    @foreach (var typeName in TypeOptions(declaration.DiscriminatorTypeName))
+                    {
+                        <MudSelectItem T="string" Value="@typeName">@typeName</MudSelectItem>
+                    }
+                </MudSelect>
+                <div class="d-flex align-center mt-3 mb-2" style="gap:8px;">
+                    <div class="wb-panel-heading">Cases</div>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AddUnionCase">Case 추가</MudButton>
+                </div>
+                @foreach (var unionCase in declaration.UnionCases)
+                {
+                    <div @key="unionCase.Id" class="wb-panel pa-2 mb-2">
+                        <div class="d-flex align-center mb-2" style="gap:8px;">
+                            <MudTextField T="string" Value="unionCase.Labels"
+                                          ValueChanged="@((string text) => UpdateUnionLabels(unionCase, text))"
+                                          Label="Case 값" Placeholder="예: 0, 1 또는 default"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 240px;" Immediate="true" />
+                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
+                                           OnClick="@(() => DeleteUnionCase(unionCase))" />
+                        </div>
+                        <DdsTypeMemberEditorView Member="unionCase.Member" KnownTypes="KnownTypes" AllowKeyOptional="false"
+                                                 OnChanged="Changed" OnDelete="@(() => DeleteUnionCase(unionCase))" />
+                    </div>
+                }
+            }
+            else if (declaration.Kind == DdsTypeProfileEditor.TypedefKind)
+            {
+                <div class="d-flex align-center flex-wrap mt-3" style="gap:8px;">
+                    <MudSelect T="string" Value="declaration.TypeName" ValueChanged="UpdateDeclarationType"
+                               Label="대상 타입" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 220px;">
+                        @foreach (var typeName in TypeOptions(declaration.TypeName))
+                        {
+                            <MudSelectItem T="string" Value="@typeName">@typeName</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField T="string" Value="declaration.StringMaxLength" ValueChanged="UpdateDeclarationStringBound"
+                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:160px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.SequenceMaxLength" ValueChanged="UpdateDeclarationSequenceBound"
+                                  Label="sequence bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:170px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.ArrayDimensions" ValueChanged="UpdateDeclarationArray"
+                                  Label="배열 차원" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:150px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.DefaultValue" ValueChanged="UpdateDeclarationDefault"
+                                  Label="기본값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:140px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.MinValue" ValueChanged="UpdateDeclarationMin"
+                                  Label="최솟값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:130px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.MaxValue" ValueChanged="UpdateDeclarationMax"
+                                  Label="최댓값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:130px;" Immediate="true" />
+                </div>
+            }
+            else if (declaration.Kind == DdsTypeProfileEditor.ConstKind)
+            {
+                <div class="d-flex align-center flex-wrap mt-3" style="gap:8px;">
+                    <MudSelect T="string" Value="declaration.TypeName" ValueChanged="UpdateDeclarationType"
+                               Label="상수 타입" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 220px;">
+                        @foreach (var typeName in TypeOptions(declaration.TypeName))
+                        {
+                            <MudSelectItem T="string" Value="@typeName">@typeName</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField T="string" Value="declaration.StringMaxLength" ValueChanged="UpdateDeclarationStringBound"
+                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:160px;" Immediate="true" />
+                    <MudTextField T="string" Value="declaration.Value" ValueChanged="UpdateConstValue"
+                                  Label="상수 값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:2 1 260px;" Immediate="true" />
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public DdsTypeEditorState State { get; set; } = null!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback<DdsTypeRename> OnTypeRenamed { get; set; }
+
+    private string? _selectedId;
+    private bool _addingModule;
+    private string _newModulePath = string.Empty;
+
+    private DdsTypeDeclarationEditor? Selected
+        => State.Declarations.FirstOrDefault(item => item.Id == _selectedId);
+
+    private IReadOnlyList<string> KnownTypes => State.Declarations
+        .Where(item => item.Kind != DdsTypeProfileEditor.ConstKind)
+        .Select(DdsTypeProfileEditor.QualifiedName)
+        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (_selectedId == null || State.Declarations.All(item => item.Id != _selectedId))
+            _selectedId = State.Declarations.FirstOrDefault()?.Id;
+    }
+
+    private string DeclarationLabel(DdsTypeDeclarationEditor item)
+        => $"{DdsTypeProfileEditor.QualifiedName(item)} · {item.Kind}";
+
+    private IEnumerable<string> TypeOptions(string current) => DdsTypeProfileEditor.PrimitiveTypes
+        .Concat(KnownTypes)
+        .Append(current)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private void SelectDeclaration(string id) => _selectedId = id;
+    private void AddModule() { _addingModule = true; _newModulePath = string.Empty; }
+    private void CancelModule() { _addingModule = false; _newModulePath = string.Empty; }
+    private async Task ConfirmModule()
+    {
+        var path = _newModulePath.Trim();
+        if (path.Length > 0 && !State.ModulePaths.Contains(path, StringComparer.Ordinal))
+            State.ModulePaths.Add(path);
+        CancelModule();
+        await Changed();
+    }
+
+    private async Task AddDeclaration(string kind)
+    {
+        var index = State.Declarations.Count + 1;
+        var item = new DdsTypeDeclarationEditor
+        {
+            Kind = kind,
+            ModulePath = State.ModulePaths.FirstOrDefault(path => path.Length > 0) ?? string.Empty,
+            Name = kind switch
+            {
+                DdsTypeProfileEditor.StructKind => $"Struct{index}",
+                DdsTypeProfileEditor.EnumKind => $"Enum{index}",
+                DdsTypeProfileEditor.UnionKind => $"Union{index}",
+                DdsTypeProfileEditor.TypedefKind => $"Alias{index}",
+                _ => $"Constant{index}",
+            },
+        };
+        if (kind == DdsTypeProfileEditor.StructKind)
+            item.Members.Add(new DdsTypeMemberEditor());
+        else if (kind == DdsTypeProfileEditor.EnumKind)
+            item.EnumValues.Add(new DdsEnumValueEditor());
+        else if (kind == DdsTypeProfileEditor.UnionKind)
+            item.UnionCases.Add(new DdsUnionCaseEditor());
+        State.Declarations.Add(item);
+        _selectedId = item.Id;
+        await Changed();
+    }
+
+    private async Task DeleteDeclaration()
+    {
+        if (Selected == null) return;
+        var name = DdsTypeProfileEditor.QualifiedName(Selected);
+        var referenceCount = State.Declarations.Where(item => item != Selected).Count(item =>
+            item.BaseType == name || item.DiscriminatorTypeName == name || item.TypeName == name ||
+            item.Members.Concat(item.UnionCases.Select(unionCase => unionCase.Member)).Any(member => member.TypeName == name));
+        if (referenceCount > 0)
+        {
+            await DialogService.ShowMessageBox("삭제할 수 없음", $"'{name}' 타입을 참조하는 선언이 {referenceCount}개 있습니다. 참조를 먼저 변경하세요.", yesText: "확인");
+            return;
+        }
+        var confirmed = await DialogService.ShowMessageBox("타입 삭제", $"'{name}' 타입을 삭제할까요? 참조 중인 타입이면 저장이 차단됩니다.", yesText: "삭제", cancelText: "취소");
+        if (confirmed != true) return;
+        State.Declarations.Remove(Selected);
+        _selectedId = State.Declarations.FirstOrDefault()?.Id;
+        await Changed();
+    }
+
+    private Task Changed() => OnChanged.InvokeAsync();
+    private async Task UpdateModule(string value) { if (Selected != null) { var old = DdsTypeProfileEditor.QualifiedName(Selected); Selected.ModulePath = value; await CascadeRename(old); } await Changed(); }
+    private async Task UpdateName(string value) { if (Selected != null) { var old = DdsTypeProfileEditor.QualifiedName(Selected); Selected.Name = value; await CascadeRename(old); } await Changed(); }
+    private async Task UpdateExtensibility(string value) { if (Selected != null) Selected.Extensibility = value; await Changed(); }
+    private async Task UpdateAutoId(string value) { if (Selected != null) Selected.AutoId = value; await Changed(); }
+    private async Task UpdateBaseType(string value) { if (Selected != null) Selected.BaseType = value; await Changed(); }
+    private async Task UpdateNested(bool value) { if (Selected != null) Selected.Nested = value; await Changed(); }
+
+    private async Task AddMember() { Selected?.Members.Add(new DdsTypeMemberEditor()); await Changed(); }
+    private async Task DeleteMember(DdsTypeMemberEditor member) { if (await ConfirmDelete($"멤버 '{member.Name}'")) { Selected?.Members.Remove(member); await Changed(); } }
+    private async Task AddEnumValue() { Selected?.EnumValues.Add(new DdsEnumValueEditor()); await Changed(); }
+    private async Task DeleteEnumValue(DdsEnumValueEditor value) { if (await ConfirmDelete($"enum 값 '{value.Name}'")) { Selected?.EnumValues.Remove(value); await Changed(); } }
+    private async Task UpdateEnumName(DdsEnumValueEditor value, string text) { value.Name = text; await Changed(); }
+    private async Task UpdateEnumValue(DdsEnumValueEditor value, string text) { value.Value = text; await Changed(); }
+    private async Task SetDefaultEnumValue(DdsEnumValueEditor value, bool selected)
+    {
+        if (Selected != null && selected)
+            foreach (var item in Selected.EnumValues) item.DefaultLiteral = item == value;
+        else value.DefaultLiteral = false;
+        await Changed();
+    }
+
+    private async Task UpdateDiscriminator(string value) { if (Selected != null) Selected.DiscriminatorTypeName = value; await Changed(); }
+    private async Task AddUnionCase() { Selected?.UnionCases.Add(new DdsUnionCaseEditor()); await Changed(); }
+    private async Task DeleteUnionCase(DdsUnionCaseEditor item) { if (await ConfirmDelete($"union case '{item.Labels}'")) { Selected?.UnionCases.Remove(item); await Changed(); } }
+    private async Task UpdateUnionLabels(DdsUnionCaseEditor item, string text) { item.Labels = text; await Changed(); }
+
+    private async Task UpdateDeclarationType(string value) { if (Selected != null) Selected.TypeName = value; await Changed(); }
+    private async Task UpdateDeclarationStringBound(string value) { if (Selected != null) Selected.StringMaxLength = value; await Changed(); }
+    private async Task UpdateDeclarationSequenceBound(string value) { if (Selected != null) Selected.SequenceMaxLength = value; await Changed(); }
+    private async Task UpdateDeclarationArray(string value) { if (Selected != null) Selected.ArrayDimensions = value; await Changed(); }
+    private async Task UpdateDeclarationDefault(string value) { if (Selected != null) Selected.DefaultValue = value; await Changed(); }
+    private async Task UpdateDeclarationMin(string value) { if (Selected != null) Selected.MinValue = value; await Changed(); }
+    private async Task UpdateDeclarationMax(string value) { if (Selected != null) Selected.MaxValue = value; await Changed(); }
+    private async Task UpdateConstValue(string value) { if (Selected != null) Selected.Value = value; await Changed(); }
+
+    private async Task CascadeRename(string oldName)
+    {
+        if (Selected == null) return;
+        var newName = DdsTypeProfileEditor.QualifiedName(Selected);
+        if (string.Equals(oldName, newName, StringComparison.Ordinal)) return;
+        var oldShortName = oldName.Split("::", StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? oldName;
+        var newShortName = newName.Split("::", StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? newName;
+        var oldModule = oldName.Contains("::") ? oldName[..oldName.LastIndexOf("::", StringComparison.Ordinal)] : string.Empty;
+        foreach (var declaration in State.Declarations)
+        {
+            var referencedUnqualified = string.Equals(declaration.ModulePath, oldModule, StringComparison.Ordinal);
+            var replacement = string.Equals(oldModule, Selected.ModulePath, StringComparison.Ordinal) ? newShortName : newName;
+            if (declaration.BaseType == oldName || referencedUnqualified && declaration.BaseType == oldShortName) declaration.BaseType = replacement;
+            if (declaration.DiscriminatorTypeName == oldName || referencedUnqualified && declaration.DiscriminatorTypeName == oldShortName) declaration.DiscriminatorTypeName = replacement;
+            if (declaration.TypeName == oldName || referencedUnqualified && declaration.TypeName == oldShortName) declaration.TypeName = replacement;
+            foreach (var member in declaration.Members.Concat(declaration.UnionCases.Select(item => item.Member)))
+                if (member.TypeName == oldName || referencedUnqualified && member.TypeName == oldShortName) member.TypeName = replacement;
+        }
+        await OnTypeRenamed.InvokeAsync(new DdsTypeRename(oldName, newName));
+    }
+
+    private async Task<bool> ConfirmDelete(string target)
+        => await DialogService.ShowMessageBox("삭제 확인", $"{target}을(를) 삭제할까요?", yesText: "삭제", cancelText: "취소") == true;
+}
