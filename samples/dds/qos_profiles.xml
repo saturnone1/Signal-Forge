@@ -2,7 +2,7 @@
 
   <!-- ReliableRealtime
        writer: RELIABLE KEEP_LAST(1) (fire-and-forget, 메모리 무한 축적 없음)
-       reader: RELIABLE KEEP_ALL  (DDS→gRPC 경로 무손실) -->
+       reader: RELIABLE KEEP_ALL  (DDS 수신 경로 무손실) -->
   <qos_profile name="ReliableRealtime">
     <datawriter_qos>
       <reliability>

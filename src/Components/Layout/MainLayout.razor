@@ -17,7 +17,7 @@
         </MudText>
         <MudText Typo="Typo.caption" Class="ml-3 d-none d-sm-flex"
                  Style="color:var(--mud-palette-text-disabled);">
-            gRPC · DDS 메시지 스튜디오
+            DDS 메시지 스튜디오
         </MudText>
 
         <MudSpacer />
@@ -30,19 +30,6 @@
                     @Ui.WorkspaceDetail
                 </MudText>
             }
-            <div class="d-flex align-center" style="gap:8px;">
-                <span class="wb-dot @(Ui.IsConnected ? "wb-dot--on" : "wb-dot--off")"></span>
-                <MudText Typo="Typo.caption" Style="font-weight:600;">
-                    @(Ui.IsConnected ? "gRPC 연결됨" : "gRPC 미연결")
-                </MudText>
-                @if (Ui.IsConnected && !string.IsNullOrEmpty(Ui.SocketPath))
-                {
-                    <MudText Typo="Typo.caption" Class="wb-mono d-none d-md-flex"
-                             Style="color:var(--mud-palette-text-secondary);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                        @Ui.SocketPath
-                    </MudText>
-                }
-            </div>
         </div>
 
         <MudTooltip Text="@(Ui.IsDarkMode ? "라이트 모드" : "다크 모드")">

@@ -5,7 +5,7 @@ namespace ASAP.Services;
 
 /// <summary>
 /// DDS 전용 트리거 — 주기 발행, 다발 발행, 토픽 수신 시 자동 발행.
-/// gRPC TriggerExecutor와 완전히 독립.
+/// DDS 세션의 주기/다발/수신 반응 발행을 관리한다.
 /// </summary>
 public sealed class DdsTriggerService : IAsyncDisposable
 {
