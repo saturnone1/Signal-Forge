@@ -235,6 +235,9 @@ public static partial class DdsTypeProfileEditor
             ? declaration.Name.Trim()
             : $"{declaration.ModulePath.Trim()}::{declaration.Name.Trim()}";
 
+    public static bool IsValidIdentifier(string? value)
+        => !string.IsNullOrWhiteSpace(value) && IdentifierRegex().IsMatch(value.Trim());
+
     private static void ParseContainer(XElement container, string modulePath, DdsTypeEditorState state)
     {
         foreach (var child in container.Elements())

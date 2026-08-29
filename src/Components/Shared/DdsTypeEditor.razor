@@ -13,7 +13,7 @@
     }
     <MudSpacer />
     <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.CreateNewFolder"
-               OnClick="AddModule">모듈 추가</MudButton>
+               OnClick="AddModule">모듈(네임스페이스) 추가</MudButton>
     <MudMenu Label="타입 선언 추가" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
              StartIcon="@Icons.Material.Filled.Add">
         <MudMenuItem OnClick="@(() => AddDeclaration(DdsTypeProfileEditor.StructKind))">Struct</MudMenuItem>
@@ -24,13 +24,36 @@
     </MudMenu>
 </div>
 
+<div class="wb-inline-note mb-2">
+    모듈은 타입을 묶고 이름 충돌을 막는 네임스페이스입니다. 실제 메시지 구조는 타입 선언에서 추가합니다.
+    별도 구분이 필요 없으면 모듈 없이 (최상위)에 타입을 둘 수 있습니다.
+</div>
+
 @if (_addingModule)
 {
-    <div class="wb-subpanel pa-2 mb-2 d-flex align-center flex-wrap" style="gap:8px;">
-        <MudTextField @bind-Value="_newModulePath" Label="새 모듈 경로" Placeholder="예: Company::Messages"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
-        <MudButton Variant="Variant.Filled" Size="Size.Small" OnClick="ConfirmModule">추가</MudButton>
-        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CancelModule">취소</MudButton>
+    <div class="wb-subpanel pa-2 mb-2">
+        <div class="d-flex align-center flex-wrap" style="gap:8px;">
+            <MudSelect T="string" @bind-Value="_newModuleParent"
+                       Label="상위 모듈" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       Style="flex:1 1 220px;">
+                @foreach (var path in State.ModulePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    <MudSelectItem T="string" Value="@path">@(path.Length == 0 ? "(최상위)" : path)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_newModuleName" Label="새 모듈 이름" Placeholder="예: Messages"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
+            <MudButton Variant="Variant.Filled" Size="Size.Small" OnClick="ConfirmModule"
+                       Disabled="@(!CanConfirmModule)">추가</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CancelModule">취소</MudButton>
+        </div>
+        <div class="wb-inline-note mt-1">
+            규칙: 영문자 또는 밑줄로 시작하고, 이후에는 영문자·숫자·밑줄만 사용할 수 있습니다.
+            @if (!string.IsNullOrWhiteSpace(_newModuleName))
+            {
+                <span> 생성 경로: <span class="wb-code">@NewModulePath</span>@(ModulePathExists ? " · 이미 존재함" : string.Empty)</span>
+            }
+        </div>
     </div>
 }
 
@@ -217,7 +240,9 @@ else
 
     private string? _selectedId;
     private bool _addingModule;
-    private string _newModulePath = string.Empty;
+    private string _newModuleParent = string.Empty;
+    private string _newModuleName = string.Empty;
+    private string? _preferredModulePath;
 
     private DdsTypeDeclarationEditor? Selected
         => State.Declarations.FirstOrDefault(item => item.Id == _selectedId);
@@ -244,13 +269,41 @@ else
         .Distinct(StringComparer.OrdinalIgnoreCase);
 
     private void SelectDeclaration(string id) => _selectedId = id;
-    private void AddModule() { _addingModule = true; _newModulePath = string.Empty; }
-    private void CancelModule() { _addingModule = false; _newModulePath = string.Empty; }
+    private string NewModulePath => string.IsNullOrWhiteSpace(_newModuleParent)
+        ? _newModuleName.Trim()
+        : $"{_newModuleParent}::{_newModuleName.Trim()}";
+
+    private bool ModulePathExists => State.ModulePaths.Contains(NewModulePath, StringComparer.OrdinalIgnoreCase);
+
+    private bool CanConfirmModule
+        => DdsTypeProfileEditor.IsValidIdentifier(_newModuleName) && !ModulePathExists;
+
+    private void AddModule()
+    {
+        _addingModule = true;
+        _newModuleName = string.Empty;
+        _newModuleParent = Selected?.ModulePath ?? _preferredModulePath ?? string.Empty;
+        if (!State.ModulePaths.Contains(_newModuleParent, StringComparer.Ordinal))
+            _newModuleParent = string.Empty;
+    }
+
+    private void CancelModule()
+    {
+        _addingModule = false;
+        _newModuleParent = string.Empty;
+        _newModuleName = string.Empty;
+    }
+
     private async Task ConfirmModule()
     {
-        var path = _newModulePath.Trim();
-        if (path.Length > 0 && !State.ModulePaths.Contains(path, StringComparer.Ordinal))
-            State.ModulePaths.Add(path);
+        if (!CanConfirmModule) return;
+        var path = NewModulePath;
+        State.ModulePaths.Add(path);
+        State.ModulePaths = State.ModulePaths
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _preferredModulePath = path;
         CancelModule();
         await Changed();
     }
@@ -261,7 +314,10 @@ else
         var item = new DdsTypeDeclarationEditor
         {
             Kind = kind,
-            ModulePath = State.ModulePaths.FirstOrDefault(path => path.Length > 0) ?? string.Empty,
+            ModulePath = _preferredModulePath
+                         ?? Selected?.ModulePath
+                         ?? State.ModulePaths.FirstOrDefault(path => path.Length > 0)
+                         ?? string.Empty,
             Name = kind switch
             {
                 DdsTypeProfileEditor.StructKind => $"Struct{index}",

@@ -19,6 +19,9 @@ var xml = """
 var types = DdsTypeParser.Parse(xml);
 Check(types["M::Ids"].AliasIsSequence && types["M::Ids"].AliasSequenceMaxLength == 8, "typedef collection metadata");
 Check(types["M::Choice"].UnionCases.Single().Labels.Single() == "0", "union case metadata");
+Check(DdsTypeProfileEditor.IsValidIdentifier("Messages_2"), "IDL module identifier accepted");
+Check(!DdsTypeProfileEditor.IsValidIdentifier("2Messages"), "IDL module identifier start rejected");
+Check(!DdsTypeProfileEditor.IsValidIdentifier("Company::Messages"), "IDL module input is one segment");
 
 var editor = DdsTypeProfileEditor.Parse(xml);
 DdsTypeProfileEditor.ValidateState(editor);
