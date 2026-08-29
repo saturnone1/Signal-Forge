@@ -360,8 +360,16 @@
                       Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudNumericField @bind-Value="_domainId" Label="Domain ID" Min="0" Max="232"
                          Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField @bind-Value="_multicast" Label="멀티캐스트 주소 (선택)" Placeholder="239.255.0.1"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSelect T="DdsDiscoveryMode" @bind-Value="_discoveryMode" Label="검색 방식"
+                   Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="DdsDiscoveryMode.Unicast">유니캐스트 (로컬 피어)</MudSelectItem>
+            <MudSelectItem Value="DdsDiscoveryMode.Multicast">멀티캐스트</MudSelectItem>
+        </MudSelect>
+        @if (_discoveryMode == DdsDiscoveryMode.Multicast)
+        {
+            <MudTextField @bind-Value="_multicast" Label="멀티캐스트 주소 (선택)" Placeholder="RTI 기본 주소 사용"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+        }
     </div>
 
     @if (!string.IsNullOrEmpty(_error))
@@ -407,6 +415,7 @@
 
     private string _name = string.Empty;
     private int _domainId;
+    private DdsDiscoveryMode _discoveryMode = DdsDiscoveryMode.Unicast;
     private string _multicast = string.Empty;
     private bool _creating;
     private string? _error;
@@ -942,6 +951,7 @@
             var transport = new DdsTransportSettings
             {
                 DomainId = _domainId,
+                DiscoveryMode = _discoveryMode,
                 MulticastAddress = string.IsNullOrWhiteSpace(_multicast) ? null : _multicast.Trim(),
             };
             var session = await Task.Run(() => ProfileStore.CreateSessionAsync(

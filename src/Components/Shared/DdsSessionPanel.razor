@@ -42,8 +42,8 @@ else
         <div class="wb-subpanel mb-3 pa-3">
             <div class="d-flex align-center flex-wrap" style="gap:8px;">
                 <div>
-                    <div class="wb-panel-kicker">작업 요약</div>
-                    <div class="wb-panel-heading">핵심 연결 정보와 바로 할 일을 먼저 보여줍니다</div>
+                    <div class="wb-panel-kicker">통신 상태</div>
+                    <div class="wb-panel-heading">DDS 송수신 상태와 지연</div>
                 </div>
                 <MudSpacer />
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">세션 @Session.SessionId[..8]</MudChip>
@@ -56,7 +56,7 @@ else
                 </div>
                 <div class="wb-code wb-summary-card">
                     <span style="color:var(--mud-palette-text-secondary);">네트워크</span><br />
-                    domain @Session.Transport.DomainId · @(string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "multicast 미설정" : Session.Transport.MulticastAddress)
+                    domain @Session.Transport.DomainId · @DiscoveryModeLabel
                 </div>
                 <div class="wb-code wb-summary-card">
                     <span style="color:var(--mud-palette-text-secondary);">버퍼</span><br />
@@ -70,6 +70,14 @@ else
                 </div>
             </div>
 
+            <div class="dds-status-grid mt-3">
+                <div class="dds-status-metric"><span>세션</span><b>연결됨 · Domain @Session.Transport.DomainId</b></div>
+                <div class="dds-status-metric"><span>검색 방식</span><b>@DiscoveryModeLabel</b></div>
+                <div class="dds-status-metric"><span>수신</span><b>@InboundCount 건 · @ActiveSubscriptions.Count 토픽 활성</b></div>
+                <div class="dds-status-metric"><span>송신</span><b>@OutboundCount 건 · 최근 @OutboundFailureCount 실패</b></div>
+            </div>
+            <DdsLatencyChart SendValues="SendLatencyValues" ReceiveValues="ReceiveLatencyValues" />
+
             <div class="wb-inline-note mt-3">
                 이 화면에서는 원본 XML 본문보다 수신 토픽 선택, 수동 발행, 자동 실행 단계 편집이 중심이에요. 원본 파일명과 네트워크 설정만 남기고 미리보기는 뺐어요.
             </div>
@@ -77,7 +85,7 @@ else
 
     </div>
     <MudGrid Spacing="2">
-            <MudItem xs="12" md="6">
+            <MudItem xs="12">
                 <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
                     <div class="d-flex align-center mb-2" style="gap:8px;">
                         <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Info" />
@@ -138,122 +146,19 @@ else
                             </div>
                         </div>
 
-                        @if (ActiveSubscriptions.Count == 0)
-                        {
-                            <div class="wb-empty"><div>수신 중인 토픽이 없습니다</div></div>
-                        }
-                        else
-                        {
-                            var selectedSubscription = SelectedSubscription;
-                            var selectedTopic = selectedSubscription == null ? null : FindTopic(selectedSubscription.TopicName);
-                            var samples = selectedSubscription == null ? [] : DdsState.SnapshotSamples(selectedSubscription.SubscriptionId, 50);
-                            <div class="wb-message-split">
-                                <div class="wb-scroll wb-message-list">
-                                    @foreach (var subscription in ActiveSubscriptions)
-                                    {
-                                        <button type="button"
-                                                class="wb-call-row @(selectedSubscription?.SubscriptionId == subscription.SubscriptionId ? "is-selected" : null)"
-                                                @onclick="@(() => SelectSubscription(subscription.SubscriptionId))">
-                                            <div class="wb-call-row-top">
-                                                <span class="wb-mono wb-call-row-title">@subscription.TopicName</span>
-                                                <span class="wb-call-row-count">@subscription.ReceivedCount 개 수신</span>
-                                            </div>
-                                            <div class="wb-call-row-meta">
-                                                <span>@subscription.TypeName</span>
-                                                <span>@subscription.StartedAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                                            </div>
-                                        </button>
-                                    }
-                                </div>
-                                <div class="wb-message-content">
-                                    @if (selectedSubscription == null)
-                                    {
-                                        <div class="wb-empty"><div>왼쪽에서 수신 토픽을 선택하세요</div></div>
-                                    }
-                                    else if (samples.Count == 0)
-                                    {
-                                        <div class="wb-inline-note mb-2">@($"type: {selectedTopic?.TypeName ?? selectedSubscription.TypeName} · qos: {selectedTopic?.QosProfileName ?? "(미확인)"}")</div>
-                                        <div class="wb-empty"><div>아직 수신된 샘플 없음</div></div>
-                                    }
-                                    else
-                                    {
-                                        <div class="wb-inline-note mb-2">@($"type: {selectedTopic?.TypeName ?? selectedSubscription.TypeName} · qos: {selectedTopic?.QosProfileName ?? "(미확인)"}")</div>
-                                        var sel = samples.FirstOrDefault(x => x.SequenceNumber == _selectedSampleSeq) ?? samples.First();
-                                        <div class="wb-message-split">
-                                            <div class="wb-scroll wb-message-list">
-                                                @foreach (var sample in samples)
-                                                {
-                                                    <button type="button"
-                                                            class="wb-call-row wb-message-row @(sel.SequenceNumber == sample.SequenceNumber ? "is-selected" : null)"
-                                                            @onclick="@(() => _selectedSampleSeq = sample.SequenceNumber)">
-                                                        <div class="wb-message-row-main">
-                                                            <span class="wb-mono">@sample.ReceivedAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                                                            <span>#@sample.SequenceNumber</span>
-                                                        </div>
-                                                    </button>
-                                                }
-                                            </div>
-                                            <div class="wb-message-content">
-                                                <JsonDataView Json="@sel.JsonData" />
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-                        }
                     }
                 </div>
             </MudItem>
 
             <MudItem xs="12" md="6">
-                <div class="wb-panel wb-panel--major wb-panel--contain pa-3">
-                    <div class="d-flex align-center mb-2" style="gap:8px;">
-                        <MudIcon Icon="@Icons.Material.Filled.NorthEast" Size="Size.Small" Color="Color.Primary" />
-                        <div>
-                            <div class="wb-panel-kicker">송신</div>
-                            <div class="wb-panel-heading">최근 DDS 송신 결과</div>
-                        </div>
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@RecentOutbound.Count</MudChip>
-                    </div>
-
-                    @if (RecentOutbound.Count == 0)
-                    {
-                        <div class="wb-empty"><div>아직 송신된 DDS 메시지 없음</div></div>
-                    }
-                    else
-                    {
-                        <div class="wb-scroll" style="max-height:420px;">
-                            @foreach (var o in RecentOutbound)
-                            {
-                                <div class="wb-scenario-step mb-2">
-                                    <div class="wb-scenario-step-top">
-                                        <div class="wb-scenario-step-title">@o.TopicName</div>
-                                        <MudChip T="string" Size="Size.Small"
-                                                 Color="@(o.Success ? Color.Success : Color.Error)"
-                                                 Variant="Variant.Text" Class="ma-0">@(o.Success ? "OK" : "실패")</MudChip>
-                                    </div>
-                                    <div class="wb-scenario-step-meta">
-                                        <div>
-                                            <span class="wb-scenario-label">시각</span>
-                                            <span class="wb-scenario-value">@o.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                                        </div>
-                                        <div>
-                                            <span class="wb-scenario-label">타입</span>
-                                            <span class="wb-scenario-value">@o.TypeName</span>
-                                        </div>
-                                        @if (!o.Success)
-                                        {
-                                            <div>
-                                                <span class="wb-scenario-label">오류</span>
-                                                <span class="wb-scenario-value">@o.Error</span>
-                                            </div>
-                                        }
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
+                <DdsMessageList Title="수신" Icon="@Icons.Material.Filled.Download" IconColor="Color.Info"
+                                Items="InboundMessages" EmptyText="아직 수신된 DDS 메시지 없음"
+                                ItemClicked="OpenMessageDetail" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <DdsMessageList Title="송신" Icon="@Icons.Material.Filled.NorthEast" IconColor="Color.Primary"
+                                Items="OutboundMessages" EmptyText="아직 송신된 DDS 메시지 없음"
+                                ItemClicked="OpenMessageDetail" />
             </MudItem>
 
             <MudItem xs="12">
@@ -663,14 +568,46 @@ else
         </MudOverlay>
 }
 
+@if (_messageDetail != null)
+{
+    <MudOverlay Visible="true" DarkBackground="true" AutoClose="true" OnClosed="CloseMessageDetail" ZIndex="1400">
+        <div class="wb-panel pa-4 dds-detail-card" @onclick:stopPropagation="true">
+            <div class="d-flex align-center" style="gap:8px;">
+                <MudIcon Icon="@(_messageDetail.Direction == "수신" ? Icons.Material.Filled.Download : Icons.Material.Filled.NorthEast)"
+                         Color="@(_messageDetail.Direction == "수신" ? Color.Info : Color.Primary)" />
+                <div>
+                    <div class="wb-panel-kicker">@_messageDetail.Direction 메시지 상세</div>
+                    <div class="wb-panel-heading">@_messageDetail.TopicName</div>
+                </div>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Close" title="닫기" OnClick="CloseMessageDetail" />
+            </div>
+            <div class="dds-status-grid mt-3">
+                <div class="dds-status-metric"><span>시각</span><b>@_messageDetail.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff")</b></div>
+                <div class="dds-status-metric"><span>타입</span><b>@_messageDetail.TypeName</b></div>
+                <div class="dds-status-metric"><span>지연</span><b>@FormatLatency(_messageDetail.LatencyMs)</b></div>
+                <div class="dds-status-metric"><span>상태</span><b>@(_messageDetail.Success ? "정상" : $"실패 · {_messageDetail.Error}")</b></div>
+            </div>
+            @if (_messageDetail.SequenceNumber.HasValue || _messageDetail.SourceTimestampNs.HasValue)
+            {
+                <div class="wb-inline-note mt-2">
+                    @if (_messageDetail.SequenceNumber.HasValue) { <text>sequence #@_messageDetail.SequenceNumber</text> }
+                    @if (_messageDetail.SourceTimestampNs.HasValue) { <text> · source timestamp @_messageDetail.SourceTimestampNs ns</text> }
+                </div>
+            }
+            <div class="mt-3"><JsonDataView Json="@_messageDetail.JsonPayload" /></div>
+        </div>
+    </MudOverlay>
+}
+
 @code {
     [Parameter] public DdsSession? Session { get; set; }
 
     private readonly HashSet<string> _selectedSubscriptionTopics = [];
     private readonly Dictionary<string, List<SchemaField>> _scenarioStepSchemaFields = [];
     private bool _showReceiveTopicPicker;
+    private DdsMessageListItem? _messageDetail;
     private string? _selectedSubscriptionId;
-    private long _selectedSampleSeq = 0;
 
     private string _scenarioDraftTopicName = "";
     private DdsTopicConfig? _scenarioDraftTopic;
@@ -695,12 +632,6 @@ else
 
     private IReadOnlyList<DdsSubscriptionInfo> ActiveSubscriptions
         => Session == null ? [] : DdsState.SnapshotSubscriptions(Session.SessionId);
-
-    private DdsSubscriptionInfo? SelectedSubscription
-        => Session == null || string.IsNullOrWhiteSpace(_selectedSubscriptionId)
-            ? null
-            : DdsState.SnapshotSubscriptions(Session.SessionId)
-                .FirstOrDefault(s => s.SubscriptionId == _selectedSubscriptionId);
 
     private int SelectedReceivableTopicCount
         => ReceivableTopics.Count(topic => _selectedSubscriptionTopics.Contains(topic.TopicName));
@@ -734,7 +665,57 @@ else
         => _scenarioDraftTopic != null && _scenarioDraftTopic.Direction != DdsTopicDirection.Subscribe;
 
     private IReadOnlyList<DdsOutboundEntry> RecentOutbound
-        => Session == null ? [] : DdsState.SnapshotOutbound(Session.SessionId, 10);
+        => Session == null ? [] : DdsState.SnapshotOutbound(Session.SessionId, 50);
+
+    private IReadOnlyList<DdsSampleEntry> RecentInbound
+        => Session == null ? [] : DdsState.SnapshotInbound(Session.SessionId, 50);
+
+    private IReadOnlyList<DdsMessageListItem> InboundMessages
+        => RecentInbound.Select(sample => new DdsMessageListItem
+        {
+            Id = $"receive-{sample.TopicName}-{sample.SequenceNumber}",
+            Direction = "수신",
+            Timestamp = sample.ReceivedAt,
+            TopicName = sample.TopicName,
+            TypeName = sample.TypeName,
+            JsonPayload = sample.JsonData,
+            Success = true,
+            SequenceNumber = sample.SequenceNumber,
+            LatencyMs = sample.ReceiveLatencyMs,
+            SourceTimestampNs = sample.SourceTimestampNs > 0 ? sample.SourceTimestampNs : null,
+            PublicationHandle = sample.PublicationHandle,
+        }).ToList();
+
+    private IReadOnlyList<DdsMessageListItem> OutboundMessages
+        => RecentOutbound.Select((entry, index) => new DdsMessageListItem
+        {
+            Id = $"send-{entry.TopicName}-{entry.Timestamp.Ticks}-{index}",
+            Direction = "송신",
+            Timestamp = entry.Timestamp,
+            TopicName = entry.TopicName,
+            TypeName = entry.TypeName,
+            JsonPayload = entry.JsonPayload,
+            Success = entry.Success,
+            LatencyMs = entry.WriteLatencyMs,
+            Error = entry.Error,
+        }).ToList();
+
+    private IReadOnlyList<double> SendLatencyValues
+        => RecentOutbound.Where(entry => entry.WriteLatencyMs.HasValue).Select(entry => entry.WriteLatencyMs!.Value).ToList();
+
+    private IReadOnlyList<double> ReceiveLatencyValues
+        => RecentInbound.Where(entry => entry.ReceiveLatencyMs.HasValue).Select(entry => entry.ReceiveLatencyMs!.Value).ToList();
+
+    private long InboundCount => Session == null ? 0 : DdsState.GetInboundCount(Session.SessionId);
+    private long OutboundCount => Session == null ? 0 : DdsState.GetOutboundCount(Session.SessionId);
+    private int OutboundFailureCount => RecentOutbound.Count(entry => !entry.Success);
+    private string DiscoveryModeLabel => Session?.Transport.DiscoveryMode == DdsDiscoveryMode.Multicast
+        ? string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "멀티캐스트 · RTI 기본" : $"멀티캐스트 · {Session.Transport.MulticastAddress}"
+        : "유니캐스트 · 로컬 피어";
+
+    private void OpenMessageDetail(DdsMessageListItem item) => _messageDetail = item;
+    private void CloseMessageDetail() => _messageDetail = null;
+    private static string FormatLatency(double? value) => value.HasValue ? $"{value.Value:F2} ms" : "측정값 없음";
 
     protected override void OnInitialized()
     {
@@ -750,9 +731,6 @@ else
         {
             _selectedSubscriptionTopics.Add(activeSubscription.TopicName);
         }
-
-        if (SelectedSubscription == null)
-            _selectedSubscriptionId = ActiveSubscriptions.FirstOrDefault()?.SubscriptionId;
 
         if (_scenarioDraftTopic == null && Session.Topics.Count > 0)
         {
@@ -1122,12 +1100,6 @@ else
             _selectedSubscriptionTopics.Add(topic.TopicName);
     }
 
-    private void SelectSubscription(string subscriptionId)
-    {
-        _selectedSubscriptionId = subscriptionId;
-        _selectedSampleSeq = 0;
-    }
-
     private void OnScenarioDraftTopicChanged(string topicName)
     {
         _scenarioDraftTopicName = topicName;
@@ -1196,7 +1168,6 @@ else
         if (_selectedSubscriptionId is not null && targets.Contains(_selectedSubscriptionId))
             _selectedSubscriptionId = ActiveSubscriptions.FirstOrDefault(subscription => !targets.Contains(subscription.SubscriptionId))?.SubscriptionId;
 
-        _selectedSampleSeq = 0;
         AppendLog("session", "INFO", $"수신 중지: {targets.Count}개 토픽");
     }
 

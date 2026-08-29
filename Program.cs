@@ -1,5 +1,6 @@
 using ASAP.Dds;
 using ASAP.Services;
+using Microsoft.AspNetCore.DataProtection;
 using MudBlazor.Services;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,6 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents(options => options.DetailedErrors = builder.Environment.IsDevelopment());
 builder.Services.AddMudServices();
+builder.Services.AddDataProtection()
+    .SetApplicationName("SignalForge")
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        Path.Combine(builder.Environment.ContentRootPath, "data", "data-protection-keys")));
 
 builder.Services.AddScoped<UiStateService>();
 builder.Services.AddSingleton<DdsProfileService>();

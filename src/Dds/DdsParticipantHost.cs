@@ -231,8 +231,14 @@ public sealed class DdsParticipantHostFactory
             d.InitialPeers.Add("udpv4://127.0.0.1");
             d.InitialPeers.Add("udpv4://localhost");
 
-            if (!string.IsNullOrWhiteSpace(transport.MulticastAddress))
+            if (transport.DiscoveryMode == DdsDiscoveryMode.Unicast)
+            {
+                d.MulticastReceiveAddresses.Clear();
+            }
+            else if (!string.IsNullOrWhiteSpace(transport.MulticastAddress))
+            {
                 d.MulticastReceiveAddresses.Add(transport.MulticastAddress!);
+            }
         });
 
         return qos;

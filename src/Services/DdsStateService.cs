@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using ASAP.Dds;
 using ASAP.Models.Dds;
 using Rti.Dds.Subscription;
@@ -12,7 +13,7 @@ namespace ASAP.Services;
 /// </summary>
 public sealed class DdsStateService : IDisposable
 {
-    private const int MaxSamplesPerSubscription = 50;
+    private const int MaxInboundLogPerSession = 50;
     private const int MaxOutboundLogPerSession = 50;
     private const int MaxRetainedPayloadChars = 64 * 1024;
     private const int MaxPublishPayloadChars = 1024 * 1024;
@@ -21,9 +22,10 @@ public sealed class DdsStateService : IDisposable
     private readonly ILogger<DdsStateService> _logger;
 
     private readonly ConcurrentDictionary<string, DdsSubscriptionInfo> _subscriptions = new();
-    private readonly ConcurrentDictionary<string, ConcurrentQueue<DdsSampleEntry>> _samples = new();
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<DdsSampleEntry>> _inbound = new();
     private readonly ConcurrentDictionary<string, ConcurrentQueue<DdsOutboundEntry>> _outbound = new();
-    private readonly ConcurrentDictionary<string, long> _publishSeq = new();
+    private readonly ConcurrentDictionary<string, long> _publishCount = new();
+    private readonly ConcurrentDictionary<string, long> _receiveSeq = new();
     private readonly ConcurrentDictionary<string, (DataReader<DynamicData> Reader, DataAvailableEventHandler Handler)> _readerHandlers = new();
     private readonly Timer _receiveNotificationTimer;
     private int _receiveNotificationPending;
@@ -63,7 +65,6 @@ public sealed class DdsStateService : IDisposable
             StartedAt = DateTime.UtcNow,
         };
         _subscriptions[info.SubscriptionId] = info;
-        _samples[info.SubscriptionId] = new ConcurrentQueue<DdsSampleEntry>();
 
         // DataAvailable 이벤트 구독 — 같은 reader에 여러 subscription이 붙으면 모두에게 broadcast
         DataAvailableEventHandler handler = anyReader => HandleDataAvailable(anyReader, info);
@@ -80,7 +81,6 @@ public sealed class DdsStateService : IDisposable
         if (_subscriptions.TryRemove(subscriptionId, out var info))
         {
             info.IsActive = false;
-            _samples.TryRemove(subscriptionId, out _);
             if (_readerHandlers.TryRemove(subscriptionId, out var registration))
                 registration.Reader.DataAvailable -= registration.Handler;
 
@@ -102,12 +102,6 @@ public sealed class DdsStateService : IDisposable
             .OrderBy(s => s.StartedAt)
             .ToList();
 
-    public IReadOnlyList<DdsSampleEntry> SnapshotSamples(string subscriptionId, int max = 50)
-    {
-        if (!_samples.TryGetValue(subscriptionId, out var q)) return [];
-        return q.Reverse().Take(max).ToList();
-    }
-
     // ── Publishing ────────────────────────────────────────────────
 
     public DdsPublishResult Publish(
@@ -123,9 +117,11 @@ public sealed class DdsStateService : IDisposable
         var writer = host.GetOrCreateWriter(topicName, typeName, fullQos);
 
         using var sample = host.CreateSample(typeName);
+        var writeStarted = 0L;
         try
         {
             DdsJsonConverter.ApplyJson(sample, jsonPayload);
+            writeStarted = Stopwatch.GetTimestamp();
             writer.Write(sample);
         }
         catch (Exception ex)
@@ -139,6 +135,7 @@ public sealed class DdsStateService : IDisposable
                 JsonPayload = RetainPayload(jsonPayload),
                 Success = false,
                 Error = ex.Message,
+                WriteLatencyMs = writeStarted == 0 ? null : Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
             });
             StateChanged?.Invoke();
             return new DdsPublishResult(false, ex.Message);
@@ -151,6 +148,7 @@ public sealed class DdsStateService : IDisposable
             TypeName = typeName,
             JsonPayload = RetainPayload(jsonPayload),
             Success = true,
+            WriteLatencyMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
         });
         StateChanged?.Invoke();
         return new DdsPublishResult(true, null);
@@ -161,6 +159,15 @@ public sealed class DdsStateService : IDisposable
         if (!_outbound.TryGetValue(sessionId, out var q)) return [];
         return q.Reverse().Take(max).ToList();
     }
+
+    public IReadOnlyList<DdsSampleEntry> SnapshotInbound(string sessionId, int max = 50)
+    {
+        if (!_inbound.TryGetValue(sessionId, out var q)) return [];
+        return q.Reverse().Take(max).ToList();
+    }
+
+    public long GetOutboundCount(string sessionId) => _publishCount.GetValueOrDefault(sessionId);
+    public long GetInboundCount(string sessionId) => _receiveSeq.GetValueOrDefault(sessionId);
 
     public void RecordExternalPublish(
         string sessionId,
@@ -195,18 +202,25 @@ public sealed class DdsStateService : IDisposable
             {
                 if (!s.Info.ValidData) continue;
                 var json = DdsJsonConverter.ToJson(s.Data!);
+                var receivedAt = DateTime.UtcNow;
+                var sourceTimestampNs = s.Info.SourceTimestamp.Seconds * 1_000_000_000L
+                                        + s.Info.SourceTimestamp.Nanoseconds;
                 var entry = new DdsSampleEntry
                 {
                     SequenceNumber = Interlocked.Increment(ref info.ReceivedCount),
                     TopicName = info.TopicName,
                     TypeName = info.TypeName,
-                    ReceivedAt = DateTime.UtcNow,
+                    ReceivedAt = receivedAt,
                     JsonData = RetainPayload(json),
-                    SourceTimestampNs = s.Info.SourceTimestamp.Seconds * 1_000_000_000L
-                                        + s.Info.SourceTimestamp.Nanoseconds,
+                    SourceTimestampNs = sourceTimestampNs,
+                    ReceiveLatencyMs = CalculateReceiveLatencyMs(receivedAt, sourceTimestampNs),
                 };
                 info.LastSample = entry;
-                EnqueueBounded(_samples[info.SubscriptionId], entry, MaxSamplesPerSubscription);
+                EnqueueBounded(
+                    _inbound.GetOrAdd(info.SessionId, _ => new ConcurrentQueue<DdsSampleEntry>()),
+                    entry,
+                    MaxInboundLogPerSession);
+                _receiveSeq.AddOrUpdate(info.SessionId, 1, (_, count) => count + 1);
                 SampleReceived?.Invoke(info, entry);
             }
             RequestReceiveStateChanged();
@@ -223,6 +237,7 @@ public sealed class DdsStateService : IDisposable
     {
         var q = _outbound.GetOrAdd(sessionId, _ => new ConcurrentQueue<DdsOutboundEntry>());
         EnqueueBounded(q, entry, MaxOutboundLogPerSession);
+        _publishCount.AddOrUpdate(sessionId, 1, (_, count) => count + 1);
     }
 
     private static void EnqueueBounded<T>(ConcurrentQueue<T> q, T item, int max)
@@ -246,6 +261,15 @@ public sealed class DdsStateService : IDisposable
             ? value
             : value[..MaxRetainedPayloadChars] + "\n/* retained payload truncated */";
 
+    public static double? CalculateReceiveLatencyMs(DateTime receivedAtUtc, long sourceTimestampNs)
+    {
+        if (sourceTimestampNs <= 0) return null;
+        var utc = receivedAtUtc.ToUniversalTime();
+        var receivedNs = new DateTimeOffset(utc).ToUnixTimeMilliseconds() * 1_000_000L
+                         + utc.Ticks % TimeSpan.TicksPerMillisecond * 100L;
+        return (receivedNs - sourceTimestampNs) / 1_000_000d;
+    }
+
     private void RequestReceiveStateChanged()
     {
         if (Interlocked.CompareExchange(ref _receiveNotificationPending, 1, 0) == 0)
@@ -259,7 +283,9 @@ public sealed class DdsStateService : IDisposable
                      .Select(item => item.SubscriptionId).ToList())
             StopSubscription(subscriptionId);
         _outbound.TryRemove(sessionId, out _);
-        _publishSeq.TryRemove(sessionId, out _);
+        _inbound.TryRemove(sessionId, out _);
+        _publishCount.TryRemove(sessionId, out _);
+        _receiveSeq.TryRemove(sessionId, out _);
     }
 
     public void Dispose()
@@ -281,4 +307,5 @@ public sealed class DdsOutboundEntry
     public required string JsonPayload { get; init; }
     public required bool Success { get; init; }
     public string? Error { get; init; }
+    public double? WriteLatencyMs { get; init; }
 }

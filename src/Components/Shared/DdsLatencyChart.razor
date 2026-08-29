@@ -1,0 +1,71 @@
+<div class="dds-latency-chart">
+    <div class="dds-latency-chart-head">
+        <div>
+            <div class="wb-panel-kicker">송수신 지연</div>
+            <div class="wb-panel-heading">최근 메시지 지연 추이</div>
+        </div>
+        <div class="dds-latency-legend">
+            <span><i class="is-send"></i>송신 write</span>
+            <span><i class="is-receive"></i>수신 추정</span>
+        </div>
+    </div>
+
+    @if (SendValues.Count == 0 && ReceiveValues.Count == 0)
+    {
+        <div class="dds-latency-empty">송수신이 시작되면 지연 그래프가 표시됩니다.</div>
+    }
+    else
+    {
+        <svg class="dds-latency-svg" viewBox="0 0 640 150" preserveAspectRatio="none" role="img" aria-label="송수신 지연 그래프">
+            <line x1="20" y1="25" x2="630" y2="25" class="dds-chart-grid" />
+            <line x1="20" y1="75" x2="630" y2="75" class="dds-chart-grid" />
+            <line x1="20" y1="125" x2="630" y2="125" class="dds-chart-grid" />
+            @if (SendValues.Count > 0)
+            {
+                <polyline points="@BuildPoints(SendValues)" class="dds-chart-line is-send" />
+            }
+            @if (ReceiveValues.Count > 0)
+            {
+                <polyline points="@BuildPoints(ReceiveValues)" class="dds-chart-line is-receive" />
+            }
+        </svg>
+        <div class="dds-latency-stats">
+            <span>송신 평균 <b>@Format(Average(SendValues))</b> · p95 <b>@Format(Percentile95(SendValues))</b></span>
+            <span>수신 평균 <b>@Format(Average(ReceiveValues))</b> · p95 <b>@Format(Percentile95(ReceiveValues))</b></span>
+        </div>
+    }
+    <div class="wb-inline-note mt-2">송신은 로컬 DDS write 처리 시간, 수신은 source timestamp 기준 추정값입니다. 정확한 수신 지연 비교에는 장비 간 시계 동기화가 필요합니다.</div>
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<double> SendValues { get; set; } = [];
+    [Parameter] public IReadOnlyList<double> ReceiveValues { get; set; } = [];
+
+    private string BuildPoints(IReadOnlyList<double> values)
+    {
+        var all = SendValues.Concat(ReceiveValues).ToList();
+        var min = all.Min();
+        var max = all.Max();
+        var range = Math.Max(0.001, max - min);
+        var chronological = values.Reverse().ToList();
+        return string.Join(" ", chronological.Select((value, index) =>
+        {
+            var x = chronological.Count == 1 ? 325 : 20 + index * 610d / (chronological.Count - 1);
+            var y = 125 - (value - min) * 100d / range;
+            return $"{x:F1},{y:F1}";
+        }));
+    }
+
+    private static double? Average(IReadOnlyList<double> values)
+        => values.Count == 0 ? null : values.Average();
+
+    private static double? Percentile95(IReadOnlyList<double> values)
+    {
+        if (values.Count == 0) return null;
+        var sorted = values.OrderBy(value => value).ToList();
+        return sorted[(int)Math.Ceiling(sorted.Count * 0.95) - 1];
+    }
+
+    private static string Format(double? value)
+        => value.HasValue ? $"{value.Value:F2} ms" : "-";
+}

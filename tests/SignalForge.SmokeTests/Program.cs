@@ -52,9 +52,17 @@ var sessions = new FakeSessions();
 using var state = new DdsStateService(sessions, NullLogger<DdsStateService>.Instance);
 for (var i = 0; i < 80; i++) state.RecordExternalPublish("s", "t", "M::Root", new string('x', 300_000), true);
 Check(state.SnapshotOutbound("s", 100).Count == 50, "bounded outbound history");
+Check(state.GetOutboundCount("s") == 80, "outbound total survives bounded history");
 Check(state.SnapshotOutbound("s", 1)[0].JsonPayload.Length < 70_000, "bounded retained payload");
+var receivedAt = DateTime.UtcNow;
+var receivedAtNs = new DateTimeOffset(receivedAt).ToUnixTimeMilliseconds() * 1_000_000L
+                   + receivedAt.Ticks % TimeSpan.TicksPerMillisecond * 100L;
+var receiveLatency = DdsStateService.CalculateReceiveLatencyMs(receivedAt, receivedAtNs - 12_500_000L);
+Check(receiveLatency is >= 12.49 and <= 12.51, "DDS source timestamp receive latency");
+Check(DdsStateService.CalculateReceiveLatencyMs(receivedAt, 0) == null, "missing DDS source timestamp latency");
 sessions.RaiseDeleting("s");
 Check(state.SnapshotOutbound("s", 100).Count == 0, "session history cleanup");
+Check(state.GetOutboundCount("s") == 0, "session counters cleanup");
 
 var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 var sampleTypes = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "DDSSim.xml"));

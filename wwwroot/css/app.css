@@ -1034,6 +1034,103 @@ select,
   min-width: 0;
 }
 
+.dds-message-panel {
+  min-height: 330px;
+}
+
+.dds-message-list {
+  max-height: 270px;
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.dds-message-empty {
+  min-height: 270px;
+}
+
+.dds-message-item {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--mud-palette-lines-default);
+  background: transparent;
+  color: var(--mud-palette-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dds-message-item:last-child { border-bottom: 0; }
+.dds-message-item:hover,
+.dds-message-item:focus-visible {
+  background: color-mix(in srgb, var(--mud-palette-primary) 10%, transparent);
+  outline: none;
+}
+
+.dds-message-topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.dds-message-time {
+  color: var(--mud-palette-text-secondary);
+  font: 600 .7rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.dds-message-failed { color: var(--mud-palette-error); font-size: .68rem; font-weight: 700; }
+
+.dds-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dds-status-metric {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mud-palette-surface) 94%, white 2%);
+}
+
+.dds-status-metric span { display: block; color: var(--mud-palette-text-secondary); font-size: .68rem; }
+.dds-status-metric b { display: block; margin-top: 3px; font-size: .86rem; overflow-wrap: anywhere; }
+
+.dds-latency-chart { margin-top: 10px; padding: 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
+.dds-latency-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dds-latency-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--mud-palette-text-secondary); font-size: .68rem; }
+.dds-latency-legend i { display: inline-block; width: 14px; height: 3px; margin-right: 5px; vertical-align: middle; border-radius: 4px; }
+.dds-latency-legend .is-send { background: var(--mud-palette-primary); }
+.dds-latency-legend .is-receive { background: var(--mud-palette-info); }
+.dds-latency-svg { display: block; width: 100%; height: 150px; margin-top: 8px; overflow: visible; }
+.dds-chart-grid { stroke: var(--mud-palette-lines-default); stroke-width: 1; }
+.dds-chart-line { fill: none; stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.dds-chart-line.is-send { stroke: var(--mud-palette-primary); }
+.dds-chart-line.is-receive { stroke: var(--mud-palette-info); }
+.dds-latency-empty { min-height: 95px; display: grid; place-items: center; color: var(--mud-palette-text-secondary); font-size: .75rem; }
+.dds-latency-stats { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--mud-palette-text-secondary); font-size: .7rem; }
+.dds-latency-stats b { color: var(--mud-palette-text-primary); }
+
+.dds-detail-card { width: min(760px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); overflow: auto; }
+
+@media (max-width: 900px) {
+  .dds-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .dds-status-grid { grid-template-columns: 1fr; }
+  .dds-latency-chart-head { align-items: flex-start; flex-direction: column; }
+}
+
 /* MudTextField applies its Style parameter to the inner input element.
    Keep flex sizing on the outer control so a horizontal basis never becomes height. */
 .wb-flex-field {

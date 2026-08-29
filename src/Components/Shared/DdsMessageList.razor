@@ -1,0 +1,44 @@
+@using ASAP.Models.Ui
+
+<div class="wb-panel wb-panel--major wb-panel--contain pa-3 dds-message-panel">
+    <div class="d-flex align-center mb-2" style="gap:8px;">
+        <MudIcon Icon="@Icon" Size="Size.Small" Color="@IconColor" />
+        <div>
+            <div class="wb-panel-kicker">@Title</div>
+            <div class="wb-panel-heading">메시지</div>
+        </div>
+        <MudSpacer />
+        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Items.Count</MudChip>
+    </div>
+
+    @if (Items.Count == 0)
+    {
+        <div class="wb-empty dds-message-empty"><div>@EmptyText</div></div>
+    }
+    else
+    {
+        <div class="wb-scroll dds-message-list" role="list">
+            @foreach (var item in Items)
+            {
+                <button type="button" class="dds-message-item" role="listitem"
+                        title="상세 메시지 보기" @onclick="@(() => ItemClicked.InvokeAsync(item))">
+                    <span class="dds-message-topic">@item.TopicName</span>
+                    <span class="dds-message-time">@item.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                    @if (!item.Success)
+                    {
+                        <span class="dds-message-failed">실패</span>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter] public Color IconColor { get; set; } = Color.Primary;
+    [Parameter, EditorRequired] public IReadOnlyList<DdsMessageListItem> Items { get; set; } = [];
+    [Parameter] public string EmptyText { get; set; } = "메시지가 없습니다";
+    [Parameter] public EventCallback<DdsMessageListItem> ItemClicked { get; set; }
+}
