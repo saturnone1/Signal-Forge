@@ -4,7 +4,7 @@
     <div class="d-flex align-center flex-wrap" style="gap:8px;">
         <MudTextField T="string" Value="Member.Name" ValueChanged="UpdateName"
                       Label="멤버 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
-                      Style="flex:1 1 180px;" Immediate="true" />
+                      Class="wb-flex-field" Immediate="true" />
         <MudSelect T="string" Value="Member.TypeName" ValueChanged="UpdateType"
                    Label="IDL 타입" Variant="Variant.Outlined" Margin="Margin.Dense"
                    Style="flex:1 1 220px;">
@@ -20,13 +20,13 @@
     <div class="d-flex align-center flex-wrap mt-2" style="gap:8px;">
         <MudTextField T="string" Value="Member.StringMaxLength" ValueChanged="UpdateStringBound"
                       Label="string/wstring 최대 길이" Placeholder="비움=unbounded, -1 또는 상수"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 190px;" Immediate="true" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
         <MudTextField T="string" Value="Member.SequenceMaxLength" ValueChanged="UpdateSequenceBound"
                       Label="sequence 최대 길이" Placeholder="비움=scalar, -1=unbounded"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 190px;" Immediate="true" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
         <MudTextField T="string" Value="Member.ArrayDimensions" ValueChanged="UpdateArrayDimensions"
                       Label="배열 차원" Placeholder="예: 4 또는 2,3"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 180px;" Immediate="true" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
     </div>
 
     <div class="d-flex align-center flex-wrap mt-2" style="gap:12px;">
@@ -38,16 +38,16 @@
         <MudCheckBox T="bool" Value="Member.External" ValueChanged="UpdateExternal" Label="External" Color="Color.Primary" />
         <MudTextField T="string" Value="Member.MemberId" ValueChanged="UpdateMemberId"
                       Label="Member ID" Placeholder="0~268435455"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:150px;" Immediate="true" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--150" Immediate="true" />
         <MudTextField T="string" Value="Member.DefaultValue" ValueChanged="UpdateDefault"
                       Label="기본값" Variant="Variant.Outlined" Margin="Margin.Dense"
-                      Style="flex:1 1 150px;" Immediate="true" />
+                      Class="wb-flex-field" Immediate="true" />
         <MudTextField T="string" Value="Member.MinValue" ValueChanged="UpdateMin"
                       Label="최솟값" Variant="Variant.Outlined" Margin="Margin.Dense"
-                      Style="width:130px;" Immediate="true" />
+                      Class="wb-fixed-field wb-fixed-field--130" Immediate="true" />
         <MudTextField T="string" Value="Member.MaxValue" ValueChanged="UpdateMax"
                       Label="최댓값" Variant="Variant.Outlined" Margin="Margin.Dense"
-                      Style="width:130px;" Immediate="true" />
+                      Class="wb-fixed-field wb-fixed-field--130" Immediate="true" />
     </div>
 </div>
 

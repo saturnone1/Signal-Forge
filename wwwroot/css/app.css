@@ -1034,6 +1034,28 @@ select,
   min-width: 0;
 }
 
+/* MudTextField applies its Style parameter to the inner input element.
+   Keep flex sizing on the outer control so a horizontal basis never becomes height. */
+.wb-flex-field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.wb-flex-field--grow {
+  flex-grow: 2;
+}
+
+.wb-fixed-field {
+  flex: 0 1 150px;
+  min-width: 0;
+}
+
+.wb-fixed-field--130 { flex-basis: 130px; }
+.wb-fixed-field--140 { flex-basis: 140px; }
+.wb-fixed-field--150 { flex-basis: 150px; }
+.wb-fixed-field--160 { flex-basis: 160px; }
+.wb-fixed-field--170 { flex-basis: 170px; }
+
 .wb-editor-backdrop {
   position: fixed;
   inset: 0;

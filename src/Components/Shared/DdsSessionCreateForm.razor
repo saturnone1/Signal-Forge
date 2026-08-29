@@ -125,7 +125,7 @@
                                             <MudTextField T="string" Value="topic.Name"
                                                           ValueChanged="@((string value) => UpdateTopic(topic, item => item.Name = value))"
                                                           Label="토픽 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                          Style="flex:1 1 200px;" Immediate="true" />
+                                                          Class="wb-flex-field" Immediate="true" />
                                             <MudSelect T="string" Value="topic.TypeName"
                                                        ValueChanged="@((string value) => UpdateTopic(topic, item => item.TypeName = value))"
                                                        Label="메시지 타입" Variant="Variant.Outlined" Margin="Margin.Dense"
@@ -163,9 +163,9 @@
                             <div class="d-flex align-center mb-2" style="gap:8px;">
                                 @if (_configEditor != null)
                                 {
-                                    <MudTextField T="string" Value="_configEditor.QosLibraryName" ValueChanged="UpdateQosLibraryName"
-                                                  Label="QoS 라이브러리" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                  Style="flex:1 1 260px;" Immediate="true" />
+                                    <span class="wb-inline-note">
+                                        QoS 라이브러리 이름은 DDS XML 호환을 위한 내부 식별자로 자동 유지됩니다.
+                                    </span>
                                 }
                                 <MudSpacer />
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
@@ -178,11 +178,14 @@
                                     <div @key="qos.Id" class="wb-subpanel pa-3 mb-3">
                                         <div class="d-flex align-center" style="gap:8px;">
                                             <MudTextField T="string" Value="qos.Name" ValueChanged="@((string value) => RenameQos(qos, value))"
-                                                          Label="QoS 프로필 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                          Style="flex:1 1 260px;" Immediate="true" />
+                                                          Label="QoS 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                          Class="wb-flex-field" Immediate="true" />
                                             <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" Size="Size.Small"
                                                            Disabled="@(_configEditor.QosProfiles.Count <= 1)"
                                                            title="QoS 삭제" OnClick="@(() => RemoveQosProfile(qos))" />
+                                        </div>
+                                        <div class="wb-inline-note mt-1 mb-1">
+                                            토픽에서 이 QoS 설정을 선택할 때 표시되는 이름입니다.
                                         </div>
                                         <MudGrid Spacing="2" Class="mt-1">
                                             <MudItem xs="12" md="6">
@@ -775,13 +778,6 @@
     private void UpdateTopic(DdsTopicEditorItem topic, Action<DdsTopicEditorItem> update)
     {
         update(topic);
-        _structuredConfigDirty = true;
-    }
-
-    private void UpdateQosLibraryName(string value)
-    {
-        if (_configEditor == null) return;
-        _configEditor.QosLibraryName = value;
         _structuredConfigDirty = true;
     }
 

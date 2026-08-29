@@ -28,7 +28,7 @@
 {
     <div class="wb-subpanel pa-2 mb-2 d-flex align-center flex-wrap" style="gap:8px;">
         <MudTextField @bind-Value="_newModulePath" Label="새 모듈 경로" Placeholder="예: Company::Messages"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 260px;" Immediate="true" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
         <MudButton Variant="Variant.Filled" Size="Size.Small" OnClick="ConfirmModule">추가</MudButton>
         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CancelModule">취소</MudButton>
     </div>
@@ -64,7 +64,7 @@ else
                 </MudSelect>
                 <MudTextField T="string" Value="declaration.Name" ValueChanged="UpdateName"
                               Label="선언 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
-                              Style="flex:1 1 220px;" Immediate="true" />
+                              Class="wb-flex-field" Immediate="true" />
                 <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
                                title="타입 선언 삭제" OnClick="DeleteDeclaration" />
             </div>
@@ -89,7 +89,7 @@ else
                     {
                         <MudTextField T="string" Value="declaration.BaseType" ValueChanged="UpdateBaseType"
                                       Label="상속 Base type" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      Style="flex:1 1 220px;" Immediate="true" />
+                                      Class="wb-flex-field" Immediate="true" />
                         <MudCheckBox T="bool" Value="declaration.Nested" ValueChanged="UpdateNested"
                                      Label="Nested type" Color="Color.Primary" />
                     }
@@ -123,10 +123,10 @@ else
                     <div @key="value.Id" class="wb-subpanel pa-2 mb-2 d-flex align-center flex-wrap" style="gap:8px;">
                         <MudTextField T="string" Value="value.Name" ValueChanged="@((string text) => UpdateEnumName(value, text))"
                                       Label="이름" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      Style="flex:1 1 180px;" Immediate="true" />
+                                      Class="wb-flex-field" Immediate="true" />
                         <MudTextField T="string" Value="value.Value" ValueChanged="@((string text) => UpdateEnumValue(value, text))"
                                       Label="값 (비우면 자동)" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      Style="flex:1 1 160px;" Immediate="true" />
+                                      Class="wb-flex-field" Immediate="true" />
                         <MudCheckBox T="bool" Value="value.DefaultLiteral"
                                      ValueChanged="@((bool selected) => SetDefaultEnumValue(value, selected))"
                                      Label="기본 값" Color="Color.Primary" />
@@ -157,7 +157,7 @@ else
                             <MudTextField T="string" Value="unionCase.Labels"
                                           ValueChanged="@((string text) => UpdateUnionLabels(unionCase, text))"
                                           Label="Case 값" Placeholder="예: 0, 1 또는 default"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1 1 240px;" Immediate="true" />
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field" Immediate="true" />
                             <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
                                            OnClick="@(() => DeleteUnionCase(unionCase))" />
                         </div>
@@ -177,17 +177,17 @@ else
                         }
                     </MudSelect>
                     <MudTextField T="string" Value="declaration.StringMaxLength" ValueChanged="UpdateDeclarationStringBound"
-                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:160px;" Immediate="true" />
+                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--160" Immediate="true" />
                     <MudTextField T="string" Value="declaration.SequenceMaxLength" ValueChanged="UpdateDeclarationSequenceBound"
-                                  Label="sequence bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:170px;" Immediate="true" />
+                                  Label="sequence bound" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--170" Immediate="true" />
                     <MudTextField T="string" Value="declaration.ArrayDimensions" ValueChanged="UpdateDeclarationArray"
-                                  Label="배열 차원" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:150px;" Immediate="true" />
+                                  Label="배열 차원" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--150" Immediate="true" />
                     <MudTextField T="string" Value="declaration.DefaultValue" ValueChanged="UpdateDeclarationDefault"
-                                  Label="기본값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:140px;" Immediate="true" />
+                                  Label="기본값" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--140" Immediate="true" />
                     <MudTextField T="string" Value="declaration.MinValue" ValueChanged="UpdateDeclarationMin"
-                                  Label="최솟값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:130px;" Immediate="true" />
+                                  Label="최솟값" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--130" Immediate="true" />
                     <MudTextField T="string" Value="declaration.MaxValue" ValueChanged="UpdateDeclarationMax"
-                                  Label="최댓값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:130px;" Immediate="true" />
+                                  Label="최댓값" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--130" Immediate="true" />
                 </div>
             }
             else if (declaration.Kind == DdsTypeProfileEditor.ConstKind)
@@ -201,9 +201,9 @@ else
                         }
                     </MudSelect>
                     <MudTextField T="string" Value="declaration.StringMaxLength" ValueChanged="UpdateDeclarationStringBound"
-                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:160px;" Immediate="true" />
+                                  Label="string bound" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-fixed-field wb-fixed-field--160" Immediate="true" />
                     <MudTextField T="string" Value="declaration.Value" ValueChanged="UpdateConstValue"
-                                  Label="상수 값" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:2 1 260px;" Immediate="true" />
+                                  Label="상수 값" Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-flex-field wb-flex-field--grow" Immediate="true" />
                 </div>
             }
         </div>
