@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.Json;
 using ASAP.Dds;
 using ASAP.Models.Dds;
 using ASAP.Models.Session;
@@ -28,14 +29,19 @@ DdsTypeProfileEditor.ValidateState(editor);
 editor.Declarations.Single(item => item.Name == "Root").Members[0].TypeName = "M::Missing";
 ExpectFailure(() => DdsTypeProfileEditor.ValidateState(editor), "missing type reference");
 
-var configXml = """
-<dds-ambassador-config><dds><qos_library name="Lib"><qos_profile name="P"/></qos_library></dds>
-<topics><topic custom="keep"><custom>kept</custom><topic_name>T</topic_name><type_name>M::Root</type_name><direction>Both</direction><qos_profile>P</qos_profile></topic></topics></dds-ambassador-config>
+var topicsXml = """
+<topics><topic custom="legacy" name="T" qos_profile="P" direction="Both"><custom>kept</custom></topic></topics>
 """;
-var config = DdsConfigProfileEditor.Parse(configXml);
-var applied = DdsConfigProfileEditor.Apply(configXml, config);
-var topic = XDocument.Parse(applied).Descendants("topic").Single();
-Check(topic.Attribute("custom")?.Value == "keep" && topic.Element("custom")?.Value == "kept", "topic extension preservation");
+var qosProfilesXml = """
+<dds><qos_library name="AmbassadorProfiles"><qos_profile name="P"/></qos_library></dds>
+""";
+var config = DdsConfigProfileEditor.Parse(topicsXml, qosProfilesXml);
+var applied = DdsConfigProfileEditor.Apply(topicsXml, qosProfilesXml, config);
+var topic = XDocument.Parse(applied.TopicsXml).Descendants("topic").Single();
+Check(topic.Attribute("name")?.Value == "T" && topic.Attribute("custom") == null &&
+      !topic.HasElements, "DDSClient topic normalization");
+var parsedConfig = DdsConfigParser.Parse(applied.TopicsXml, applied.QosProfilesXml);
+Check(parsedConfig.Topics.Single().TypeName == "MSG::T", "DDSClient topic type mapping");
 config.QosProfiles[0].WriterHistoryDepth = 0;
 ExpectFailure(() => DdsConfigProfileEditor.ValidateState(config), "invalid history depth");
 
@@ -50,8 +56,34 @@ Check(state.SnapshotOutbound("s", 100).Count == 0, "session history cleanup");
 var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 var sampleTypes = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "DDSSim.xml"));
 DdsTypeProfileEditor.ValidateState(DdsTypeProfileEditor.Parse(sampleTypes));
-var sampleQosLibrary = XElement.Load(Path.Combine(repositoryRoot, "samples", "dds", "qos_profiles.xml"));
-var qosXml = new XDocument(new XElement("dds", sampleQosLibrary)).ToString();
+var qosXml = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "qos_profiles.xml"));
+var sampleTopics = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "topics.xml"));
+DdsProfileService.Validate(new DdsXmlProfile
+{
+    Name = "DDSClient contract",
+    DdsSimXml = sampleTypes,
+    TopicsXml = sampleTopics,
+    QosProfilesXml = qosXml,
+});
+var sampleTopicsDocument = XDocument.Parse(sampleTopics);
+var sampleQosDocument = XDocument.Parse(qosXml);
+var legacyConfig = new XDocument(new XElement("dds-ambassador-config",
+    new XElement("dds", sampleQosDocument.Root!.Elements().Select(element => new XElement(element))),
+    new XElement("topics", sampleTopicsDocument.Root!.Elements("topic").Select(element => new XElement("topic",
+        new XElement("topic_name", element.Attribute("name")!.Value),
+        new XElement("type_name", $"MSG::{element.Attribute("name")!.Value}"),
+        new XElement("direction", element.Attribute("direction")!.Value),
+        new XElement("qos_profile", element.Attribute("qos_profile")!.Value)))))).ToString();
+var legacyProfile = new DdsXmlProfile
+{
+    Name = "legacy migration",
+    LegacyTypesXml = sampleTypes,
+    LegacyConfigXml = legacyConfig,
+};
+DdsProfileService.Validate(legacyProfile);
+Check(legacyProfile.DdsSimXml.Length > 0 && legacyProfile.TopicsXml.Length > 0 &&
+      legacyProfile.QosProfilesXml.Length > 0 && legacyProfile.LegacyConfigXml == null,
+      "legacy profile migrated to three files");
 using var loggerFactory = LoggerFactory.Create(_ => { });
 var host = new DdsParticipantHostFactory(loggerFactory).Create(new DdsTransportSettings { DomainId = 0 }, sampleTypes, qosXml);
 host.ValidateQosProfile("AmbassadorProfiles::ReliableRealtime");
@@ -67,7 +99,40 @@ try
         ["DdsProfiles:StoragePath"] = storePath,
     }).Build();
     var profileService = new DdsProfileService(new FakeEnvironment(repositoryRoot), configuration, sessions, NullLogger<DdsProfileService>.Instance);
+    File.WriteAllText(storePath, JsonSerializer.Serialize(new
+    {
+        version = 1,
+        revision = 4,
+        profiles = new[]
+        {
+            new
+            {
+                id = Guid.NewGuid().ToString("N"),
+                name = "legacy stored profile",
+                typesXml = sampleTypes,
+                configXml = legacyConfig,
+                updatedAtUtc = DateTimeOffset.UtcNow,
+            },
+        },
+    }));
     var catalog = await profileService.LoadAsync();
+    var migratedJson = File.ReadAllText(storePath);
+    Check(!migratedJson.Contains("\"ddsSimXml\"") && !migratedJson.Contains("\"topicsXml\"") &&
+          !migratedJson.Contains("\"qosProfilesXml\"") && !migratedJson.Contains("\"typesXml\"") &&
+          !migratedJson.Contains("\"configXml\""),
+          "profile manifest stores metadata only");
+    var profileDirectory = Path.Combine(storeDirectory, "profiles", catalog.Profiles[0].Id);
+    Check(File.ReadAllText(Path.Combine(profileDirectory, "DDSSim.xml")) == catalog.Profiles[0].DdsSimXml,
+          "DDSSim.xml persisted as a physical profile file");
+    Check(File.ReadAllText(Path.Combine(profileDirectory, "topics.xml")) == catalog.Profiles[0].TopicsXml,
+          "topics.xml persisted as a physical profile file");
+    Check(File.ReadAllText(Path.Combine(profileDirectory, "qos_profiles.xml")) == catalog.Profiles[0].QosProfilesXml,
+          "qos_profiles.xml persisted as a physical profile file");
+    var reloaded = await profileService.LoadAsync();
+    Check(reloaded.Profiles[0].DdsSimXml == catalog.Profiles[0].DdsSimXml &&
+          reloaded.Profiles[0].TopicsXml == catalog.Profiles[0].TopicsXml &&
+          reloaded.Profiles[0].QosProfilesXml == catalog.Profiles[0].QosProfilesXml,
+          "metadata manifest reloads the three physical files");
     catalog.Profiles[0].Name = "backup-test";
     catalog.Profiles[0].UpdatedAtUtc = DateTimeOffset.UtcNow;
     await profileService.SaveAsync(catalog);

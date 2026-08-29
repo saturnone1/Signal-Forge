@@ -26,7 +26,7 @@
 
 <div class="wb-inline-note mb-2">
     모듈은 타입을 묶고 이름 충돌을 막는 네임스페이스입니다. 실제 메시지 구조는 타입 선언에서 추가합니다.
-    별도 구분이 필요 없으면 모듈 없이 (최상위)에 타입을 둘 수 있습니다.
+    DDSClient에서 토픽으로 사용할 struct는 반드시 MSG 모듈에 있어야 하며, ENUM/STRUCT 등은 보조 타입용입니다.
 </div>
 
 @if (_addingModule)
@@ -314,10 +314,7 @@ else
         var item = new DdsTypeDeclarationEditor
         {
             Kind = kind,
-            ModulePath = _preferredModulePath
-                         ?? Selected?.ModulePath
-                         ?? State.ModulePaths.FirstOrDefault(path => path.Length > 0)
-                         ?? string.Empty,
+            ModulePath = DefaultModuleFor(kind),
             Name = kind switch
             {
                 DdsTypeProfileEditor.StructKind => $"Struct{index}",
@@ -336,6 +333,22 @@ else
         State.Declarations.Add(item);
         _selectedId = item.Id;
         await Changed();
+    }
+
+    private string DefaultModuleFor(string kind)
+    {
+        var conventional = kind switch
+        {
+            DdsTypeProfileEditor.StructKind => "MSG",
+            DdsTypeProfileEditor.EnumKind => "ENUM",
+            _ => "STRUCT",
+        };
+        if (State.ModulePaths.Contains(conventional, StringComparer.Ordinal))
+            return conventional;
+        return _preferredModulePath
+               ?? Selected?.ModulePath
+               ?? State.ModulePaths.FirstOrDefault(path => path.Length > 0)
+               ?? string.Empty;
     }
 
     private async Task DeleteDeclaration()

@@ -14,19 +14,18 @@ public class DdsSession
 
     public DdsTransportSettings Transport { get; set; } = new();
 
-    // 사용자가 업로드한 원본 XML — 재로드/내보내기용
-    public byte[]? TypesXmlContent { get; set; }
-    public string? TypesXmlFileName { get; set; }
-    public byte[]? ConfigXmlContent { get; set; }
-    public string? ConfigXmlFileName { get; set; }
+    // DDSClient와 동일한 세 정의 파일의 세션 생성 시점 스냅샷
+    public byte[]? DdsSimXmlContent { get; set; }
+    public byte[]? TopicsXmlContent { get; set; }
+    public byte[]? QosProfilesXmlContent { get; set; }
 
-    // ConfigXml에서 파싱된 토픽
+    // topics.xml에서 파싱된 토픽
     public List<DdsTopicConfig> Topics { get; set; } = [];
 
-    // TypesXml에서 파싱된 타입 (QualifiedName 키, 예: "MSG::AirThreatInformation")
+    // DDSSim.xml에서 파싱된 타입 (QualifiedName 키, 예: "MSG::AirThreatInformation")
     public Dictionary<string, DdsTypeDefinition> Types { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // QoS 프로파일 이름 (config에서 추출)
+    // qos_profiles.xml에서 추출한 QoS 프로파일
     public List<string> QosProfiles { get; set; } = [];
     public string QosLibraryName { get; set; } = string.Empty;
 

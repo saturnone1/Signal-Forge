@@ -9,8 +9,9 @@ namespace ASAP.Services;
 public sealed class DdsProfileService
 {
     private const int MaxProfiles = 100;
-    private const int MaxTypesXmlChars = 16 * 1024 * 1024;
-    private const int MaxConfigXmlChars = 8 * 1024 * 1024;
+    private const int MaxDdsSimXmlChars = 16 * 1024 * 1024;
+    private const int MaxTopicsXmlChars = 4 * 1024 * 1024;
+    private const int MaxQosProfilesXmlChars = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -21,6 +22,7 @@ public sealed class DdsProfileService
     private readonly IDdsSessionService _sessions;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _storagePath;
+    private readonly string _profilesRoot;
 
     public DdsProfileService(
         IWebHostEnvironment environment,
@@ -40,6 +42,9 @@ public sealed class DdsProfileService
             Path.IsPathRooted(relativeOrAbsolutePath)
                 ? relativeOrAbsolutePath
                 : Path.Combine(environment.ContentRootPath, relativeOrAbsolutePath));
+        _profilesRoot = Path.Combine(
+            Path.GetDirectoryName(_storagePath) ?? environment.ContentRootPath,
+            Path.GetFileNameWithoutExtension(_storagePath));
     }
 
     public async Task<DdsProfileCatalog> LoadAsync(CancellationToken cancellationToken = default)
@@ -49,7 +54,16 @@ public sealed class DdsProfileService
         {
             await using var processLock = await AcquireProcessLockAsync(cancellationToken);
             if (File.Exists(_storagePath))
-                return await ReadCatalogAsync(cancellationToken);
+            {
+                var requiresMigration = await StorageNeedsMigrationAsync(cancellationToken);
+                var loaded = await ReadCatalogAsync(cancellationToken);
+                if (requiresMigration)
+                {
+                    await WriteCatalogAsync(loaded, cancellationToken);
+                    _logger.LogInformation("Migrated DDS profile store to three-file DDSClient contract at {StoragePath}", _storagePath);
+                }
+                return loaded;
+            }
 
             var seeded = await CreateDefaultCatalogAsync(cancellationToken);
             seeded.Revision = 1;
@@ -162,8 +176,9 @@ public sealed class DdsProfileService
         var profile = new DdsXmlProfile
         {
             Name = "기본 DDSSim",
-            TypesXml = await LoadDefaultTypesXmlAsync(cancellationToken),
-            ConfigXml = await LoadDefaultConfigXmlAsync(cancellationToken),
+            DdsSimXml = await LoadSampleXmlAsync("DDSSim.xml", cancellationToken),
+            TopicsXml = await LoadSampleXmlAsync("topics.xml", cancellationToken),
+            QosProfilesXml = await LoadSampleXmlAsync("qos_profiles.xml", cancellationToken),
         };
 
         return new DdsProfileCatalog
@@ -174,25 +189,43 @@ public sealed class DdsProfileService
 
     public static DdsProfileValidationResult Validate(DdsXmlProfile profile)
     {
+        MigrateLegacyProfile(profile);
         if (string.IsNullOrWhiteSpace(profile.Name))
             throw new InvalidOperationException("프로필 이름을 입력하세요.");
-        if (profile.TypesXml.Length > MaxTypesXmlChars)
-            throw new InvalidOperationException($"타입 XML은 {MaxTypesXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
-        if (profile.ConfigXml.Length > MaxConfigXmlChars)
-            throw new InvalidOperationException($"토픽/QoS XML은 {MaxConfigXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
+        if (profile.DdsSimXml.Length > MaxDdsSimXmlChars)
+            throw new InvalidOperationException($"DDSSim.xml은 {MaxDdsSimXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
+        if (profile.TopicsXml.Length > MaxTopicsXmlChars)
+            throw new InvalidOperationException($"topics.xml은 {MaxTopicsXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
+        if (profile.QosProfilesXml.Length > MaxQosProfilesXmlChars)
+            throw new InvalidOperationException($"qos_profiles.xml은 {MaxQosProfilesXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
 
-        XDocument.Parse(profile.TypesXml);
-        XDocument.Parse(profile.ConfigXml);
-        DdsTypeProfileEditor.ValidateState(DdsTypeProfileEditor.Parse(profile.TypesXml));
+        var ddsSimDocument = XDocument.Parse(profile.DdsSimXml);
+        XDocument.Parse(profile.TopicsXml);
+        XDocument.Parse(profile.QosProfilesXml);
+        if (ddsSimDocument.Root?.Name.LocalName != "dds")
+            throw new InvalidOperationException("DDSSim.xml root는 <dds>여야 합니다.");
+        var msgModule = ddsSimDocument.Root.Descendants()
+            .FirstOrDefault(element => element.Name.LocalName == "module" &&
+                                       string.Equals(element.Attribute("name")?.Value, "MSG", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("DDSSim.xml에 <module name=\"MSG\">가 필요합니다.");
+        var msgStructNames = msgModule.Elements()
+            .Where(element => element.Name.LocalName == "struct")
+            .Select(element => element.Attribute("name")?.Value?.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.Ordinal);
+        if (msgStructNames.Count == 0)
+            throw new InvalidOperationException("DDSSim.xml의 MSG 모듈에 struct를 하나 이상 정의하세요.");
+        DdsTypeProfileEditor.ValidateState(DdsTypeProfileEditor.Parse(profile.DdsSimXml));
 
-        var types = DdsTypeParser.Parse(profile.TypesXml);
+        var types = DdsTypeParser.Parse(profile.DdsSimXml);
         var distinctTypes = types.Values
             .DistinctBy(type => type.QualifiedName, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (distinctTypes.Count == 0)
             throw new InvalidOperationException("타입 XML에서 enum 또는 struct 정의를 찾지 못했습니다.");
 
-        var config = DdsConfigParser.Parse(profile.ConfigXml);
+        var config = DdsConfigParser.Parse(profile.TopicsXml, profile.QosProfilesXml);
         if (config.Topics.Count == 0)
             throw new InvalidOperationException("토픽/QoS XML에서 사용할 토픽을 찾지 못했습니다.");
 
@@ -203,6 +236,11 @@ public sealed class DdsProfileService
             .ToList();
         if (missingTypes.Count > 0)
             throw new InvalidOperationException($"타입 XML에 없는 토픽 타입: {string.Join(", ", missingTypes)}");
+
+        var topicNames = config.Topics.Select(topic => topic.TopicName).ToHashSet(StringComparer.Ordinal);
+        var missingTopics = msgStructNames.Where(name => !topicNames.Contains(name)).OrderBy(name => name).ToList();
+        if (missingTopics.Count > 0)
+            throw new InvalidOperationException($"topics.xml에 없는 MSG struct: {string.Join(", ", missingTopics)}");
 
         var qosNames = config.QosProfileNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var missingQos = config.Topics
@@ -234,21 +272,22 @@ public sealed class DdsProfileService
         }
     }
 
-    private static async Task<DdsProfileCatalog> ReadCatalogFileAsync(string path, CancellationToken cancellationToken)
+    private async Task<DdsProfileCatalog> ReadCatalogFileAsync(string path, CancellationToken cancellationToken)
     {
-            await using var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var catalog = await JsonSerializer.DeserializeAsync<DdsProfileCatalog>(stream, JsonOptions, cancellationToken)
-                          ?? throw new InvalidOperationException("DDS 프로필 저장 파일이 비어 있습니다.");
-            Normalize(catalog);
-            if (catalog.Profiles.Count == 0)
-                throw new InvalidOperationException("DDS 프로필 저장 파일에 프로필이 없습니다.");
-            return Clone(catalog);
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var catalog = await JsonSerializer.DeserializeAsync<DdsProfileCatalog>(stream, JsonOptions, cancellationToken)
+                      ?? throw new InvalidOperationException("DDS 프로필 저장 파일이 비어 있습니다.");
+        Normalize(catalog);
+        if (catalog.Profiles.Count == 0)
+            throw new InvalidOperationException("DDS 프로필 저장 파일에 프로필이 없습니다.");
+        await LoadProfileFilesAsync(catalog, cancellationToken);
+        return Clone(catalog);
     }
 
     private async Task WriteCatalogAsync(DdsProfileCatalog catalog, CancellationToken cancellationToken)
@@ -256,6 +295,9 @@ public sealed class DdsProfileService
         var directory = Path.GetDirectoryName(_storagePath)
                         ?? throw new InvalidOperationException("DDS 프로필 저장 경로가 올바르지 않습니다.");
         Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(_profilesRoot);
+        foreach (var profile in catalog.Profiles)
+            await WriteProfileFilesAsync(profile, cancellationToken);
 
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(_storagePath)}.{Guid.NewGuid():N}.tmp");
         try
@@ -268,7 +310,18 @@ public sealed class DdsProfileService
                              bufferSize: 64 * 1024,
                              FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(stream, catalog, JsonOptions, cancellationToken);
+                var manifest = new
+                {
+                    catalog.Version,
+                    catalog.Revision,
+                    Profiles = catalog.Profiles.Select(profile => new
+                    {
+                        profile.Id,
+                        profile.Name,
+                        profile.UpdatedAtUtc,
+                    }),
+                };
+                await JsonSerializer.SerializeAsync(stream, manifest, JsonOptions, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
             }
 
@@ -280,6 +333,90 @@ public sealed class DdsProfileService
         {
             if (File.Exists(temporaryPath))
                 File.Delete(temporaryPath);
+        }
+    }
+
+    private async Task LoadProfileFilesAsync(DdsProfileCatalog catalog, CancellationToken cancellationToken)
+    {
+        foreach (var profile in catalog.Profiles)
+        {
+            if (!string.IsNullOrWhiteSpace(profile.DdsSimXml) &&
+                !string.IsNullOrWhiteSpace(profile.TopicsXml) &&
+                !string.IsNullOrWhiteSpace(profile.QosProfilesXml))
+                continue;
+
+            var profileDirectory = ProfileDirectory(profile.Id);
+            var ddsSimPath = Path.Combine(profileDirectory, "DDSSim.xml");
+            var topicsPath = Path.Combine(profileDirectory, "topics.xml");
+            var qosPath = Path.Combine(profileDirectory, "qos_profiles.xml");
+            if (!File.Exists(ddsSimPath) || !File.Exists(topicsPath) || !File.Exists(qosPath))
+                throw new InvalidOperationException($"프로필 '{profile.Name}'의 DDS 정의 3파일이 없습니다: {profileDirectory}");
+            profile.DdsSimXml = await File.ReadAllTextAsync(ddsSimPath, cancellationToken);
+            profile.TopicsXml = await File.ReadAllTextAsync(topicsPath, cancellationToken);
+            profile.QosProfilesXml = await File.ReadAllTextAsync(qosPath, cancellationToken);
+        }
+    }
+
+    private async Task WriteProfileFilesAsync(DdsXmlProfile profile, CancellationToken cancellationToken)
+    {
+        var profileDirectory = ProfileDirectory(profile.Id);
+        Directory.CreateDirectory(profileDirectory);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "DDSSim.xml"), profile.DdsSimXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "topics.xml"), profile.TopicsXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "qos_profiles.xml"), profile.QosProfilesXml, cancellationToken);
+    }
+
+    private static async Task WriteTextAtomicAsync(string path, string content, CancellationToken cancellationToken)
+    {
+        var temporaryPath = Path.Combine(
+            Path.GetDirectoryName(path)!,
+            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(temporaryPath, content, cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
+    }
+
+    private string ProfileDirectory(string profileId)
+    {
+        if (string.IsNullOrWhiteSpace(profileId) ||
+            profileId.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_'))
+            throw new InvalidOperationException($"DDS 프로필 ID가 파일 경로에 안전하지 않습니다: {profileId}");
+        return Path.Combine(_profilesRoot, profileId);
+    }
+
+    private async Task<bool> StorageNeedsMigrationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(
+                _storagePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 16 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("version", out var version) || version.GetInt32() < 2)
+                return true;
+            if (!root.TryGetProperty("profiles", out var profiles) || profiles.ValueKind != JsonValueKind.Array)
+                return false;
+            return profiles.EnumerateArray().Any(profile =>
+                profile.TryGetProperty("typesXml", out _) ||
+                profile.TryGetProperty("configXml", out _) ||
+                profile.TryGetProperty("ddsSimXml", out _) ||
+                profile.TryGetProperty("topicsXml", out _) ||
+                profile.TryGetProperty("qosProfilesXml", out _));
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -302,93 +439,26 @@ public sealed class DdsProfileService
         }
     }
 
-    private async Task<string> LoadDefaultTypesXmlAsync(CancellationToken cancellationToken)
+    private async Task<string> LoadSampleXmlAsync(string fileName, CancellationToken cancellationToken)
     {
-        var path = SamplePath("DDSSim.xml");
-        if (File.Exists(path))
-            return await File.ReadAllTextAsync(path, cancellationToken);
-
-        return """
-<?xml version="1.0" encoding="UTF-8"?>
-<dds>
-  <types>
-    <module name="STRUCT">
-      <struct name="Position8">
-        <member name="X" type="float64"/>
-        <member name="Y" type="float64"/>
-      </struct>
-    </module>
-  </types>
-</dds>
-""";
-    }
-
-    private async Task<string> LoadDefaultConfigXmlAsync(CancellationToken cancellationToken)
-    {
-        var qosPath = SamplePath("qos_profiles.xml");
-        var topicsPath = SamplePath("topics.xml");
-        if (File.Exists(qosPath) && File.Exists(topicsPath))
-        {
-            var qosElement = XElement.Parse(await File.ReadAllTextAsync(qosPath, cancellationToken));
-            var topicsElement = XElement.Parse(await File.ReadAllTextAsync(topicsPath, cancellationToken));
-            var normalizedTopics = new XElement("topics",
-                topicsElement.Elements("topic")
-                    .Select(ToConfigTopic)
-                    .Where(topic => topic is not null)!);
-
-            return new XDocument(
-                new XDeclaration("1.0", "UTF-8", null),
-                new XElement("dds-ambassador-config",
-                    new XElement("dds", qosElement),
-                    normalizedTopics)).ToString();
-        }
-
-        return """
-<?xml version="1.0" encoding="UTF-8"?>
-<dds-ambassador-config>
-  <dds>
-    <qos_library name="AmbassadorProfiles">
-      <qos_profile name="DefaultProfile" is_default_qos="true"/>
-    </qos_library>
-  </dds>
-  <topics>
-    <topic>
-      <topic_name>PositionTopic</topic_name>
-      <type_name>STRUCT::Position8</type_name>
-      <direction>Both</direction>
-      <qos_profile>DefaultProfile</qos_profile>
-    </topic>
-  </topics>
-</dds-ambassador-config>
-""";
+        var path = SamplePath(fileName);
+        if (!File.Exists(path))
+            throw new InvalidOperationException($"기본 DDS 정의 파일을 찾지 못했습니다: {path}");
+        return await File.ReadAllTextAsync(path, cancellationToken);
     }
 
     private string SamplePath(string fileName)
         => Path.Combine(_environment.ContentRootPath, "samples", "dds", fileName);
 
-    private static XElement? ToConfigTopic(XElement topic)
-    {
-        var topicName = topic.Attribute("name")?.Value?.Trim();
-        if (string.IsNullOrWhiteSpace(topicName))
-            return null;
-
-        var qosProfile = topic.Attribute("qos_profile")?.Value?.Trim();
-        var direction = topic.Attribute("direction")?.Value?.Trim();
-        return new XElement("topic",
-            new XElement("topic_name", topicName),
-            new XElement("type_name", $"MSG::{topicName}"),
-            new XElement("direction", string.IsNullOrWhiteSpace(direction) ? "Both" : direction),
-            new XElement("qos_profile", string.IsNullOrWhiteSpace(qosProfile) ? "ReliableRealtime" : qosProfile));
-    }
-
     private static void Normalize(DdsProfileCatalog catalog)
     {
-        catalog.Version = 1;
+        catalog.Version = 2;
         catalog.Profiles ??= [];
         catalog.Profiles.RemoveAll(profile => profile is null);
 
         foreach (var profile in catalog.Profiles)
         {
+            MigrateLegacyProfile(profile);
             if (string.IsNullOrWhiteSpace(profile.Id))
                 profile.Id = Guid.NewGuid().ToString("N");
             profile.Name = string.IsNullOrWhiteSpace(profile.Name) ? "DDS 프로필" : profile.Name.Trim();
@@ -399,6 +469,65 @@ public sealed class DdsProfileService
         if (duplicateId != null) throw new InvalidOperationException($"중복 DDS 프로필 ID가 있습니다: {duplicateId.Key}");
         var duplicateName = catalog.Profiles.GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(group => group.Count() > 1);
         if (duplicateName != null) throw new InvalidOperationException($"중복 DDS 프로필 이름이 있습니다: {duplicateName.Key}");
+    }
+
+    private static void MigrateLegacyProfile(DdsXmlProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.DdsSimXml) && !string.IsNullOrWhiteSpace(profile.LegacyTypesXml))
+            profile.DdsSimXml = profile.LegacyTypesXml;
+
+        if ((!string.IsNullOrWhiteSpace(profile.TopicsXml) && !string.IsNullOrWhiteSpace(profile.QosProfilesXml)) ||
+            string.IsNullOrWhiteSpace(profile.LegacyConfigXml))
+        {
+            profile.LegacyTypesXml = null;
+            profile.LegacyConfigXml = null;
+            return;
+        }
+
+        var legacy = XDocument.Parse(profile.LegacyConfigXml);
+        var root = legacy.Root ?? throw new InvalidOperationException("기존 토픽/QoS XML root가 없습니다.");
+        var topics = root.Name.LocalName == "topics"
+            ? root
+            : root.Elements().FirstOrDefault(element => element.Name.LocalName == "topics");
+        var dds = root.Name.LocalName == "dds"
+            ? root
+            : root.Elements().FirstOrDefault(element => element.Name.LocalName == "dds");
+        var library = dds?.Elements().FirstOrDefault(element => element.Name.LocalName == "qos_library");
+
+        if (topics != null && string.IsNullOrWhiteSpace(profile.TopicsXml))
+        {
+            profile.TopicsXml = new XDocument(
+                new XDeclaration("1.0", "UTF-8", null),
+                new XElement("topics", topics.Elements().Where(element => element.Name.LocalName == "topic").Select(ToDdsClientTopic)))
+                .ToString();
+        }
+        if (library != null && string.IsNullOrWhiteSpace(profile.QosProfilesXml))
+        {
+            library.SetAttributeValue("name", DdsConfigParser.RequiredQosLibraryName);
+            profile.QosProfilesXml = new XDocument(
+                new XDeclaration("1.0", "UTF-8", null),
+                new XElement("dds", new XElement(library))).ToString();
+        }
+
+        profile.LegacyTypesXml = null;
+        profile.LegacyConfigXml = null;
+    }
+
+    private static XElement ToDdsClientTopic(XElement source)
+    {
+        var name = source.Attribute("name")?.Value?.Trim()
+                   ?? source.Elements().FirstOrDefault(element => element.Name.LocalName == "topic_name")?.Value.Trim()
+                   ?? string.Empty;
+        var qos = source.Attribute("qos_profile")?.Value?.Trim()
+                  ?? source.Elements().FirstOrDefault(element => element.Name.LocalName == "qos_profile")?.Value.Trim()
+                  ?? string.Empty;
+        var direction = source.Attribute("direction")?.Value?.Trim()
+                        ?? source.Elements().FirstOrDefault(element => element.Name.LocalName == "direction")?.Value.Trim()
+                        ?? string.Empty;
+        return new XElement("topic",
+            new XAttribute("name", name),
+            new XAttribute("qos_profile", qos),
+            new XAttribute("direction", direction));
     }
 
     private void EnsureActiveProfilesAreUnchanged(DdsProfileCatalog current, DdsProfileCatalog proposed)
@@ -420,15 +549,17 @@ public sealed class DdsProfileService
 
     private static bool ProfileContentEquals(DdsXmlProfile left, DdsXmlProfile right)
         => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
-           && string.Equals(left.TypesXml, right.TypesXml, StringComparison.Ordinal)
-           && string.Equals(left.ConfigXml, right.ConfigXml, StringComparison.Ordinal);
+           && string.Equals(left.DdsSimXml, right.DdsSimXml, StringComparison.Ordinal)
+           && string.Equals(left.TopicsXml, right.TopicsXml, StringComparison.Ordinal)
+           && string.Equals(left.QosProfilesXml, right.QosProfilesXml, StringComparison.Ordinal);
 
     private static DdsXmlProfile CloneProfile(DdsXmlProfile profile) => new()
     {
         Id = profile.Id,
         Name = profile.Name,
-        TypesXml = profile.TypesXml,
-        ConfigXml = profile.ConfigXml,
+        DdsSimXml = profile.DdsSimXml,
+        TopicsXml = profile.TopicsXml,
+        QosProfilesXml = profile.QosProfilesXml,
         UpdatedAtUtc = profile.UpdatedAtUtc,
     };
 

@@ -18,19 +18,26 @@ and assembling repeatable trigger and scenario workflows.
 
 ## DDS XML profiles
 
-The new-session screen seeds a `기본 DDSSim` profile from `samples/dds` on first
-use. Each profile bundles the RTI type XML with its topic/QoS configuration so a
-user can keep multiple message contracts without rebuilding the application.
-Profiles are stored by the Signal Forge service in `data/dds-profiles.json`,
-shared across connected browsers, validated before saving, and can be exported
-or imported as JSON. Set `DdsProfiles__StoragePath` to use another path.
+The new-session screen seeds a `기본 DDSSim` profile from the same three-file
+contract used by DDSClient: `DDSSim.xml`, `topics.xml`, and `qos_profiles.xml`.
+Each profile stores those files separately so a user can keep multiple message
+contracts without rebuilding Signal Forge. `topics.xml` names must match direct
+`MSG` module structs and QoS references resolve through the fixed
+`AmbassadorProfiles` library, matching DDSClient validation.
+Each profile is stored as physical `DDSSim.xml`, `topics.xml`, and
+`qos_profiles.xml` files under `data/dds-profiles/<profile-id>/`. The sibling
+`data/dds-profiles.json` file contains only the profile catalog metadata and
+revision. Profiles are shared across connected browsers, validated before
+saving, and can be exported or imported as JSON. Set
+`DdsProfiles__StoragePath` to move the catalog; the profile directories use the
+catalog filename without its extension.
 
 The profile store keeps a `.bak` recovery copy, uses an inter-process lock, and limits profile/XML sizes.
 For a shared deployment, set `AccessControl__Username` and `AccessControl__Password` to require HTTP Basic authentication.
 Run one application replica per profile volume; use a database-backed store before scaling replicas across hosts.
 The profile editor provides topic CRUD and common writer/reader QoS controls.
-Advanced RTI policies remain available in the raw XML editor and are preserved
-when structured changes are applied.
+Each source file has its own raw XML tab. Advanced RTI policies remain available
+in `qos_profiles.xml` and are preserved when structured changes are applied.
 
 Message types are edited with structured forms instead of requiring full XML
 editing. The editor covers the Connext 7.3 runtime type constructs used by

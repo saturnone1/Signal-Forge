@@ -1,11 +1,12 @@
 using System.Xml.Linq;
+using ASAP.Dds;
 using ASAP.Models.Dds;
 
 namespace ASAP.Services;
 
 public sealed class DdsConfigEditorState
 {
-    public string QosLibraryName { get; set; } = "SignalForgeProfiles";
+    public string QosLibraryName { get; set; } = DdsConfigParser.RequiredQosLibraryName;
     public List<DdsTopicEditorItem> Topics { get; set; } = [];
     public List<DdsQosEditorItem> QosProfiles { get; set; } = [];
 }
@@ -13,8 +14,16 @@ public sealed class DdsConfigEditorState
 public sealed class DdsTopicEditorItem
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = "Topic";
-    public string TypeName { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string TypeName
+    {
+        get => string.IsNullOrWhiteSpace(Name) ? string.Empty : $"MSG::{Name}";
+        set
+        {
+            if (value.StartsWith("MSG::", StringComparison.Ordinal))
+                Name = value["MSG::".Length..];
+        }
+    }
     public DdsTopicDirection Direction { get; set; } = DdsTopicDirection.Both;
     public string QosProfileName { get; set; } = string.Empty;
     public string? SourceXml { get; set; }
@@ -35,6 +44,8 @@ public sealed class DdsQosEditorItem
     public string ReaderDurability { get; set; } = DdsConfigProfileEditor.Volatile;
 }
 
+public sealed record DdsConfigXmlFiles(string TopicsXml, string QosProfilesXml);
+
 public static class DdsConfigProfileEditor
 {
     public const string Reliable = "RELIABLE_RELIABILITY_QOS";
@@ -46,77 +57,97 @@ public static class DdsConfigProfileEditor
     public const string Transient = "TRANSIENT_DURABILITY_QOS";
     public const string Persistent = "PERSISTENT_DURABILITY_QOS";
 
-    public static DdsConfigEditorState Parse(string xml)
+    public static DdsConfigEditorState Parse(string topicsXml, string qosProfilesXml)
     {
-        var document = XDocument.Parse(xml);
-        var root = document.Root ?? throw new InvalidOperationException("토픽/QoS XML root가 없습니다.");
-        var dds = root.Name.LocalName == "dds" ? root : Child(root, "dds");
-        var library = dds == null ? null : Child(dds, "qos_library");
-        var topics = Child(root, "topics");
+        var topicsDocument = XDocument.Parse(topicsXml);
+        if (topicsDocument.Root?.Name.LocalName != "topics")
+            throw new InvalidOperationException("topics.xml root는 <topics>여야 합니다.");
 
-        var state = new DdsConfigEditorState
-        {
-            QosLibraryName = library?.Attribute("name")?.Value ?? "SignalForgeProfiles",
-        };
+        var qosDocument = XDocument.Parse(qosProfilesXml);
+        if (qosDocument.Root?.Name.LocalName != "dds")
+            throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
+        var library = qosDocument.Root.DescendantsAndSelf()
+            .FirstOrDefault(element =>
+                element.Name.LocalName == "qos_library" &&
+                string.Equals(element.Attribute("name")?.Value, DdsConfigParser.RequiredQosLibraryName, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"qos_profiles.xml에 <qos_library name=\"{DdsConfigParser.RequiredQosLibraryName}\">가 필요합니다.");
 
-        if (topics != null)
+        var state = new DdsConfigEditorState();
+        foreach (var topic in topicsDocument.Root.Elements().Where(element => element.Name.LocalName == "topic"))
         {
-            foreach (var topic in Children(topics, "topic"))
+            var name = topic.Attribute("name")?.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            state.Topics.Add(new DdsTopicEditorItem
             {
-                var name = Child(topic, "topic_name")?.Value?.Trim();
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                state.Topics.Add(new DdsTopicEditorItem
-                {
-                    Name = name,
-                    TypeName = Child(topic, "type_name")?.Value?.Trim() ?? string.Empty,
-                    Direction = Enum.TryParse<DdsTopicDirection>(Child(topic, "direction")?.Value, true, out var direction)
-                        ? direction
-                        : DdsTopicDirection.Both,
-                    QosProfileName = Child(topic, "qos_profile")?.Value?.Trim() ?? string.Empty,
-                    SourceXml = topic.ToString(SaveOptions.DisableFormatting),
-                });
-            }
+                Name = name,
+                Direction = Enum.TryParse<DdsTopicDirection>(topic.Attribute("direction")?.Value, false, out var direction)
+                    ? direction
+                    : DdsTopicDirection.Both,
+                QosProfileName = topic.Attribute("qos_profile")?.Value?.Trim() ?? string.Empty,
+                SourceXml = topic.ToString(SaveOptions.DisableFormatting),
+            });
         }
 
-        if (library != null)
+        foreach (var profile in library.Elements().Where(element => element.Name.LocalName == "qos_profile"))
         {
-            foreach (var profile in Children(library, "qos_profile"))
+            var name = profile.Attribute("name")?.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            state.QosProfiles.Add(new DdsQosEditorItem
             {
-                var name = profile.Attribute("name")?.Value?.Trim();
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                state.QosProfiles.Add(new DdsQosEditorItem
-                {
-                    OriginalName = name,
-                    Name = name,
-                    WriterReliability = PolicyValue(profile, "datawriter_qos", "reliability", "kind", Reliable),
-                    ReaderReliability = PolicyValue(profile, "datareader_qos", "reliability", "kind", Reliable),
-                    WriterHistory = PolicyValue(profile, "datawriter_qos", "history", "kind", KeepLast),
-                    ReaderHistory = PolicyValue(profile, "datareader_qos", "history", "kind", KeepLast),
-                    WriterHistoryDepth = PolicyInt(profile, "datawriter_qos", "history", "depth", 1),
-                    ReaderHistoryDepth = PolicyInt(profile, "datareader_qos", "history", "depth", 1),
-                    WriterDurability = PolicyValue(profile, "datawriter_qos", "durability", "kind", Volatile),
-                    ReaderDurability = PolicyValue(profile, "datareader_qos", "durability", "kind", Volatile),
-                });
-            }
+                OriginalName = name,
+                Name = name,
+                WriterReliability = PolicyValue(profile, "datawriter_qos", "reliability", "kind", Reliable),
+                ReaderReliability = PolicyValue(profile, "datareader_qos", "reliability", "kind", Reliable),
+                WriterHistory = PolicyValue(profile, "datawriter_qos", "history", "kind", KeepLast),
+                ReaderHistory = PolicyValue(profile, "datareader_qos", "history", "kind", KeepLast),
+                WriterHistoryDepth = PolicyInt(profile, "datawriter_qos", "history", "depth", 1),
+                ReaderHistoryDepth = PolicyInt(profile, "datareader_qos", "history", "depth", 1),
+                WriterDurability = PolicyValue(profile, "datawriter_qos", "durability", "kind", Volatile),
+                ReaderDurability = PolicyValue(profile, "datareader_qos", "durability", "kind", Volatile),
+            });
         }
-
         return state;
     }
 
-    public static string Apply(string originalXml, DdsConfigEditorState state)
+    public static DdsConfigXmlFiles Apply(
+        string originalTopicsXml,
+        string originalQosProfilesXml,
+        DdsConfigEditorState state)
     {
         ValidateState(state);
-        var document = XDocument.Parse(originalXml);
-        var root = document.Root ?? throw new InvalidOperationException("토픽/QoS XML root가 없습니다.");
-        var dds = root.Name.LocalName == "dds" ? root : EnsureChild(root, "dds");
-        var library = EnsureChild(dds, "qos_library");
-        library.SetAttributeValue("name", state.QosLibraryName.Trim());
 
-        var existingProfiles = Children(library, "qos_profile")
-            .Where(element => !string.IsNullOrWhiteSpace(element.Attribute("name")?.Value))
+        var topicsDocument = XDocument.Parse(originalTopicsXml);
+        var topicsRoot = topicsDocument.Root?.Name.LocalName == "topics"
+            ? topicsDocument.Root
+            : throw new InvalidOperationException("topics.xml root는 <topics>여야 합니다.");
+        topicsRoot.Elements().Where(element => element.Name.LocalName == "topic").Remove();
+        foreach (var draft in state.Topics)
+        {
+            XElement topic;
+            try { topic = string.IsNullOrWhiteSpace(draft.SourceXml) ? new XElement("topic") : XElement.Parse(draft.SourceXml); }
+            catch { topic = new XElement("topic"); }
+            topic.RemoveAttributes();
+            topic.RemoveNodes();
+            topic.SetAttributeValue("name", draft.Name.Trim());
+            topic.SetAttributeValue("qos_profile", draft.QosProfileName.Trim());
+            topic.SetAttributeValue("direction", draft.Direction.ToString());
+            topicsRoot.Add(topic);
+        }
+
+        var qosDocument = XDocument.Parse(originalQosProfilesXml);
+        if (qosDocument.Root?.Name.LocalName != "dds")
+            throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
+        var library = qosDocument.Root.DescendantsAndSelf()
+            .FirstOrDefault(element => element.Name.LocalName == "qos_library")
+            ?? throw new InvalidOperationException("qos_profiles.xml에 qos_library가 없습니다.");
+        library.SetAttributeValue("name", DdsConfigParser.RequiredQosLibraryName);
+
+        var existingProfiles = library.Elements()
+            .Where(element => element.Name.LocalName == "qos_profile" &&
+                              !string.IsNullOrWhiteSpace(element.Attribute("name")?.Value))
             .ToDictionary(element => element.Attribute("name")!.Value, StringComparer.OrdinalIgnoreCase);
-        Children(library, "qos_profile").Remove();
-
+        library.Elements().Where(element => element.Name.LocalName == "qos_profile").Remove();
         foreach (var draft in state.QosProfiles)
         {
             var profile = draft.OriginalName != null && existingProfiles.TryGetValue(draft.OriginalName, out var existing)
@@ -132,39 +163,17 @@ public static class DdsConfigProfileEditor
             library.Add(profile);
         }
 
-        if (root.Name.LocalName == "dds")
-        {
-            root = new XElement("dds-ambassador-config", new XElement(root), new XElement("topics"));
-            document = new XDocument(document.Declaration, root);
-        }
-
-        var topics = EnsureChild(root, "topics");
-        Children(topics, "topic").Remove();
-        foreach (var draft in state.Topics)
-        {
-            XElement topic;
-            try { topic = string.IsNullOrWhiteSpace(draft.SourceXml) ? new XElement("topic") : XElement.Parse(draft.SourceXml); }
-            catch { topic = new XElement("topic"); }
-            topic.Elements().Where(element => element.Name.LocalName is "topic_name" or "type_name" or "direction" or "qos_profile").Remove();
-            topic.Add(new XElement("topic_name", draft.Name.Trim()), new XElement("type_name", draft.TypeName.Trim()),
-                new XElement("direction", draft.Direction), new XElement("qos_profile", draft.QosProfileName.Trim()));
-            topics.Add(topic);
-        }
-
-        return document.ToString();
+        return new DdsConfigXmlFiles(topicsDocument.ToString(), qosDocument.ToString());
     }
 
     public static void ValidateState(DdsConfigEditorState state)
     {
-        if (string.IsNullOrWhiteSpace(state.QosLibraryName))
-            throw new InvalidOperationException("QoS 라이브러리 이름을 입력하세요.");
+        if (!string.Equals(state.QosLibraryName, DdsConfigParser.RequiredQosLibraryName, StringComparison.Ordinal))
+            throw new InvalidOperationException($"QoS 라이브러리는 '{DdsConfigParser.RequiredQosLibraryName}'여야 합니다.");
         if (state.QosProfiles.Count == 0)
             throw new InvalidOperationException("QoS 프로필을 하나 이상 추가하세요.");
         if (state.Topics.Count == 0)
             throw new InvalidOperationException("토픽을 하나 이상 추가하세요.");
-
-        try { System.Xml.XmlConvert.VerifyNCName(state.QosLibraryName.Trim()); }
-        catch { throw new InvalidOperationException("QoS 라이브러리 이름은 올바른 XML/IDL 식별자여야 합니다."); }
 
         var reliabilityKinds = new HashSet<string>([Reliable, BestEffort], StringComparer.Ordinal);
         var historyKinds = new HashSet<string>([KeepLast, KeepAll], StringComparer.Ordinal);
@@ -175,27 +184,27 @@ public static class DdsConfigProfileEditor
                 !historyKinds.Contains(profile.WriterHistory) || !historyKinds.Contains(profile.ReaderHistory) ||
                 !durabilityKinds.Contains(profile.WriterDurability) || !durabilityKinds.Contains(profile.ReaderDurability))
                 throw new InvalidOperationException($"QoS 프로필 '{profile.Name}'에 지원하지 않는 정책 값이 있습니다.");
-            if (profile.WriterHistory == KeepLast && profile.WriterHistoryDepth < 1 || profile.ReaderHistory == KeepLast && profile.ReaderHistoryDepth < 1)
+            if (profile.WriterHistory == KeepLast && profile.WriterHistoryDepth < 1 ||
+                profile.ReaderHistory == KeepLast && profile.ReaderHistoryDepth < 1)
                 throw new InvalidOperationException($"QoS 프로필 '{profile.Name}'의 KEEP_LAST depth는 1 이상이어야 합니다.");
         }
 
         var duplicateQos = state.QosProfiles
-            .GroupBy(profile => profile.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(profile => profile.Name.Trim(), StringComparer.Ordinal)
             .FirstOrDefault(group => string.IsNullOrWhiteSpace(group.Key) || group.Count() > 1);
         if (duplicateQos != null)
             throw new InvalidOperationException("QoS 프로필 이름은 비어 있거나 중복될 수 없습니다.");
+        var qosNames = state.QosProfiles.Select(profile => profile.Name.Trim()).ToHashSet(StringComparer.Ordinal);
 
-        var qosNames = state.QosProfiles.Select(profile => profile.Name.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var duplicateTopic = state.Topics
-            .GroupBy(topic => topic.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(topic => topic.Name.Trim(), StringComparer.Ordinal)
             .FirstOrDefault(group => string.IsNullOrWhiteSpace(group.Key) || group.Count() > 1);
         if (duplicateTopic != null)
             throw new InvalidOperationException("토픽 이름은 비어 있거나 중복될 수 없습니다.");
-
         foreach (var topic in state.Topics)
         {
-            if (string.IsNullOrWhiteSpace(topic.TypeName))
-                throw new InvalidOperationException($"토픽 '{topic.Name}'의 타입을 선택하세요.");
+            if (!DdsTypeProfileEditor.IsValidIdentifier(topic.Name))
+                throw new InvalidOperationException($"토픽 '{topic.Name}'은 올바른 MSG struct 이름이 아닙니다.");
             if (!qosNames.Contains(topic.QosProfileName))
                 throw new InvalidOperationException($"토픽 '{topic.Name}'이 존재하지 않는 QoS '{topic.QosProfileName}'을 참조합니다.");
         }
@@ -207,13 +216,9 @@ public static class DdsConfigProfileEditor
         var history = EnsureChild(EnsureChild(profile, endpointName), "history");
         var depthElement = Child(history, "depth");
         if (kind == KeepLast)
-        {
             (depthElement ?? EnsureChild(history, "depth")).Value = depth.ToString();
-        }
         else
-        {
             depthElement?.Remove();
-        }
     }
 
     private static void SetPolicy(XElement profile, string endpointName, string policyName, string valueName, string value)
@@ -240,7 +245,4 @@ public static class DdsConfigProfileEditor
 
     private static XElement? Child(XElement? parent, string localName)
         => parent?.Elements().FirstOrDefault(element => element.Name.LocalName == localName);
-
-    private static IEnumerable<XElement> Children(XElement parent, string localName)
-        => parent.Elements().Where(element => element.Name.LocalName == localName);
 }

@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ── topics: Ambassador 토픽 배포 설정 ──────────────────────────────────────────────
-  RTI rtiddsgen은 이 파일을 사용하지 않습니다. tools/idl2code가 파싱하여
-  dds-config.xml <topics> 섹션을 자동 생성합니다.
+  topics: Ambassador DDS topic distribution settings.
+  RTI rtiddsgen uses DDSSim.xml for type generation. The runtime client reads
+  this file to decide which topics may publish, subscribe, or both.
 
-  새 MSG 타입을 DDSSim.xml에 추가했다면 이 파일에도 <topic> 항목을 추가하세요.
-  누락된 항목은 idl2code 실행 시 경고와 함께 기본값으로 자동 보완됩니다.
+  When a new MSG struct is added to DDSSim.xml, add a matching <topic> item here.
 
-  속성 설명:
-    name        MSG module 구조체 이름 (TopicName으로 사용)
+  Attributes:
+    name        MSG module struct name, also used as the DDS topic name
     qos_profile ReliableRealtime | BestEffort | ReliableTransient | Event | Ownership
     direction   Both | Publish | Subscribe
 -->

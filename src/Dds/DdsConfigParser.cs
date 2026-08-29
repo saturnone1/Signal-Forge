@@ -4,93 +4,85 @@ using ASAP.Models.Dds;
 namespace ASAP.Dds;
 
 /// <summary>
-/// dds-config.xml (ddsAmbassador unified format) 파싱.
-/// 두 형식 모두 지원:
-///   1. <dds-ambassador-config> wrapper — ambassador 호환
-///   2. 순수 <dds> root — RTI 표준 형식 (qos_library만 있을 때)
+/// DDSClient의 definitions/topics.xml 및 definitions/qos_profiles.xml 계약을 파싱한다.
+/// topic 이름은 DDSSim.xml의 MSG struct 이름이며 런타임 타입은 MSG::{name}이다.
 /// </summary>
 public static class DdsConfigParser
 {
+    public const string RequiredQosLibraryName = "AmbassadorProfiles";
+
     public sealed record ParseResult(
         IReadOnlyList<DdsTopicConfig> Topics,
         IReadOnlyList<string> QosProfileNames,
         string QosLibraryName,
-        string? QosProfilesXml);
+        string QosProfilesXml);
 
-    public static ParseResult Parse(string xmlContent)
+    public static ParseResult Parse(string topicsXml, string qosProfilesXml)
     {
-        var doc = XDocument.Parse(xmlContent);
-        var root = doc.Root ?? throw new InvalidOperationException("dds-config.xml: root 엘리먼트 없음");
+        var qosDocument = XDocument.Parse(qosProfilesXml);
+        if (qosDocument.Root?.Name.LocalName != "dds")
+            throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
 
-        // 두 root 형식 모두 처리
-        var ddsElement = root.Name.LocalName == "dds"
-            ? root
-            : Child(root, "dds");
+        var library = qosDocument.Root.DescendantsAndSelf()
+            .Where(element => element.Name.LocalName == "qos_library")
+            .FirstOrDefault(element => string.Equals(
+                element.Attribute("name")?.Value,
+                RequiredQosLibraryName,
+                StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"qos_profiles.xml에 <qos_library name=\"{RequiredQosLibraryName}\">가 필요합니다.");
 
-        var topicsElement = Child(root, "topics");
+        var qosNames = library.Elements()
+            .Where(element => element.Name.LocalName == "qos_profile")
+            .Select(element => element.Attribute("name")?.Value?.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
+        if (qosNames.Count == 0)
+            throw new InvalidOperationException($"QoS 라이브러리 '{RequiredQosLibraryName}'에 프로필이 없습니다.");
+        if (qosNames.Distinct(StringComparer.Ordinal).Count() != qosNames.Count)
+            throw new InvalidOperationException("qos_profiles.xml에 중복 QoS 프로필 이름이 있습니다.");
 
-        var qosProfileNames = new List<string>();
-        var qosLibraryName = string.Empty;
-        string? qosProfilesXml = null;
-
-        if (ddsElement is not null)
-        {
-            var libraries = Children(ddsElement, "qos_library").ToList();
-            if (libraries.Count > 1)
-                throw new InvalidOperationException("Signal Forge 프로필에서는 QoS 라이브러리를 하나만 사용할 수 있습니다.");
-            var qosLibrary = libraries.SingleOrDefault();
-            if (qosLibrary is not null)
-            {
-                qosLibraryName = qosLibrary.Attribute("name")?.Value?.Trim() ?? string.Empty;
-                foreach (var profile in Children(qosLibrary, "qos_profile"))
-                {
-                    var name = profile.Attribute("name")?.Value;
-                    if (!string.IsNullOrWhiteSpace(name))
-                        qosProfileNames.Add(name);
-                }
-
-                // RTI QosProvider에 그대로 넘길 수 있는 standalone XML 추출
-                qosProfilesXml = new XDocument(
-                    new XDeclaration("1.0", "UTF-8", null),
-                    new XElement("dds", new XElement(qosLibrary))).ToString();
-            }
-        }
+        var topicsDocument = XDocument.Parse(topicsXml);
+        if (topicsDocument.Root?.Name.LocalName != "topics")
+            throw new InvalidOperationException("topics.xml root는 <topics>여야 합니다.");
 
         var topics = new List<DdsTopicConfig>();
-        if (topicsElement is not null)
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var qosSet = qosNames.ToHashSet(StringComparer.Ordinal);
+        foreach (var element in topicsDocument.Root.Elements().Where(element => element.Name.LocalName == "topic"))
         {
-            foreach (var t in Children(topicsElement, "topic"))
+            var name = RequiredAttribute(element, "name");
+            var qos = RequiredAttribute(element, "qos_profile");
+            var directionText = RequiredAttribute(element, "direction");
+            if (!seen.Add(name))
+                throw new InvalidOperationException($"topics.xml에 중복 토픽이 있습니다: {name}");
+            if (!qosSet.Contains(qos))
+                throw new InvalidOperationException(
+                    $"토픽 '{name}'이 없는 QoS '{RequiredQosLibraryName}::{qos}'을 참조합니다.");
+            if (!Enum.TryParse<DdsTopicDirection>(directionText, ignoreCase: false, out var direction))
+                throw new InvalidOperationException(
+                    $"토픽 '{name}'의 direction은 Both, Publish, Subscribe 중 하나여야 합니다: {directionText}");
+
+            topics.Add(new DdsTopicConfig
             {
-                var topicName = Child(t, "topic_name")?.Value?.Trim();
-                var typeName = Child(t, "type_name")?.Value?.Trim();
-                var directionRaw = Child(t, "direction")?.Value?.Trim();
-                var qos = Child(t, "qos_profile")?.Value?.Trim();
-
-                if (string.IsNullOrEmpty(topicName) ||
-                    string.IsNullOrEmpty(typeName) ||
-                    string.IsNullOrEmpty(directionRaw) ||
-                    string.IsNullOrEmpty(qos))
-                    continue;
-
-                if (!Enum.TryParse<DdsTopicDirection>(directionRaw, ignoreCase: true, out var direction))
-                    throw new InvalidOperationException($"토픽 '{topicName}'의 direction 값이 올바르지 않습니다: {directionRaw}");
-
-                topics.Add(new DdsTopicConfig
-                {
-                    TopicName = topicName,
-                    TypeName = typeName,
-                    Direction = direction,
-                    QosProfileName = qos,
-                });
-            }
+                TopicName = name,
+                TypeName = $"MSG::{name}",
+                Direction = direction,
+                QosProfileName = qos,
+            });
         }
+        if (topics.Count == 0)
+            throw new InvalidOperationException("topics.xml에 <topic>을 하나 이상 정의하세요.");
 
-        return new ParseResult(topics, qosProfileNames, qosLibraryName, qosProfilesXml);
+        return new ParseResult(topics, qosNames, RequiredQosLibraryName, qosProfilesXml);
     }
 
-    private static XElement? Child(XElement parent, string localName)
-        => parent.Elements().FirstOrDefault(element => element.Name.LocalName == localName);
-
-    private static IEnumerable<XElement> Children(XElement parent, string localName)
-        => parent.Elements().Where(element => element.Name.LocalName == localName);
+    private static string RequiredAttribute(XElement element, string name)
+    {
+        var value = element.Attribute(name)?.Value?.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException($"topics.xml의 <topic>에 '{name}' 속성이 필요합니다.");
+        return value;
+    }
 }

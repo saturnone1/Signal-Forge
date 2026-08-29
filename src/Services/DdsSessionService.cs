@@ -23,10 +23,9 @@ public sealed class DdsSessionCreateRequest
     public required string ProfileName { get; init; }
     public required DateTimeOffset ProfileUpdatedAtUtc { get; init; }
     public required DdsTransportSettings Transport { get; init; }
-    public required string TypesXmlContent { get; init; }
-    public string? TypesXmlFileName { get; init; }
-    public required string ConfigXmlContent { get; init; }
-    public string? ConfigXmlFileName { get; init; }
+    public required string DdsSimXmlContent { get; init; }
+    public required string TopicsXmlContent { get; init; }
+    public required string QosProfilesXmlContent { get; init; }
 }
 
 public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
@@ -48,10 +47,10 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
 
     public DdsSession Create(DdsSessionCreateRequest request)
     {
-        var configParse = DdsConfigParser.Parse(request.ConfigXmlContent);
-        var types = DdsTypeParser.Parse(request.TypesXmlContent);
+        var configParse = DdsConfigParser.Parse(request.TopicsXmlContent, request.QosProfilesXmlContent);
+        var types = DdsTypeParser.Parse(request.DdsSimXmlContent);
 
-        var host = _hostFactory.Create(request.Transport, request.TypesXmlContent, configParse.QosProfilesXml);
+        var host = _hostFactory.Create(request.Transport, request.DdsSimXmlContent, configParse.QosProfilesXml);
         try
         {
             if (string.IsNullOrWhiteSpace(configParse.QosLibraryName))
@@ -73,10 +72,9 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
             ProfileName = request.ProfileName,
             ProfileUpdatedAtUtc = request.ProfileUpdatedAtUtc,
             Transport = request.Transport,
-            TypesXmlContent = System.Text.Encoding.UTF8.GetBytes(request.TypesXmlContent),
-            TypesXmlFileName = request.TypesXmlFileName,
-            ConfigXmlContent = System.Text.Encoding.UTF8.GetBytes(request.ConfigXmlContent),
-            ConfigXmlFileName = request.ConfigXmlFileName,
+            DdsSimXmlContent = System.Text.Encoding.UTF8.GetBytes(request.DdsSimXmlContent),
+            TopicsXmlContent = System.Text.Encoding.UTF8.GetBytes(request.TopicsXmlContent),
+            QosProfilesXmlContent = System.Text.Encoding.UTF8.GetBytes(request.QosProfilesXmlContent),
             Topics = configParse.Topics.ToList(),
             Types = types,
             QosProfiles = configParse.QosProfileNames.ToList(),
