@@ -176,9 +176,9 @@ public sealed class DdsProfileService
         var profile = new DdsXmlProfile
         {
             Name = "기본 DDSSim",
-            DdsSimXml = await LoadSampleXmlAsync("DDSSim.xml", cancellationToken),
-            TopicsXml = await LoadSampleXmlAsync("topics.xml", cancellationToken),
-            QosProfilesXml = await LoadSampleXmlAsync("qos_profiles.xml", cancellationToken),
+            DdsSimXml = await LoadSampleXmlAsync(DdsProfileFiles.DdsSimFileName, cancellationToken),
+            TopicsXml = await LoadSampleXmlAsync(DdsProfileFiles.TopicsFileName, cancellationToken),
+            QosProfilesXml = await LoadSampleXmlAsync(DdsProfileFiles.QosProfilesFileName, cancellationToken),
         };
 
         return new DdsProfileCatalog
@@ -204,12 +204,10 @@ public sealed class DdsProfileService
         XDocument.Parse(profile.QosProfilesXml);
         if (ddsSimDocument.Root?.Name.LocalName != "dds")
             throw new InvalidOperationException("DDSSim.xml root는 <dds>여야 합니다.");
-        var msgModule = ddsSimDocument.Root.Descendants()
-            .FirstOrDefault(element => element.Name.LocalName == "module" &&
-                                       string.Equals(element.Attribute("name")?.Value, "MSG", StringComparison.Ordinal))
+        var msgModule = ddsSimDocument.Descendants("module")
+            .FirstOrDefault(element => string.Equals(element.Attribute("name")?.Value, "MSG", StringComparison.Ordinal))
             ?? throw new InvalidOperationException("DDSSim.xml에 <module name=\"MSG\">가 필요합니다.");
-        var msgStructNames = msgModule.Elements()
-            .Where(element => element.Name.LocalName == "struct")
+        var msgStructNames = msgModule.Elements("struct")
             .Select(element => element.Attribute("name")?.Value?.Trim())
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Select(name => name!)
@@ -346,9 +344,9 @@ public sealed class DdsProfileService
                 continue;
 
             var profileDirectory = ProfileDirectory(profile.Id);
-            var ddsSimPath = Path.Combine(profileDirectory, "DDSSim.xml");
-            var topicsPath = Path.Combine(profileDirectory, "topics.xml");
-            var qosPath = Path.Combine(profileDirectory, "qos_profiles.xml");
+            var ddsSimPath = Path.Combine(profileDirectory, DdsProfileFiles.DdsSimFileName);
+            var topicsPath = Path.Combine(profileDirectory, DdsProfileFiles.TopicsFileName);
+            var qosPath = Path.Combine(profileDirectory, DdsProfileFiles.QosProfilesFileName);
             if (!File.Exists(ddsSimPath) || !File.Exists(topicsPath) || !File.Exists(qosPath))
                 throw new InvalidOperationException($"프로필 '{profile.Name}'의 DDS 정의 3파일이 없습니다: {profileDirectory}");
             profile.DdsSimXml = await File.ReadAllTextAsync(ddsSimPath, cancellationToken);
@@ -361,9 +359,9 @@ public sealed class DdsProfileService
     {
         var profileDirectory = ProfileDirectory(profile.Id);
         Directory.CreateDirectory(profileDirectory);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "DDSSim.xml"), profile.DdsSimXml, cancellationToken);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "topics.xml"), profile.TopicsXml, cancellationToken);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, "qos_profiles.xml"), profile.QosProfilesXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.DdsSimFileName), profile.DdsSimXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.TopicsFileName), profile.TopicsXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.QosProfilesFileName), profile.QosProfilesXml, cancellationToken);
     }
 
     private static async Task WriteTextAtomicAsync(string path, string content, CancellationToken cancellationToken)

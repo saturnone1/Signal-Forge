@@ -50,7 +50,11 @@ public sealed class DdsSessionService : IDdsSessionService, IAsyncDisposable
         var configParse = DdsConfigParser.Parse(request.TopicsXmlContent, request.QosProfilesXmlContent);
         var types = DdsTypeParser.Parse(request.DdsSimXmlContent);
 
-        var host = _hostFactory.Create(request.Transport, request.DdsSimXmlContent, configParse.QosProfilesXml);
+        var host = _hostFactory.Create(
+            request.Transport,
+            request.DdsSimXmlContent,
+            request.TopicsXmlContent,
+            request.QosProfilesXmlContent);
         try
         {
             if (string.IsNullOrWhiteSpace(configParse.QosLibraryName))

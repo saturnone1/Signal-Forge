@@ -59,6 +59,7 @@ public static class DdsConfigProfileEditor
 
     public static DdsConfigEditorState Parse(string topicsXml, string qosProfilesXml)
     {
+        DdsConfigParser.Parse(topicsXml, qosProfilesXml);
         var topicsDocument = XDocument.Parse(topicsXml);
         if (topicsDocument.Root?.Name.LocalName != "topics")
             throw new InvalidOperationException("topics.xml root는 <topics>여야 합니다.");
@@ -66,15 +67,14 @@ public static class DdsConfigProfileEditor
         var qosDocument = XDocument.Parse(qosProfilesXml);
         if (qosDocument.Root?.Name.LocalName != "dds")
             throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
-        var library = qosDocument.Root.DescendantsAndSelf()
+        var library = qosDocument.Descendants("qos_library")
             .FirstOrDefault(element =>
-                element.Name.LocalName == "qos_library" &&
                 string.Equals(element.Attribute("name")?.Value, DdsConfigParser.RequiredQosLibraryName, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"qos_profiles.xml에 <qos_library name=\"{DdsConfigParser.RequiredQosLibraryName}\">가 필요합니다.");
 
         var state = new DdsConfigEditorState();
-        foreach (var topic in topicsDocument.Root.Elements().Where(element => element.Name.LocalName == "topic"))
+        foreach (var topic in topicsDocument.Root.Elements("topic"))
         {
             var name = topic.Attribute("name")?.Value?.Trim();
             if (string.IsNullOrWhiteSpace(name)) continue;
@@ -89,7 +89,7 @@ public static class DdsConfigProfileEditor
             });
         }
 
-        foreach (var profile in library.Elements().Where(element => element.Name.LocalName == "qos_profile"))
+        foreach (var profile in library.Elements("qos_profile"))
         {
             var name = profile.Attribute("name")?.Value?.Trim();
             if (string.IsNullOrWhiteSpace(name)) continue;
@@ -121,7 +121,7 @@ public static class DdsConfigProfileEditor
         var topicsRoot = topicsDocument.Root?.Name.LocalName == "topics"
             ? topicsDocument.Root
             : throw new InvalidOperationException("topics.xml root는 <topics>여야 합니다.");
-        topicsRoot.Elements().Where(element => element.Name.LocalName == "topic").Remove();
+        topicsRoot.Elements("topic").Remove();
         foreach (var draft in state.Topics)
         {
             XElement topic;
@@ -138,16 +138,14 @@ public static class DdsConfigProfileEditor
         var qosDocument = XDocument.Parse(originalQosProfilesXml);
         if (qosDocument.Root?.Name.LocalName != "dds")
             throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
-        var library = qosDocument.Root.DescendantsAndSelf()
-            .FirstOrDefault(element => element.Name.LocalName == "qos_library")
+        var library = qosDocument.Descendants("qos_library").FirstOrDefault()
             ?? throw new InvalidOperationException("qos_profiles.xml에 qos_library가 없습니다.");
         library.SetAttributeValue("name", DdsConfigParser.RequiredQosLibraryName);
 
-        var existingProfiles = library.Elements()
-            .Where(element => element.Name.LocalName == "qos_profile" &&
-                              !string.IsNullOrWhiteSpace(element.Attribute("name")?.Value))
+        var existingProfiles = library.Elements("qos_profile")
+            .Where(element => !string.IsNullOrWhiteSpace(element.Attribute("name")?.Value))
             .ToDictionary(element => element.Attribute("name")!.Value, StringComparer.OrdinalIgnoreCase);
-        library.Elements().Where(element => element.Name.LocalName == "qos_profile").Remove();
+        library.Elements("qos_profile").Remove();
         foreach (var draft in state.QosProfiles)
         {
             var profile = draft.OriginalName != null && existingProfiles.TryGetValue(draft.OriginalName, out var existing)

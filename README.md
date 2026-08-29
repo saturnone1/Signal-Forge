@@ -27,8 +27,9 @@ contracts without rebuilding Signal Forge. `topics.xml` names must match direct
 Each profile is stored as physical `DDSSim.xml`, `topics.xml`, and
 `qos_profiles.xml` files under `data/dds-profiles/<profile-id>/`. The sibling
 `data/dds-profiles.json` file contains only the profile catalog metadata and
-revision. Profiles are shared across connected browsers, validated before
-saving, and can be exported or imported as JSON. Set
+revision. Profiles are shared across connected browsers and validated before
+saving. Import selects, and export downloads, the exact three DDSClient XML
+files directly; no Signal Forge-specific JSON or archive format is involved. Set
 `DdsProfiles__StoragePath` to move the catalog; the profile directories use the
 catalog filename without its extension.
 

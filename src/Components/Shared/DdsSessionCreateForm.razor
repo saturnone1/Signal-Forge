@@ -1,4 +1,3 @@
-@using System.Text.Json
 @using ASAP.Models.Dds
 @using ASAP.Models.Session
 @using ASAP.Services
@@ -41,16 +40,19 @@
                 </MudSelect>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Edit"
                            OnClick="BeginEditProfile" Disabled="@(SelectedProfile == null || SelectedProfileActiveSessionCount > 0)">편집</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.CreateNewFolder"
+                           OnClick="BeginNewDefaultProfile">새 프로필</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy"
                            OnClick="BeginNewProfile" Disabled="@(SelectedProfile == null)">복제</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Download"
-                           OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">내보내기</MudButton>
+                           OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">세 XML 내보내기</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh"
                            OnClick="ReloadProfiles">새로고침</MudButton>
-                <MudFileUpload T="IBrowserFile" FilesChanged="ImportProfile" Accept=".json,application/json">
+                <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="ImportProfileFiles"
+                               Accept=".xml,text/xml,application/xml" MaximumFileCount="3">
                     <ActivatorContent>
                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Upload">가져오기</MudButton>
+                                   StartIcon="@Icons.Material.Filled.Upload">세 XML 가져오기</MudButton>
                     </ActivatorContent>
                 </MudFileUpload>
             </div>
@@ -91,7 +93,7 @@
                                 <MudFileUpload T="IBrowserFile" FilesChanged="LoadTypesIntoEditor" Accept=".xml,text/xml,application/xml">
                                     <ActivatorContent>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">XML 파일 불러오기</MudButton>
+                                                   StartIcon="@Icons.Material.Filled.UploadFile">DDSSim.xml 불러오기</MudButton>
                                     </ActivatorContent>
                                 </MudFileUpload>
                                 <span class="wb-inline-note">XML 전체를 직접 수정하지 않고 IDL 타입 구조를 편집합니다.</span>
@@ -252,7 +254,7 @@
                                 <MudFileUpload T="IBrowserFile" FilesChanged="LoadTypesIntoEditor" Accept=".xml,text/xml,application/xml">
                                     <ActivatorContent>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">XML 파일 불러오기</MudButton>
+                                                   StartIcon="@Icons.Material.Filled.UploadFile">DDSSim.xml 불러오기</MudButton>
                                     </ActivatorContent>
                                 </MudFileUpload>
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ApplyStructuredTypesToXml"
@@ -276,7 +278,7 @@
                                 <MudFileUpload T="IBrowserFile" FilesChanged="LoadTopicsIntoEditor" Accept=".xml,text/xml,application/xml">
                                     <ActivatorContent>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">XML 파일 불러오기</MudButton>
+                                                   StartIcon="@Icons.Material.Filled.UploadFile">topics.xml 불러오기</MudButton>
                                     </ActivatorContent>
                                 </MudFileUpload>
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ApplyStructuredConfigToXml"
@@ -301,7 +303,7 @@
                                 <MudFileUpload T="IBrowserFile" FilesChanged="LoadQosProfilesIntoEditor" Accept=".xml,text/xml,application/xml">
                                     <ActivatorContent>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">XML 파일 불러오기</MudButton>
+                                                   StartIcon="@Icons.Material.Filled.UploadFile">qos_profiles.xml 불러오기</MudButton>
                                     </ActivatorContent>
                                 </MudFileUpload>
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ApplyStructuredConfigToXml"
@@ -498,11 +500,28 @@
     private void BeginNewProfile()
     {
         if (SelectedProfile == null) return;
-        _editingProfile = SelectedProfile.Copy($"{SelectedProfile.Name} 복사본");
+        _editingProfile = SelectedProfile.Copy(UniqueProfileName($"{SelectedProfile.Name} 복사본"));
         _editingOriginalId = null;
         _profileError = null;
         _deleteArmed = false;
         LoadProfileEditors();
+    }
+
+    private async Task BeginNewDefaultProfile()
+    {
+        try
+        {
+            var defaults = await ProfileStore.CreateDefaultCatalogAsync();
+            _editingProfile = defaults.Profiles[0].Copy(UniqueProfileName("새 DDS 프로필"));
+            _editingOriginalId = null;
+            _profileError = null;
+            _deleteArmed = false;
+            LoadProfileEditors();
+        }
+        catch (Exception ex)
+        {
+            _profileError = $"기본 DDS 세 파일을 불러오지 못했습니다: {ex.Message}";
+        }
     }
 
     private void CancelProfileEdit()
@@ -596,26 +615,48 @@
     private async Task ExportSelectedProfile()
     {
         if (SelectedProfile == null) return;
-        var json = JsonSerializer.Serialize(SelectedProfile, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        try
         {
-            WriteIndented = true,
-        });
-        await JS.InvokeVoidAsync("workbench.downloadText", $"{SafeFileName(SelectedProfile.Name)}.dds-profile.json", json, "application/json;charset=utf-8");
+            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.DdsSimFileName,
+                SelectedProfile.DdsSimXml, "application/xml;charset=utf-8");
+            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.TopicsFileName,
+                SelectedProfile.TopicsXml, "application/xml;charset=utf-8");
+            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.QosProfilesFileName,
+                SelectedProfile.QosProfilesXml, "application/xml;charset=utf-8");
+            Snackbar.Add("DDSSim.xml, topics.xml, qos_profiles.xml 내보내기 완료", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _profileError = $"DDS 세 파일 내보내기 실패: {ex.Message}";
+        }
     }
 
-    private async Task ImportProfile(IBrowserFile? file)
+    private async Task ImportProfileFiles(IReadOnlyList<IBrowserFile>? files)
     {
-        if (file == null || _catalog == null) return;
+        if (files == null || _catalog == null) return;
 
         try
         {
-            var text = await ReadBrowserFile(file, 20 * 1024 * 1024);
-            var imported = JsonSerializer.Deserialize<DdsXmlProfile>(text, new JsonSerializerOptions(JsonSerializerDefaults.Web))
-                           ?? throw new InvalidOperationException("프로필 JSON 형식이 올바르지 않습니다.");
-            imported.Id = Guid.NewGuid().ToString("N");
-            imported.Name = string.IsNullOrWhiteSpace(imported.Name) ? "가져온 DDS 프로필" : imported.Name.Trim();
-            imported.UpdatedAtUtc = DateTimeOffset.UtcNow;
-            DdsProfileService.Validate(imported);
+            if (files.Count != 3)
+                throw new InvalidOperationException("DDSSim.xml, topics.xml, qos_profiles.xml 세 파일을 동시에 선택하세요.");
+            var duplicates = files.GroupBy(file => file.Name, StringComparer.Ordinal)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicates != null)
+                throw new InvalidOperationException($"중복 선택된 파일이 있습니다: {duplicates.Key}");
+
+            var contents = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var file in files)
+            {
+                var maxSize = file.Name switch
+                {
+                    DdsProfileFiles.DdsSimFileName => 16 * 1024 * 1024,
+                    DdsProfileFiles.TopicsFileName => 4 * 1024 * 1024,
+                    DdsProfileFiles.QosProfilesFileName => 8 * 1024 * 1024,
+                    _ => throw new InvalidOperationException($"허용되지 않은 파일명입니다: {file.Name}"),
+                };
+                contents.Add(file.Name, await ReadBrowserFile(file, maxSize));
+            }
+            var imported = DdsProfileFiles.CreateProfile(UniqueProfileName("가져온 DDS 프로필"), contents);
             var catalogToSave = CloneCatalog(_catalog);
             catalogToSave.Profiles.Add(imported);
             await ProfileStore.SaveAsync(catalogToSave);
@@ -633,22 +674,37 @@
     private async Task LoadTypesIntoEditor(IBrowserFile? file)
     {
         if (file == null || _editingProfile == null) return;
-        OnRawDdsSimXmlChanged(await ReadBrowserFile(file, 16 * 1024 * 1024));
-        ReloadStructuredTypes();
+        try
+        {
+            RequireFileName(file, DdsProfileFiles.DdsSimFileName);
+            OnRawDdsSimXmlChanged(await ReadBrowserFile(file, 16 * 1024 * 1024));
+            ReloadStructuredTypes();
+        }
+        catch (Exception ex) { _profileError = ex.Message; }
     }
 
     private async Task LoadTopicsIntoEditor(IBrowserFile? file)
     {
         if (file == null || _editingProfile == null) return;
-        OnRawTopicsXmlChanged(await ReadBrowserFile(file, 4 * 1024 * 1024));
-        ReloadStructuredConfig();
+        try
+        {
+            RequireFileName(file, DdsProfileFiles.TopicsFileName);
+            OnRawTopicsXmlChanged(await ReadBrowserFile(file, 4 * 1024 * 1024));
+            ReloadStructuredConfig();
+        }
+        catch (Exception ex) { _profileError = ex.Message; }
     }
 
     private async Task LoadQosProfilesIntoEditor(IBrowserFile? file)
     {
         if (file == null || _editingProfile == null) return;
-        OnRawQosProfilesXmlChanged(await ReadBrowserFile(file, 8 * 1024 * 1024));
-        ReloadStructuredConfig();
+        try
+        {
+            RequireFileName(file, DdsProfileFiles.QosProfilesFileName);
+            OnRawQosProfilesXmlChanged(await ReadBrowserFile(file, 8 * 1024 * 1024));
+            ReloadStructuredConfig();
+        }
+        catch (Exception ex) { _profileError = ex.Message; }
     }
 
     private void LoadProfileEditors()
@@ -953,10 +1009,21 @@
         return await reader.ReadToEndAsync();
     }
 
-    private static string SafeFileName(string value)
+    private static void RequireFileName(IBrowserFile file, string expectedFileName)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var cleaned = new string(value.Select(character => invalid.Contains(character) ? '-' : character).ToArray()).Trim();
-        return string.IsNullOrWhiteSpace(cleaned) ? "dds-profile" : cleaned;
+        if (!string.Equals(file.Name, expectedFileName, StringComparison.Ordinal))
+            throw new InvalidOperationException($"이 위치에는 파일명이 정확히 '{expectedFileName}'인 파일을 불러오세요.");
     }
+
+    private string UniqueProfileName(string requestedName)
+    {
+        var baseName = string.IsNullOrWhiteSpace(requestedName) ? "가져온 DDS 프로필" : requestedName.Trim();
+        if (_catalog == null) return baseName;
+        var existing = _catalog.Profiles.Select(profile => profile.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!existing.Contains(baseName)) return baseName;
+        var index = 2;
+        while (existing.Contains($"{baseName} ({index})")) index++;
+        return $"{baseName} ({index})";
+    }
+
 }

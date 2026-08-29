@@ -23,8 +23,7 @@ public static class DdsConfigParser
         if (qosDocument.Root?.Name.LocalName != "dds")
             throw new InvalidOperationException("qos_profiles.xml root는 <dds>여야 합니다.");
 
-        var library = qosDocument.Root.DescendantsAndSelf()
-            .Where(element => element.Name.LocalName == "qos_library")
+        var library = qosDocument.Descendants("qos_library")
             .FirstOrDefault(element => string.Equals(
                 element.Attribute("name")?.Value,
                 RequiredQosLibraryName,
@@ -32,8 +31,7 @@ public static class DdsConfigParser
             ?? throw new InvalidOperationException(
                 $"qos_profiles.xml에 <qos_library name=\"{RequiredQosLibraryName}\">가 필요합니다.");
 
-        var qosNames = library.Elements()
-            .Where(element => element.Name.LocalName == "qos_profile")
+        var qosNames = library.Elements("qos_profile")
             .Select(element => element.Attribute("name")?.Value?.Trim())
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Select(name => name!)
@@ -50,7 +48,7 @@ public static class DdsConfigParser
         var topics = new List<DdsTopicConfig>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var qosSet = qosNames.ToHashSet(StringComparer.Ordinal);
-        foreach (var element in topicsDocument.Root.Elements().Where(element => element.Name.LocalName == "topic"))
+        foreach (var element in topicsDocument.Root.Elements("topic"))
         {
             var name = RequiredAttribute(element, "name");
             var qos = RequiredAttribute(element, "qos_profile");
@@ -60,9 +58,12 @@ public static class DdsConfigParser
             if (!qosSet.Contains(qos))
                 throw new InvalidOperationException(
                     $"토픽 '{name}'이 없는 QoS '{RequiredQosLibraryName}::{qos}'을 참조합니다.");
-            if (!Enum.TryParse<DdsTopicDirection>(directionText, ignoreCase: false, out var direction))
+            if (directionText is not nameof(DdsTopicDirection.Both) and
+                not nameof(DdsTopicDirection.Publish) and
+                not nameof(DdsTopicDirection.Subscribe))
                 throw new InvalidOperationException(
                     $"토픽 '{name}'의 direction은 Both, Publish, Subscribe 중 하나여야 합니다: {directionText}");
+            var direction = Enum.Parse<DdsTopicDirection>(directionText, ignoreCase: false);
 
             topics.Add(new DdsTopicConfig
             {

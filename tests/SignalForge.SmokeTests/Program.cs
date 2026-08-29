@@ -42,6 +42,9 @@ Check(topic.Attribute("name")?.Value == "T" && topic.Attribute("custom") == null
       !topic.HasElements, "DDSClient topic normalization");
 var parsedConfig = DdsConfigParser.Parse(applied.TopicsXml, applied.QosProfilesXml);
 Check(parsedConfig.Topics.Single().TypeName == "MSG::T", "DDSClient topic type mapping");
+ExpectFailure(
+    () => DdsConfigParser.Parse("<topics><topic name=\"T\" qos_profile=\"P\" direction=\"1\"/></topics>", qosProfilesXml),
+    "DDSClient direction names are exact");
 config.QosProfiles[0].WriterHistoryDepth = 0;
 ExpectFailure(() => DdsConfigProfileEditor.ValidateState(config), "invalid history depth");
 
@@ -65,6 +68,25 @@ DdsProfileService.Validate(new DdsXmlProfile
     TopicsXml = sampleTopics,
     QosProfilesXml = qosXml,
 });
+Check(DdsProfileFiles.RequiredFileNames.SequenceEqual(
+          new[] { "DDSSim.xml", "topics.xml", "qos_profiles.xml" }),
+      "DDSClient exact three file names");
+var importedFiles = DdsProfileFiles.CreateProfile("imported contract", new Dictionary<string, string>
+{
+    ["DDSSim.xml"] = sampleTypes,
+    ["topics.xml"] = sampleTopics,
+    ["qos_profiles.xml"] = qosXml,
+});
+Check(importedFiles.DdsSimXml == sampleTypes && importedFiles.TopicsXml == sampleTopics &&
+      importedFiles.QosProfilesXml == qosXml,
+      "three XML file import");
+ExpectFailure(
+    () => DdsProfileFiles.CreateProfile("missing file", new Dictionary<string, string>
+    {
+        ["DDSSim.xml"] = sampleTypes,
+        ["topics.xml"] = sampleTopics,
+    }),
+    "all three DDSClient files are required");
 var sampleTopicsDocument = XDocument.Parse(sampleTopics);
 var sampleQosDocument = XDocument.Parse(qosXml);
 var legacyConfig = new XDocument(new XElement("dds-ambassador-config",
@@ -85,7 +107,8 @@ Check(legacyProfile.DdsSimXml.Length > 0 && legacyProfile.TopicsXml.Length > 0 &
       legacyProfile.QosProfilesXml.Length > 0 && legacyProfile.LegacyConfigXml == null,
       "legacy profile migrated to three files");
 using var loggerFactory = LoggerFactory.Create(_ => { });
-var host = new DdsParticipantHostFactory(loggerFactory).Create(new DdsTransportSettings { DomainId = 0 }, sampleTypes, qosXml);
+var host = new DdsParticipantHostFactory(loggerFactory).Create(
+    new DdsTransportSettings { DomainId = 0 }, sampleTypes, sampleTopics, qosXml);
 host.ValidateQosProfile("AmbassadorProfiles::ReliableRealtime");
 await host.DisposeAsync();
 

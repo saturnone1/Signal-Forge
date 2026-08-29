@@ -166,38 +166,37 @@ public sealed class DdsParticipantHostFactory
 
     public DdsParticipantHost Create(
         DdsTransportSettings transport,
-        string typesXmlContent,
-        string? qosProfilesXml)
+        string ddsSimXmlContent,
+        string topicsXmlContent,
+        string qosProfilesXmlContent)
     {
-        // RTI QosProvider는 파일 경로로 동작 → 임시 디렉토리에 두 XML을 쓴다.
+        // 세션도 DDSClient와 동일한 세 파일 스냅샷을 사용한다.
+        // RTI QosProvider에는 이 중 DDSSim.xml과 qos_profiles.xml을 전달한다.
         var sessionTempDir = Path.Combine(Path.GetTempPath(), "asap-dds", System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(sessionTempDir);
         try
         {
-        var typesPath = Path.Combine(sessionTempDir, "types.xml");
-        File.WriteAllText(typesPath, typesXmlContent);
-
-        var urls = new List<string> { typesPath };
-        if (!string.IsNullOrWhiteSpace(qosProfilesXml))
-        {
+            var ddsSimPath = Path.Combine(sessionTempDir, "DDSSim.xml");
+            var topicsPath = Path.Combine(sessionTempDir, "topics.xml");
             var qosPath = Path.Combine(sessionTempDir, "qos_profiles.xml");
-            File.WriteAllText(qosPath, qosProfilesXml);
-            urls.Add(qosPath);
-        }
+            File.WriteAllText(ddsSimPath, ddsSimXmlContent);
+            File.WriteAllText(topicsPath, topicsXmlContent);
+            File.WriteAllText(qosPath, qosProfilesXmlContent);
 
-        var profile = Profile.Default.With(b =>
-        {
-            b.UrlProfile.Clear();
-            foreach (var u in urls) b.UrlProfile.Add(u);
-        });
-        var qosProvider = new QosProvider(profile);
+            var profile = Profile.Default.With(builder =>
+            {
+                builder.UrlProfile.Clear();
+                builder.UrlProfile.Add(ddsSimPath);
+                builder.UrlProfile.Add(qosPath);
+            });
+            var qosProvider = new QosProvider(profile);
 
-        var participantQos = ApplyTransport(qosProvider.GetDomainParticipantQos(), transport);
-        var participant = DomainParticipantFactory.Instance.CreateParticipant(
-            transport.DomainId, participantQos);
+            var participantQos = ApplyTransport(qosProvider.GetDomainParticipantQos(), transport);
+            var participant = DomainParticipantFactory.Instance.CreateParticipant(
+                transport.DomainId, participantQos);
 
-        var hostLogger = _loggerFactory.CreateLogger<DdsParticipantHost>();
-        return new DdsParticipantHost(participant, qosProvider, sessionTempDir, hostLogger);
+            var hostLogger = _loggerFactory.CreateLogger<DdsParticipantHost>();
+            return new DdsParticipantHost(participant, qosProvider, sessionTempDir, hostLogger);
         }
         catch
         {
