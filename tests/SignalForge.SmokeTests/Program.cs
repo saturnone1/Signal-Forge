@@ -183,6 +183,18 @@ try
 }
 finally { Directory.Delete(storeDirectory, recursive: true); }
 
+using (var isolatedState = new DdsStateService(sessions, NullLogger<DdsStateService>.Instance))
+{
+    await using var isolatedTriggers = new DdsTriggerService(
+        isolatedState, sessions, NullLogger<DdsTriggerService>.Instance);
+    isolatedTriggers.Add(new DdsTrigger { Id = "session-a-step", SessionId = "session-a", Name = "A", Enabled = false });
+    isolatedTriggers.Add(new DdsTrigger { Id = "session-b-step", SessionId = "session-b", Name = "B", Enabled = false });
+    isolatedTriggers.ReplaceSessionTriggers("session-a", []);
+    Check(isolatedTriggers.Snapshot("session-a").Count == 0 &&
+          isolatedTriggers.Snapshot("session-b").Single().Id == "session-b-step",
+          "replacing one session automation preserves other sessions");
+}
+
 Console.WriteLine("Signal Forge smoke tests: PASS");
 
 static void Check(bool condition, string name)

@@ -615,6 +615,7 @@ else
 
 @code {
     [Parameter] public DdsSession? Session { get; set; }
+    [Parameter] public bool IsVisible { get; set; } = true;
 
     private readonly HashSet<string> _selectedSubscriptionTopics = [];
     private readonly Dictionary<string, List<SchemaField>> _scenarioStepSchemaFields = [];
@@ -776,6 +777,7 @@ else
         {
             _snapshotSessionId = Session.SessionId;
             _receivableTopics = Session.Topics.Where(topic => topic.Direction != DdsTopicDirection.Publish).ToList();
+            RestoreAutomationState();
         }
         RefreshRuntimeSnapshots();
 
@@ -1903,11 +1905,38 @@ else
 
     private void OnDdsStateChanged()
     {
+        if (!IsVisible)
+            return;
+
         _ = InvokeAsync(() =>
         {
             RefreshRuntimeSnapshots();
             StateHasChanged();
         });
+    }
+
+    private void RestoreAutomationState()
+    {
+        _activeAutomationScenarios.Clear();
+        if (Session == null)
+        {
+            _automationRunning = false;
+            _automationSignature = 0;
+            return;
+        }
+
+        var enabledTriggerIds = Triggers.Snapshot(Session.SessionId)
+            .Where(trigger => trigger.Enabled)
+            .Select(trigger => trigger.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var step in Session.ScenarioSteps.Where(step =>
+                     step.Mode != DdsStepMode.Manual && enabledTriggerIds.Contains(step.Id)))
+        {
+            _activeAutomationScenarios.Add(NormalizeScenarioName(step.Scenario));
+        }
+
+        _automationRunning = _activeAutomationScenarios.Count > 0;
+        _automationSignature = ComputeAutomationSignature();
     }
 
     private void AppendLog(string scope, string level, string message)

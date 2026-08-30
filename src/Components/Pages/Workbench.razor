@@ -48,9 +48,12 @@
         }
     </div>
 
-    @if (!_showCreateForm && _activeSession != null)
+    @foreach (var session in _sessions)
     {
-        <DdsSessionPanel Session="_activeSession" />
+        var isVisible = !_showCreateForm && string.Equals(_activeSession?.SessionId, session.SessionId, StringComparison.Ordinal);
+        <div @key="session.SessionId" style="@(isVisible ? null : "display:none;")" aria-hidden="@(!isVisible)">
+            <DdsSessionPanel @key="session.SessionId" Session="session" IsVisible="isVisible" />
+        </div>
     }
 </div>
 
