@@ -41,7 +41,7 @@ public sealed class DdsStateService : IDisposable
         _receiveNotificationTimer = new Timer(_ =>
         {
             Interlocked.Exchange(ref _receiveNotificationPending, 0);
-            StateChanged?.Invoke();
+            RaiseStateChanged();
         });
     }
 
@@ -72,7 +72,7 @@ public sealed class DdsStateService : IDisposable
         _readerHandlers[info.SubscriptionId] = (reader, handler);
 
         _logger.LogInformation("DDS 구독 시작: {Topic} ({Sub})", topicName, info.SubscriptionId);
-        StateChanged?.Invoke();
+        RaiseStateChanged();
         return info;
     }
 
@@ -92,7 +92,7 @@ public sealed class DdsStateService : IDisposable
                 _sessions.GetHost(info.SessionId)?.RemoveReader(info.TopicName);
             }
             _logger.LogInformation("DDS 구독 중지: {Topic} ({Sub})", info.TopicName, subscriptionId);
-            StateChanged?.Invoke();
+            RaiseStateChanged();
         }
     }
 
@@ -137,7 +137,7 @@ public sealed class DdsStateService : IDisposable
                 Error = ex.Message,
                 WriteLatencyMs = writeStarted == 0 ? null : Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
             });
-            StateChanged?.Invoke();
+            RequestStateChanged();
             return new DdsPublishResult(false, ex.Message);
         }
 
@@ -150,7 +150,7 @@ public sealed class DdsStateService : IDisposable
             Success = true,
             WriteLatencyMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
         });
-        StateChanged?.Invoke();
+        RequestStateChanged();
         return new DdsPublishResult(true, null);
     }
 
@@ -186,7 +186,7 @@ public sealed class DdsStateService : IDisposable
             Success = success,
             Error = error,
         });
-        StateChanged?.Invoke();
+        RequestStateChanged();
     }
 
     // ── DataAvailable handler ─────────────────────────────────────
@@ -223,7 +223,7 @@ public sealed class DdsStateService : IDisposable
                 _receiveSeq.AddOrUpdate(info.SessionId, 1, (_, count) => count + 1);
                 SampleReceived?.Invoke(info, entry);
             }
-            RequestReceiveStateChanged();
+            RequestStateChanged();
         }
         catch (Exception ex)
         {
@@ -270,10 +270,22 @@ public sealed class DdsStateService : IDisposable
         return (receivedNs - sourceTimestampNs) / 1_000_000d;
     }
 
-    private void RequestReceiveStateChanged()
+    private void RequestStateChanged()
     {
         if (Interlocked.CompareExchange(ref _receiveNotificationPending, 1, 0) == 0)
             _receiveNotificationTimer.Change(100, Timeout.Infinite);
+    }
+
+    private void RaiseStateChanged()
+    {
+        var handlers = StateChanged;
+        if (handlers == null) return;
+
+        foreach (Action handler in handlers.GetInvocationList())
+        {
+            try { handler(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "DDS 상태 UI 알림 처리 실패"); }
+        }
     }
 
     private void RemoveSession(string sessionId)

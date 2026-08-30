@@ -15,6 +15,7 @@ and assembling repeatable trigger and scenario workflows.
 - Service-persisted DDS XML profiles with create, clone, edit, import, and export workflows
 - Structured topic and QoS editing, including direction, reliability, history, and durability
 - Docker and offline-build support for controlled environments
+- Air-gapped Kubernetes deployment with host-network DDS connectivity (`k8s/`)
 
 ## DDS XML profiles
 
@@ -57,6 +58,11 @@ in its XML schema for tooling or compatibility.
 For Docker deployments, mount a persistent volume at `/app/data` so profiles
 survive container replacement. Concurrent editors are protected by a revision
 check; refresh the profile list before retrying if another user saved first.
+
+For Kubernetes and offline image-import instructions, see
+[`k8s/README.ko.md`](k8s/README.ko.md). The supplied deployment intentionally
+uses one replica, a persistent profile volume, host networking for DDS LAN
+traffic, and a memory-backed `/dev/shm` mount.
 
 An existing DDS session keeps the XML that was active when the session was
 created as an immutable session snapshot. While a session is active, its source

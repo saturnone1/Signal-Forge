@@ -28,11 +28,27 @@ public static class DdsJsonConverter
     };
 
     public static string ToJson(DynamicData data, bool pretty = false)
-        => data.ToString(pretty ? _jsonPretty : _jsonCompact);
+    {
+        var json = data.ToString(pretty ? _jsonPretty : _jsonCompact);
+        return NormalizeJson(json);
+    }
+
+    public static string NormalizeJson(string json)
+    {
+        var trimmed = json.Trim();
+
+        // Connext의 IncludeRootElements=false 출력은 최상위 struct에서
+        // `"member": ...` 목록만 반환할 수 있다. UI와 재발행 계약을 위해
+        // 항상 유효한 JSON object로 정규화한다.
+        return LooksLikeRootMemberList(trimmed) ? $"{{{trimmed}}}" : json;
+    }
 
     public static void ApplyJson(DynamicData target, string json)
     {
         if (string.IsNullOrWhiteSpace(json)) return;
         target.FromString(json, PrintFormatKind.Json);
     }
+
+    private static bool LooksLikeRootMemberList(string value)
+        => value.Length > 2 && value[0] == '"' && value.Contains("\":", StringComparison.Ordinal);
 }

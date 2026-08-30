@@ -18,6 +18,11 @@ var xml = """
 </module></types></dds>
 """;
 var types = DdsTypeParser.Parse(xml);
+Check(DdsJsonConverter.NormalizeJson("\"Header\":{\"TimeTick\":0},\"Value\":1") ==
+      "{\"Header\":{\"TimeTick\":0},\"Value\":1}",
+      "RTI rootless member JSON normalized");
+Check(DdsJsonConverter.NormalizeJson("{\"Value\":1}") == "{\"Value\":1}",
+      "valid JSON preserved");
 Check(types["M::Ids"].AliasIsSequence && types["M::Ids"].AliasSequenceMaxLength == 8, "typedef collection metadata");
 Check(types["M::Choice"].UnionCases.Single().Labels.Single() == "0", "union case metadata");
 Check(DdsTypeProfileEditor.IsValidIdentifier("Messages_2"), "IDL module identifier accepted");
@@ -164,9 +169,14 @@ try
           reloaded.Profiles[0].TopicsXml == catalog.Profiles[0].TopicsXml &&
           reloaded.Profiles[0].QosProfilesXml == catalog.Profiles[0].QosProfilesXml,
           "metadata manifest reloads the three physical files");
+    var ddsSimProfilePath = Path.Combine(profileDirectory, "DDSSim.xml");
+    var unchangedFileTimestamp = DateTime.UtcNow.AddDays(-1);
+    File.SetLastWriteTimeUtc(ddsSimProfilePath, unchangedFileTimestamp);
     catalog.Profiles[0].Name = "backup-test";
     catalog.Profiles[0].UpdatedAtUtc = DateTimeOffset.UtcNow;
     await profileService.SaveAsync(catalog);
+    Check((File.GetLastWriteTimeUtc(ddsSimProfilePath) - unchangedFileTimestamp).Duration() < TimeSpan.FromSeconds(1),
+          "metadata-only save skips unchanged XML files");
     File.WriteAllText(storePath, "{broken");
     var recovered = await profileService.LoadAsync();
     Check(recovered.Profiles.Count == 1, "profile backup recovery");

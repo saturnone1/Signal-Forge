@@ -86,9 +86,10 @@ public sealed class DdsProfileService
         {
             await using var processLock = await AcquireProcessLockAsync(cancellationToken);
             var currentRevision = 0L;
+            DdsProfileCatalog? current = null;
             if (File.Exists(_storagePath))
             {
-                var current = await ReadCatalogAsync(cancellationToken);
+                current = await ReadCatalogAsync(cancellationToken);
                 currentRevision = current.Revision;
             }
 
@@ -100,15 +101,18 @@ public sealed class DdsProfileService
 
             Normalize(catalog);
             foreach (var profile in catalog.Profiles)
-                Validate(profile);
-            if (File.Exists(_storagePath))
             {
-                var current = await ReadCatalogAsync(cancellationToken);
+                var currentProfile = current?.Profiles.FirstOrDefault(item => item.Id == profile.Id);
+                if (currentProfile == null || !ProfileContentEquals(currentProfile, profile))
+                    Validate(profile);
+            }
+            if (current != null)
+            {
                 EnsureActiveProfilesAreUnchanged(current, catalog);
             }
 
             catalog.Revision = currentRevision + 1;
-            await WriteCatalogAsync(catalog, cancellationToken);
+            await WriteCatalogAsync(catalog, cancellationToken, current);
             _logger.LogInformation(
                 "Saved {ProfileCount} DDS profiles at revision {Revision}",
                 catalog.Profiles.Count,
@@ -288,14 +292,26 @@ public sealed class DdsProfileService
         return Clone(catalog);
     }
 
-    private async Task WriteCatalogAsync(DdsProfileCatalog catalog, CancellationToken cancellationToken)
+    private async Task WriteCatalogAsync(
+        DdsProfileCatalog catalog,
+        CancellationToken cancellationToken,
+        DdsProfileCatalog? previousCatalog = null)
     {
         var directory = Path.GetDirectoryName(_storagePath)
                         ?? throw new InvalidOperationException("DDS 프로필 저장 경로가 올바르지 않습니다.");
         Directory.CreateDirectory(directory);
         Directory.CreateDirectory(_profilesRoot);
+        var previousProfiles = previousCatalog?.Profiles.ToDictionary(profile => profile.Id, StringComparer.Ordinal)
+                               ?? new Dictionary<string, DdsXmlProfile>(StringComparer.Ordinal);
         foreach (var profile in catalog.Profiles)
-            await WriteProfileFilesAsync(profile, cancellationToken);
+        {
+            var filesExist = ProfileFilesExist(profile.Id);
+            if (!filesExist || !previousProfiles.TryGetValue(profile.Id, out var previous) ||
+                !ProfileXmlContentEquals(previous, profile))
+            {
+                await WriteProfileFilesAsync(profile, cancellationToken);
+            }
+        }
 
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(_storagePath)}.{Guid.NewGuid():N}.tmp");
         try
@@ -362,6 +378,14 @@ public sealed class DdsProfileService
         await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.DdsSimFileName), profile.DdsSimXml, cancellationToken);
         await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.TopicsFileName), profile.TopicsXml, cancellationToken);
         await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.QosProfilesFileName), profile.QosProfilesXml, cancellationToken);
+    }
+
+    private bool ProfileFilesExist(string profileId)
+    {
+        var directory = ProfileDirectory(profileId);
+        return File.Exists(Path.Combine(directory, DdsProfileFiles.DdsSimFileName))
+               && File.Exists(Path.Combine(directory, DdsProfileFiles.TopicsFileName))
+               && File.Exists(Path.Combine(directory, DdsProfileFiles.QosProfilesFileName));
     }
 
     private static async Task WriteTextAtomicAsync(string path, string content, CancellationToken cancellationToken)
@@ -548,6 +572,11 @@ public sealed class DdsProfileService
     private static bool ProfileContentEquals(DdsXmlProfile left, DdsXmlProfile right)
         => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
            && string.Equals(left.DdsSimXml, right.DdsSimXml, StringComparison.Ordinal)
+           && string.Equals(left.TopicsXml, right.TopicsXml, StringComparison.Ordinal)
+           && string.Equals(left.QosProfilesXml, right.QosProfilesXml, StringComparison.Ordinal);
+
+    private static bool ProfileXmlContentEquals(DdsXmlProfile left, DdsXmlProfile right)
+        => string.Equals(left.DdsSimXml, right.DdsSimXml, StringComparison.Ordinal)
            && string.Equals(left.TopicsXml, right.TopicsXml, StringComparison.Ordinal)
            && string.Equals(left.QosProfilesXml, right.QosProfilesXml, StringComparison.Ordinal);
 

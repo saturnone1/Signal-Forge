@@ -608,7 +608,7 @@ else
                     @if (_messageDetail.SourceTimestampNs.HasValue) { <text> · source timestamp @_messageDetail.SourceTimestampNs ns</text> }
                 </div>
             }
-            <div class="mt-3"><JsonDataView Json="@_messageDetail.JsonPayload" /></div>
+            <div class="mt-3"><JsonDataView @key="_messageDetail.Id" Json="@_messageDetail.JsonPayload" AutoExpandDepth="2" /></div>
         </div>
     </MudOverlay>
 }
@@ -618,6 +618,15 @@ else
 
     private readonly HashSet<string> _selectedSubscriptionTopics = [];
     private readonly Dictionary<string, List<SchemaField>> _scenarioStepSchemaFields = [];
+    private IReadOnlyList<DdsTopicConfig> _receivableTopics = [];
+    private IReadOnlyList<DdsSubscriptionInfo> _activeSubscriptions = [];
+    private IReadOnlyList<DdsOutboundEntry> _recentOutbound = [];
+    private IReadOnlyList<DdsSampleEntry> _recentInbound = [];
+    private IReadOnlyList<DdsMessageListItem> _inboundMessages = [];
+    private IReadOnlyList<DdsMessageListItem> _outboundMessages = [];
+    private IReadOnlyList<double> _sendLatencyValues = [];
+    private IReadOnlyList<double> _receiveLatencyValues = [];
+    private string? _snapshotSessionId;
     private bool _showReceiveTopicPicker;
     private DdsMessageListItem? _messageDetail;
     private string? _selectedSubscriptionId;
@@ -635,16 +644,14 @@ else
     private bool _automationRunning;
     private readonly HashSet<string> _activeAutomationScenarios = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _scenarioCts;
-    private string _automationSignature = string.Empty;
+    private int _automationSignature;
     private const int MaxLogEntries = 500;
 
     private IReadOnlyList<DdsTopicConfig> ReceivableTopics
-        => Session == null
-            ? []
-            : Session.Topics.Where(t => t.Direction != DdsTopicDirection.Publish).ToList();
+        => _receivableTopics;
 
     private IReadOnlyList<DdsSubscriptionInfo> ActiveSubscriptions
-        => Session == null ? [] : DdsState.SnapshotSubscriptions(Session.SessionId);
+        => _activeSubscriptions;
 
     private int SelectedReceivableTopicCount
         => ReceivableTopics.Count(topic => _selectedSubscriptionTopics.Contains(topic.TopicName));
@@ -678,13 +685,37 @@ else
         => _scenarioDraftTopic != null && _scenarioDraftTopic.Direction != DdsTopicDirection.Subscribe;
 
     private IReadOnlyList<DdsOutboundEntry> RecentOutbound
-        => Session == null ? [] : DdsState.SnapshotOutbound(Session.SessionId, 50);
+        => _recentOutbound;
 
     private IReadOnlyList<DdsSampleEntry> RecentInbound
-        => Session == null ? [] : DdsState.SnapshotInbound(Session.SessionId, 50);
+        => _recentInbound;
 
-    private IReadOnlyList<DdsMessageListItem> InboundMessages
-        => RecentInbound.Select(sample => new DdsMessageListItem
+    private IReadOnlyList<DdsMessageListItem> InboundMessages => _inboundMessages;
+
+    private IReadOnlyList<DdsMessageListItem> OutboundMessages => _outboundMessages;
+
+    private IReadOnlyList<double> SendLatencyValues => _sendLatencyValues;
+
+    private IReadOnlyList<double> ReceiveLatencyValues => _receiveLatencyValues;
+
+    private void RefreshRuntimeSnapshots()
+    {
+        if (Session == null)
+        {
+            _activeSubscriptions = [];
+            _recentOutbound = [];
+            _recentInbound = [];
+            _inboundMessages = [];
+            _outboundMessages = [];
+            _sendLatencyValues = [];
+            _receiveLatencyValues = [];
+            return;
+        }
+
+        _activeSubscriptions = DdsState.SnapshotSubscriptions(Session.SessionId);
+        _recentOutbound = DdsState.SnapshotOutbound(Session.SessionId, 50);
+        _recentInbound = DdsState.SnapshotInbound(Session.SessionId, 50);
+        _inboundMessages = _recentInbound.Select(sample => new DdsMessageListItem
         {
             Id = $"receive-{sample.TopicName}-{sample.SequenceNumber}",
             Direction = "수신",
@@ -698,9 +729,7 @@ else
             SourceTimestampNs = sample.SourceTimestampNs > 0 ? sample.SourceTimestampNs : null,
             PublicationHandle = sample.PublicationHandle,
         }).ToList();
-
-    private IReadOnlyList<DdsMessageListItem> OutboundMessages
-        => RecentOutbound.Select((entry, index) => new DdsMessageListItem
+        _outboundMessages = _recentOutbound.Select((entry, index) => new DdsMessageListItem
         {
             Id = $"send-{entry.TopicName}-{entry.Timestamp.Ticks}-{index}",
             Direction = "송신",
@@ -712,12 +741,9 @@ else
             LatencyMs = entry.WriteLatencyMs,
             Error = entry.Error,
         }).ToList();
-
-    private IReadOnlyList<double> SendLatencyValues
-        => RecentOutbound.Where(entry => entry.WriteLatencyMs.HasValue).Select(entry => entry.WriteLatencyMs!.Value).ToList();
-
-    private IReadOnlyList<double> ReceiveLatencyValues
-        => RecentInbound.Where(entry => entry.ReceiveLatencyMs.HasValue).Select(entry => entry.ReceiveLatencyMs!.Value).ToList();
+        _sendLatencyValues = _recentOutbound.Where(entry => entry.WriteLatencyMs.HasValue).Select(entry => entry.WriteLatencyMs!.Value).ToList();
+        _receiveLatencyValues = _recentInbound.Where(entry => entry.ReceiveLatencyMs.HasValue).Select(entry => entry.ReceiveLatencyMs!.Value).ToList();
+    }
 
     private long InboundCount => Session == null ? 0 : DdsState.GetInboundCount(Session.SessionId);
     private long OutboundCount => Session == null ? 0 : DdsState.GetOutboundCount(Session.SessionId);
@@ -738,7 +764,20 @@ else
 
     protected override void OnParametersSet()
     {
-        if (Session == null) return;
+        if (Session == null)
+        {
+            _snapshotSessionId = null;
+            _receivableTopics = [];
+            RefreshRuntimeSnapshots();
+            return;
+        }
+
+        if (!string.Equals(_snapshotSessionId, Session.SessionId, StringComparison.Ordinal))
+        {
+            _snapshotSessionId = Session.SessionId;
+            _receivableTopics = Session.Topics.Where(topic => topic.Direction != DdsTopicDirection.Publish).ToList();
+        }
+        RefreshRuntimeSnapshots();
 
         foreach (var activeSubscription in ActiveSubscriptions)
         {
@@ -1671,28 +1710,34 @@ else
         Session?.LogEntries.Clear();
     }
 
-    private string ComputeAutomationSignature()
+    private int ComputeAutomationSignature()
     {
         if (Session == null)
-            return string.Empty;
+            return 0;
 
-        return string.Join('|', Session.ScenarioSteps.Select(step => string.Join(';',
-            step.Id,
-            NormalizeScenarioName(step.Scenario),
-            step.TopicName,
-            step.TypeName,
-            step.QosProfileName,
-            step.JsonPayload,
-            step.Mode,
-            string.Join(',', _activeAutomationScenarios.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)),
-            step.IntervalMs,
-            step.MaxFires,
-            step.BulkCount,
-            step.BulkParallel,
-            step.MatchTopicName,
-            step.BlockSelfTopicLoop,
-            step.MinFireIntervalMs,
-            step.MaxFiresPerMinute)));
+        var hash = new HashCode();
+        foreach (var scenario in _activeAutomationScenarios.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            hash.Add(scenario, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var step in Session.ScenarioSteps)
+        {
+            hash.Add(step.Id, StringComparer.Ordinal);
+            hash.Add(NormalizeScenarioName(step.Scenario), StringComparer.OrdinalIgnoreCase);
+            hash.Add(step.TopicName, StringComparer.Ordinal);
+            hash.Add(step.TypeName, StringComparer.Ordinal);
+            hash.Add(step.QosProfileName, StringComparer.Ordinal);
+            hash.Add(step.JsonPayload, StringComparer.Ordinal);
+            hash.Add(step.Mode);
+            hash.Add(step.IntervalMs);
+            hash.Add(step.MaxFires);
+            hash.Add(step.BulkCount);
+            hash.Add(step.BulkParallel);
+            hash.Add(step.MatchTopicName, StringComparer.Ordinal);
+            hash.Add(step.BlockSelfTopicLoop);
+            hash.Add(step.MinFireIntervalMs);
+            hash.Add(step.MaxFiresPerMinute);
+        }
+        return hash.ToHashCode();
     }
 
     private void SyncScenarioAutomationTriggers()
@@ -1856,9 +1901,13 @@ else
         return Session?.Topics.FirstOrDefault(topic => topic.TopicName == topicName);
     }
 
-    private async void OnDdsStateChanged()
+    private void OnDdsStateChanged()
     {
-        await InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            RefreshRuntimeSnapshots();
+            StateHasChanged();
+        });
     }
 
     private void AppendLog(string scope, string level, string message)

@@ -207,9 +207,9 @@
         if (!r.Success) Snackbar.Add($"발사 실패: {r.Error}", Severity.Error);
     }
 
-    private void FireBulk(DdsTrigger t)
+    private async Task FireBulk(DdsTrigger t)
     {
-        Triggers.FireBulk(t.Id);
+        await Task.Run(() => Triggers.FireBulk(t.Id));
         Snackbar.Add($"Bulk 발사: {t.BulkCount}건", Severity.Info);
     }
 
@@ -218,10 +218,13 @@
         Triggers.Remove(t.Id);
     }
 
-    private async void OnTriggersChanged()
+    private void OnTriggersChanged()
     {
-        Refresh();
-        await InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            Refresh();
+            StateHasChanged();
+        });
     }
 
     private static Color TriggerColor(DdsTriggerType type) => type switch

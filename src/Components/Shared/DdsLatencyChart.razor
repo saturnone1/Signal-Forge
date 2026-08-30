@@ -22,16 +22,16 @@
             <line x1="20" y1="125" x2="630" y2="125" class="dds-chart-grid" />
             @if (SendValues.Count > 0)
             {
-                <polyline points="@BuildPoints(SendValues)" class="dds-chart-line is-send" />
+                <polyline points="@_sendPoints" class="dds-chart-line is-send" />
             }
             @if (ReceiveValues.Count > 0)
             {
-                <polyline points="@BuildPoints(ReceiveValues)" class="dds-chart-line is-receive" />
+                <polyline points="@_receivePoints" class="dds-chart-line is-receive" />
             }
         </svg>
         <div class="dds-latency-stats">
-            <span>송신 평균 <b>@Format(Average(SendValues))</b> · p95 <b>@Format(Percentile95(SendValues))</b></span>
-            <span>수신 평균 <b>@Format(Average(ReceiveValues))</b> · p95 <b>@Format(Percentile95(ReceiveValues))</b></span>
+            <span>송신 평균 <b>@Format(_sendAverage)</b> · p95 <b>@Format(_sendP95)</b></span>
+            <span>수신 평균 <b>@Format(_receiveAverage)</b> · p95 <b>@Format(_receiveP95)</b></span>
         </div>
     }
     <div class="wb-inline-note mt-2">송신은 로컬 DDS write 처리 시간, 수신은 source timestamp 기준 추정값입니다. 정확한 수신 지연 비교에는 장비 간 시계 동기화가 필요합니다.</div>
@@ -40,13 +40,29 @@
 @code {
     [Parameter] public IReadOnlyList<double> SendValues { get; set; } = [];
     [Parameter] public IReadOnlyList<double> ReceiveValues { get; set; } = [];
+    private string _sendPoints = string.Empty;
+    private string _receivePoints = string.Empty;
+    private double? _sendAverage;
+    private double? _sendP95;
+    private double? _receiveAverage;
+    private double? _receiveP95;
 
-    private string BuildPoints(IReadOnlyList<double> values)
+    protected override void OnParametersSet()
     {
         var all = SendValues.Concat(ReceiveValues).ToList();
-        var min = all.Min();
-        var max = all.Max();
+        var min = all.Count == 0 ? 0 : all.Min();
+        var max = all.Count == 0 ? 0 : all.Max();
         var range = Math.Max(0.001, max - min);
+        _sendPoints = BuildPoints(SendValues, min, range);
+        _receivePoints = BuildPoints(ReceiveValues, min, range);
+        _sendAverage = Average(SendValues);
+        _sendP95 = Percentile95(SendValues);
+        _receiveAverage = Average(ReceiveValues);
+        _receiveP95 = Percentile95(ReceiveValues);
+    }
+
+    private static string BuildPoints(IReadOnlyList<double> values, double min, double range)
+    {
         var chronological = values.Reverse().ToList();
         return string.Join(" ", chronological.Select((value, index) =>
         {

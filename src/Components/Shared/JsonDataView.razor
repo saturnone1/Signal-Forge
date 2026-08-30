@@ -123,16 +123,7 @@ else if (_hasValue)
 
         else if (!string.IsNullOrWhiteSpace(Json))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(Json);
-                _value = doc.RootElement.Clone();
-                _hasValue = true;
-            }
-            catch (Exception ex)
-            {
-                _parseError = ex.Message;
-            }
+            ParseJsonValue(Json);
         }
 
         if (_hasValue)
@@ -150,6 +141,91 @@ else if (_hasValue)
                     : 0;
             }
         }
+    }
+
+    private void ParseJsonValue(string json)
+    {
+        try
+        {
+            _value = ParseDocument(json);
+
+            // 일부 DDS 출력은 JSON 전체를 문자열 값으로 한 번 더 감싼다.
+            // 송신/수신 상세 모두 동일한 구조형 UI로 보이도록 한 단계 해제한다.
+            if (_value.ValueKind == JsonValueKind.String &&
+                _value.GetString() is { } nested && LooksLikeJsonContainer(nested))
+            {
+                _value = ParseDocument(nested);
+            }
+
+            _hasValue = true;
+        }
+        catch (Exception firstError)
+        {
+            var trimmed = json.Trim();
+            if (LooksLikeRootMemberList(trimmed))
+            {
+                try
+                {
+                    _value = ParseDocument($"{{{trimmed}}}");
+                    _hasValue = true;
+                    return;
+                }
+                catch
+                {
+                }
+            }
+
+            // RTI 진단 문자열이 JSON 앞뒤에 붙는 경우 컨테이너 본문만 복구한다.
+            var candidate = ExtractJsonContainer(json);
+            if (candidate != null)
+            {
+                try
+                {
+                    _value = ParseDocument(candidate);
+                    _hasValue = true;
+                    return;
+                }
+                catch
+                {
+                }
+            }
+
+            _parseError = firstError.Message;
+        }
+    }
+
+    private static JsonElement ParseDocument(string json)
+    {
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+            MaxDepth = 128,
+        });
+        return document.RootElement.Clone();
+    }
+
+    private static bool LooksLikeJsonContainer(string value)
+    {
+        var trimmed = value.AsSpan().TrimStart();
+        return !trimmed.IsEmpty && trimmed[0] is '{' or '[';
+    }
+
+    private static bool LooksLikeRootMemberList(string value)
+        => value.Length > 2 && value[0] == '"' && value.Contains("\":", StringComparison.Ordinal);
+
+    private static string? ExtractJsonContainer(string value)
+    {
+        var objectStart = value.IndexOf('{');
+        var arrayStart = value.IndexOf('[');
+        var start = objectStart < 0 ? arrayStart
+            : arrayStart < 0 ? objectStart
+            : Math.Min(objectStart, arrayStart);
+        if (start < 0) return null;
+
+        var closing = value[start] == '{' ? '}' : ']';
+        var end = value.LastIndexOf(closing);
+        return end > start ? value[start..(end + 1)] : null;
     }
 
     private void ToggleExpanded()

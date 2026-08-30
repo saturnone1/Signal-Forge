@@ -37,6 +37,7 @@ public sealed class DdsTriggerService : IAsyncDisposable
 
     public DdsTrigger Add(DdsTrigger trigger)
     {
+        StopPeriodic(trigger.Id);
         _triggers[trigger.Id] = trigger;
         if (trigger.Enabled && trigger.Type == DdsTriggerType.Periodic)
             StartPeriodic(trigger);
@@ -85,8 +86,6 @@ public sealed class DdsTriggerService : IAsyncDisposable
             _triggers.TryRemove(triggerId, out _);
             _lastOnIncomingFireAt.TryRemove(triggerId, out _);
             _onIncomingFireWindow.TryRemove(triggerId, out _);
-            _lastOnIncomingFireAt.TryRemove(triggerId, out _);
-            _onIncomingFireWindow.TryRemove(triggerId, out _);
         }
 
         foreach (var trigger in triggers)
@@ -114,7 +113,10 @@ public sealed class DdsTriggerService : IAsyncDisposable
             for (int i = 0; i < t.BulkCount; i++) Publish(t);
         };
         if (t.BulkParallel)
-            Parallel.For(0, t.BulkCount, _ => Publish(t));
+            Parallel.For(0, t.BulkCount, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
+            }, _ => Publish(t));
         else
             work();
         Changed?.Invoke();
@@ -125,18 +127,19 @@ public sealed class DdsTriggerService : IAsyncDisposable
     private void StartPeriodic(DdsTrigger trigger)
     {
         var cts = new CancellationTokenSource();
+        var token = cts.Token;
         _periodicCts[trigger.Id] = cts;
         _ = Task.Run(async () =>
         {
             try
             {
-                while (!cts.IsCancellationRequested)
+                while (!token.IsCancellationRequested)
                 {
                     if (trigger.MaxFires.HasValue && trigger.TotalFires >= trigger.MaxFires.Value)
                         break;
                     Publish(trigger);
                     Changed?.Invoke();
-                    try { await Task.Delay(Math.Max(1, trigger.IntervalMs), cts.Token); }
+                    try { await Task.Delay(Math.Max(1, trigger.IntervalMs), token); }
                     catch (OperationCanceledException) { break; }
                 }
             }
@@ -144,14 +147,20 @@ public sealed class DdsTriggerService : IAsyncDisposable
             {
                 _logger.LogError(ex, "DDS 주기 트리거 실패: {Id}", trigger.Id);
             }
-        }, cts.Token);
+            finally
+            {
+                if (_periodicCts.TryGetValue(trigger.Id, out var current) && ReferenceEquals(current, cts))
+                    _periodicCts.TryRemove(trigger.Id, out _);
+                cts.Dispose();
+            }
+        }, token);
     }
 
     private void StopPeriodic(string triggerId)
     {
         if (_periodicCts.TryRemove(triggerId, out var cts))
         {
-            try { cts.Cancel(); cts.Dispose(); } catch { /* swallow */ }
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
         }
     }
 

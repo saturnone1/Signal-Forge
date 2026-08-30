@@ -31,6 +31,7 @@
         {
             <div class="d-flex align-center flex-wrap mt-3" style="gap:8px;">
                 <MudSelect T="string" Value="_selectedProfileId" ValueChanged="SelectProfile"
+                           ToStringFunc="ProfileLabel"
                            Label="사용할 프로필" Variant="Variant.Outlined" Margin="Margin.Dense"
                            Style="flex:1 1 280px;">
                     @foreach (var profile in _catalog.Profiles.OrderBy(profile => profile.Name))
@@ -342,8 +343,10 @@
                     <div class="d-flex align-center flex-wrap mt-3" style="gap:8px;">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
                                    StartIcon="@Icons.Material.Filled.Save" OnClick="SaveProfile"
-                                   Disabled="@IsEditingProfileInUse">검증 후 저장</MudButton>
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="CancelProfileEdit">취소</MudButton>
+                                   Disabled="@(IsEditingProfileInUse || _profileSaving)">
+                            @(_profileSaving ? "저장 중..." : "검증 후 저장")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="CancelProfileEdit" Disabled="@_profileSaving">취소</MudButton>
                         <MudSpacer />
                         @if (_editingOriginalId != null && _catalog.Profiles.Count > 1)
                         {
@@ -423,6 +426,7 @@
     private bool _structuredTypesDirty;
     private DdsProfileValidationResult? _selectedValidation;
     private bool _profilesLoading = true;
+    private bool _profileSaving;
     private bool _deleteArmed;
     private string? _profileError;
 
@@ -561,8 +565,10 @@
 
     private async Task SaveProfile()
     {
-        if (_catalog == null || _editingProfile == null) return;
+        if (_catalog == null || _editingProfile == null || _profileSaving) return;
 
+        _profileSaving = true;
+        _profileError = null;
         try
         {
             if (_structuredTypesDirty && _typeEditor != null)
@@ -581,29 +587,34 @@
             _editingProfile.Name = _editingProfile.Name.Trim();
             _editingProfile.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
+            var savedProfile = CloneForEdit(_editingProfile);
             var catalogToSave = CloneCatalog(_catalog);
             if (_editingOriginalId == null)
             {
-                catalogToSave.Profiles.Add(_editingProfile);
+                catalogToSave.Profiles.Add(savedProfile);
             }
             else
             {
                 var index = catalogToSave.Profiles.FindIndex(profile => profile.Id == _editingOriginalId);
                 if (index < 0) throw new InvalidOperationException("수정할 프로필을 찾지 못했습니다.");
-                _editingProfile.Id = _editingOriginalId;
-                catalogToSave.Profiles[index] = _editingProfile;
+                savedProfile.Id = _editingOriginalId;
+                catalogToSave.Profiles[index] = savedProfile;
             }
 
             await ProfileStore.SaveAsync(catalogToSave);
-            _catalog = catalogToSave;
-            _selectedProfileId = _editingProfile.Id;
+            _catalog = await ProfileStore.LoadAsync();
+            _selectedProfileId = savedProfile.Id;
             _selectedValidation = validation;
-            Snackbar.Add($"DDS 프로필 저장: {_editingProfile.Name}", Severity.Success);
+            Snackbar.Add($"DDS 프로필 저장: {savedProfile.Name}", Severity.Success);
             CancelProfileEdit();
         }
         catch (Exception ex)
         {
             _profileError = ex.Message;
+        }
+        finally
+        {
+            _profileSaving = false;
         }
     }
 
@@ -1024,6 +1035,10 @@
         Revision = source.Revision,
         Profiles = source.Profiles.Select(CloneForEdit).ToList(),
     };
+
+    private string ProfileLabel(string? profileId)
+        => _catalog?.Profiles.FirstOrDefault(profile => profile.Id == profileId)?.Name
+           ?? (string.IsNullOrWhiteSpace(profileId) ? string.Empty : "프로필 불러오는 중...");
 
     private static async Task<string> ReadBrowserFile(IBrowserFile file, long maxSize)
     {
