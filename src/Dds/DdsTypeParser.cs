@@ -5,7 +5,7 @@ namespace ASAP.Dds;
 
 /// <summary>
 /// RTI XML 타입 정의 (DDSSim.xml 형식) 파싱.
-/// 결과는 UI 폼 생성용 메타데이터. 실제 DDS 타입 등록은 RTI QosProvider가 담당.
+/// 결과는 UI 폼 생성용 메타데이터. 송수신은 명시적으로 빌드된 DDSClient 메시지 모듈만 사용.
 ///
 /// 지원 구조:
 ///   <types>
@@ -28,15 +28,15 @@ public static class DdsTypeParser
 {
     public static Dictionary<string, DdsTypeDefinition> Parse(string xmlContent)
     {
-        var result = new Dictionary<string, DdsTypeDefinition>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, DdsTypeDefinition>(StringComparer.Ordinal);
         var doc = XDocument.Parse(xmlContent);
         var typesElement = doc.Descendants().FirstOrDefault(element => element.Name.LocalName == "types");
         if (typesElement is null) return result;
 
         ParseContainer(result, typesElement, string.Empty);
 
-        var definitions = result.Values.DistinctBy(item => item.QualifiedName, StringComparer.OrdinalIgnoreCase).ToList();
-        foreach (var group in definitions.GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+        var definitions = result.Values.DistinctBy(item => item.QualifiedName, StringComparer.Ordinal).ToList();
+        foreach (var group in definitions.GroupBy(item => item.Name, StringComparer.Ordinal))
         {
             if (group.Count() == 1) result[group.Key] = group.Single();
             else result.Remove(group.Key);
@@ -75,7 +75,7 @@ public static class DdsTypeParser
         var name = enumEl.Attribute("name")?.Value;
         if (string.IsNullOrEmpty(name)) return;
 
-        var values = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var values = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var v in Elements(enumEl, "enumerator"))
         {
             var enumName = v.Attribute("name")?.Value;
@@ -134,6 +134,7 @@ public static class DdsTypeParser
             members.Add(new DdsTypeMember
             {
                 Name = memberName,
+                Optional = m.Attribute("optional")?.Value is "true" or "1",
                 TypeName = effectiveType,
                 IsSequence = sequenceMax.HasValue,
                 IsArray = arrayDims is { Length: > 0 },

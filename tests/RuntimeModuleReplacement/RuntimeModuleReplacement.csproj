@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DdsAmbassador.Messages.Telemetry</AssemblyName><Version>0.1.0</Version><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../DDSClient/DDS_Nuget/core/DdsAmbassador.DDSClient.Core.csproj" />
+    <Compile Include="../../../DDSClient/DDS_Nuget/generated/Telemetry/Telemetry.cs" />
+    <Compile Include="../../../DDSClient/DDS_Nuget/generated/Telemetry/TelemetryPlugin.cs" />
+    <Compile Include="../../../DDSClient/DDS_Nuget/generated/Telemetry/ModuleContract.g.cs" />
+    <Compile Include="TelemetryMessages.cs" />
+  </ItemGroup>
+</Project>

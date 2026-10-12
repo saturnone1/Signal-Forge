@@ -10,8 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents(options => options.DetailedErrors = builder.Environment.IsDevelopment());
 builder.Services.AddMudServices();
+// Cookies are scoped by host/path, not TCP port. Independent instances must not
+// overwrite one another's antiforgery cookie when opened on localhost together.
+var instanceId = builder.Configuration["SignalForge:InstanceId"]
+    ?? $"{Environment.MachineName}:{builder.Configuration["urls"]}:{builder.Environment.ContentRootPath}";
+var instanceKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(instanceId)))[..16];
+builder.Services.AddAntiforgery(options => options.Cookie.Name = $".SignalForge.Antiforgery.{instanceKey}");
 builder.Services.AddDataProtection()
-    .SetApplicationName("SignalForge")
+    .SetApplicationName($"SignalForge.{instanceKey}")
     .PersistKeysToFileSystem(new DirectoryInfo(
         Path.Combine(builder.Environment.ContentRootPath, "data", "data-protection-keys")));
 
@@ -64,7 +70,18 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions { ContentT
 app.UseRouting();
 app.UseAntiforgery();
 
-app.MapGet("/health", () => Results.Ok(new { status = "connected" }));
+// 웹 서버가 살아 있는 것만으로 DDS 모듈 준비가 완료되었다고 표시하지 않는다.
+// 모듈 등록부·임베디드 계약 초기화가 실패하면 시작 로그에 원인을 남기고 기동을 중단한다.
+try
+{
+    _ = BuiltMessageRegistry.Modules;
+}
+catch (Exception error)
+{
+    app.Logger.LogCritical(error, "빌드된 DDS 메시지 모듈 초기화 실패");
+    throw;
+}
+app.MapGet("/health", () => Results.Ok(new { status = "ready", messageModules = BuiltMessageRegistry.Modules.Count }));
 app.MapRazorComponents<ASAP.Components.App>()
     .AddInteractiveServerRenderMode();
 

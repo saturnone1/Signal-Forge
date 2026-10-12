@@ -18,6 +18,13 @@
 }
 else
 {
+    @foreach (var failed in _activeSubscriptions.Where(s => s.State == DdsSubscriptionState.Faulted))
+    {
+        <MudAlert Severity="Severity.Error">
+            @failed.TopicName · 수신 중단: @failed.LastError
+            <MudButton OnClick="@(() => RestartFailedSubscription(failed.SubscriptionId))">재구독</MudButton>
+        </MudAlert>
+    }
     <div class="wb-panel wb-panel--major wb-panel--contain pa-3 mb-4">
         <div class="d-flex align-center flex-wrap mb-2" style="gap:8px;">
             <MudIcon Icon="@Icons.Material.Filled.Cable" Size="Size.Small" Color="Color.Success" />
@@ -26,7 +33,7 @@ else
                 <div class="wb-panel-heading">@Session.Name · domain @Session.Transport.DomainId</div>
             </div>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Topics.Count 토픽</MudChip>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@Session.Types.Count 타입</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0">@_distinctTypeCount 타입</MudChip>
         </div>
 
         <div class="wb-subpanel mb-3 pa-3">
@@ -67,8 +74,8 @@ else
                     </div>
                     <div class="wb-code wb-summary-card">
                         <span style="color:var(--mud-palette-text-secondary);">로드된 파일</span><br />
-                        DDSSim.xml<br />
-                        topics.xml<br />
+                        @(string.IsNullOrWhiteSpace(Session.ModuleName) ? "메시지 모듈 미지정" : Session.ModuleName + ".xml (빌드된 모듈 계약)")<br />
+                        토픽 선택 목록 (코드 등록)<br />
                         qos_profiles.xml
                     </div>
                     <div class="wb-code wb-summary-card">
@@ -621,6 +628,7 @@ else
     private readonly Dictionary<string, List<SchemaField>> _scenarioStepSchemaFields = [];
     private IReadOnlyList<DdsTopicConfig> _receivableTopics = [];
     private IReadOnlyList<DdsSubscriptionInfo> _activeSubscriptions = [];
+    private IReadOnlyList<DdsSubscriptionInfo> _receivingSubscriptions = [];
     private IReadOnlyList<DdsOutboundEntry> _recentOutbound = [];
     private IReadOnlyList<DdsSampleEntry> _recentInbound = [];
     private IReadOnlyList<DdsMessageListItem> _inboundMessages = [];
@@ -628,6 +636,7 @@ else
     private IReadOnlyList<double> _sendLatencyValues = [];
     private IReadOnlyList<double> _receiveLatencyValues = [];
     private string? _snapshotSessionId;
+    private int _distinctTypeCount;
     private bool _showReceiveTopicPicker;
     private DdsMessageListItem? _messageDetail;
     private string? _selectedSubscriptionId;
@@ -646,13 +655,12 @@ else
     private readonly HashSet<string> _activeAutomationScenarios = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _scenarioCts;
     private int _automationSignature;
-    private const int MaxLogEntries = 500;
 
     private IReadOnlyList<DdsTopicConfig> ReceivableTopics
         => _receivableTopics;
 
     private IReadOnlyList<DdsSubscriptionInfo> ActiveSubscriptions
-        => _activeSubscriptions;
+        => _receivingSubscriptions;
 
     private int SelectedReceivableTopicCount
         => ReceivableTopics.Count(topic => _selectedSubscriptionTopics.Contains(topic.TopicName));
@@ -704,6 +712,7 @@ else
         if (Session == null)
         {
             _activeSubscriptions = [];
+            _receivingSubscriptions = [];
             _recentOutbound = [];
             _recentInbound = [];
             _inboundMessages = [];
@@ -714,6 +723,7 @@ else
         }
 
         _activeSubscriptions = DdsState.SnapshotSubscriptions(Session.SessionId);
+        _receivingSubscriptions = _activeSubscriptions.Where(s => s.IsActive).ToArray();
         _recentOutbound = DdsState.SnapshotOutbound(Session.SessionId, 50);
         _recentInbound = DdsState.SnapshotInbound(Session.SessionId, 50);
         _inboundMessages = _recentInbound.Select(sample => new DdsMessageListItem
@@ -749,9 +759,16 @@ else
     private long InboundCount => Session == null ? 0 : DdsState.GetInboundCount(Session.SessionId);
     private long OutboundCount => Session == null ? 0 : DdsState.GetOutboundCount(Session.SessionId);
     private int OutboundFailureCount => RecentOutbound.Count(entry => !entry.Success);
-    private string DiscoveryModeLabel => Session?.Transport.DiscoveryMode == DdsDiscoveryMode.Multicast
-        ? string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress) ? "멀티캐스트 · RTI 기본" : $"멀티캐스트 · {Session.Transport.MulticastAddress}"
-        : "유니캐스트 · 로컬 피어";
+    private string DiscoveryModeLabel => Session?.Transport.DiscoveryMode switch
+    {
+        DdsDiscoveryMode.FromQos => Session.Transport.DiscoveryPeers.Count == 0
+            ? "QoS XML 설정 유지" : $"QoS XML 기준 · 지정 피어 {Session.Transport.DiscoveryPeers.Count}개",
+        DdsDiscoveryMode.Unicast => Session.Transport.DiscoveryPeers.Count == 0
+            ? "유니캐스트 · QoS XML 피어" : $"유니캐스트 · 지정 피어 {Session.Transport.DiscoveryPeers.Count}개",
+        DdsDiscoveryMode.Multicast => "멀티캐스트 · " + (string.IsNullOrWhiteSpace(Session.Transport.MulticastAddress)
+            ? "239.255.0.1" : Session.Transport.MulticastAddress),
+        _ => "검색 방식 미지정",
+    };
 
     private void OpenMessageDetail(DdsMessageListItem item) => _messageDetail = item;
     private void CloseMessageDetail() => _messageDetail = null;
@@ -776,6 +793,8 @@ else
         if (!string.Equals(_snapshotSessionId, Session.SessionId, StringComparison.Ordinal))
         {
             _snapshotSessionId = Session.SessionId;
+            // 짧은 별칭과 정규화된 이름은 같은 정의를 가리킨다. 세션 스냅샷 변경 때만 고유 타입을 집계한다.
+            _distinctTypeCount = Session.Types.Values.DistinctBy(type => type.QualifiedName ?? type.Name, StringComparer.Ordinal).Count();
             _receivableTopics = Session.Topics.Where(topic => topic.Direction != DdsTopicDirection.Publish).ToList();
             RestoreAutomationState();
         }
@@ -1201,6 +1220,12 @@ else
             Snackbar.Add($"수신 시작 실패: {ex.Message}", Severity.Error);
             AppendLog("system", "ERROR", $"수신 시작 실패: {ex.Message}");
         }
+    }
+
+    private void RestartFailedSubscription(string id)
+    {
+        try { DdsState.RestartSubscription(id); }
+        catch (Exception ex) { Snackbar.Add($"재구독 실패: {ex.Message}", Severity.Error); }
     }
 
     private void StopSelectedSubscriptions()
@@ -1747,6 +1772,11 @@ else
         if (Session == null)
             return;
 
+        // Explicit scenario actions already synchronize the trigger service. Keep the
+        // render signature in step so OnAfterRender does not replace and immediately
+        // restart the same periodic trigger a second time.
+        _automationSignature = ComputeAutomationSignature();
+
         if (!_automationRunning)
         {
             Triggers.ReplaceSessionTriggers(Session.SessionId, []);
@@ -1892,10 +1922,13 @@ else
 
     private void OnSampleReceived(DdsSubscriptionInfo info, DdsSampleEntry sample)
     {
-        if (Session == null || info.SessionId != Session.SessionId) return;
-        _selectedSubscriptionId ??= info.SubscriptionId;
-        if (sample.SequenceNumber == 1 || sample.SequenceNumber % 100 == 0)
+        if (sample.SequenceNumber != 1 && sample.SequenceNumber % 100 != 0) return;
+        _ = InvokeAsync(() =>
+        {
+            if (_panelDisposed || Session == null || info.SessionId != Session.SessionId) return;
+            _selectedSubscriptionId ??= info.SubscriptionId;
             AppendLog("session", "INFO", $"수신: {info.TopicName} #{sample.SequenceNumber} (100건 단위 요약)");
+        });
     }
 
     private DdsTopicConfig? FindTopic(string topicName)
@@ -1943,7 +1976,7 @@ else
     {
         if (Session == null) return;
 
-        Session.LogEntries.Insert(0, new DdsSessionLogEntry
+        Session.LogEntries.Add(new DdsSessionLogEntry
         {
             TimestampUtc = DateTime.UtcNow,
             Scope = scope,
@@ -1951,10 +1984,6 @@ else
             Message = message,
         });
 
-        if (Session.LogEntries.Count > MaxLogEntries)
-        {
-            Session.LogEntries.RemoveRange(MaxLogEntries, Session.LogEntries.Count - MaxLogEntries);
-        }
     }
 
     private static Color LogColor(string level) => level switch
@@ -1964,8 +1993,10 @@ else
         _ => Color.Default,
     };
 
+    private bool _panelDisposed;
     public void Dispose()
     {
+        _panelDisposed = true;
         DdsState.StateChanged -= OnDdsStateChanged;
         DdsState.SampleReceived -= OnSampleReceived;
         _scenarioCts?.Cancel();

@@ -1,246 +1,182 @@
-using System.Collections.Concurrent;
-using System.Collections.Immutable;
 using ASAP.Models.Dds;
-using Rti.Dds.Core;
-using Rti.Dds.Core.Policy;
-using Rti.Dds.Domain;
-using Rti.Dds.Publication;
-using Rti.Dds.Subscription;
-using Rti.Dds.Topics;
-using Rti.Types.Dynamic;
+using DdsAmbassador.DDSClient;
 
 namespace ASAP.Dds;
 
-/// <summary>
-/// 한 DDS 세션에 대응하는 RTI 런타임. DomainParticipant 1개와 그 위에서 만들어진
-/// DynamicData 기반 Topic/Reader/Writer를 관리한다.
-///
-/// Type 등록은 QosProvider에 사용자가 올린 DDSSim.xml을 넘겨서 처리한다.
-/// (Wire-compat: 동일 type_name + 동일 topic_name이면 ambassador와 매칭됨.)
-/// </summary>
+/// <summary>One session owns one DDSClient connection. No native DDS entities escape this adapter.</summary>
 public sealed class DdsParticipantHost : IAsyncDisposable
 {
-    private readonly DomainParticipant _participant;
-    private readonly QosProvider _qosProvider;
-    private readonly Publisher _publisher;
-    private readonly Subscriber _subscriber;
-    private readonly ILogger<DdsParticipantHost> _logger;
-    private readonly string _temporaryDirectory;
+    private readonly DdsClient _client;
+    private readonly string _directory;
+    private readonly IReadOnlyDictionary<string, BuiltTopic> _topics;
+    private readonly IReadOnlyDictionary<string, Lazy<Action<object>>> _publishers;
+    private readonly ILogger _logger;
+    public BuiltMessageModule Module { get; }
+    public DdsShutdownState ConnectionState => _client.ShutdownState;
+    public Exception? ConnectionError => _client.ShutdownError;
+    private int _disposed;
+    private readonly object _disposeGate = new();
+    private Task? _disposeTask;
 
-    private readonly ConcurrentDictionary<string, Topic<DynamicData>> _topics = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DataReader<DynamicData>> _readers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DataWriter<DynamicData>> _writers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DynamicType> _typeCache = new(StringComparer.OrdinalIgnoreCase);
-
-    private long _disposed;
-
-    public DdsParticipantHost(
-        DomainParticipant participant,
-        QosProvider qosProvider,
-        string temporaryDirectory,
-        ILogger<DdsParticipantHost> logger)
+    internal DdsParticipantHost(DdsClient client, string directory, IReadOnlyDictionary<string, BuiltTopic> topics, BuiltMessageModule module, ILogger logger,
+        int requiredSubscribers = 0, int discoveryTimeoutMs = 0)
     {
-        _participant = participant;
-        _qosProvider = qosProvider;
-        _temporaryDirectory = temporaryDirectory;
-        _publisher = participant.ImplicitPublisher;
-        _subscriber = participant.ImplicitSubscriber;
+        _client = client;
+        _directory = directory;
+        _topics = topics;
+        // 첫 사용 때 Writer를 바인딩하고 이후 캐시 조회·상태 확인의 중복 경로를 피한다.
+        // 일시적인 생성 실패는 캐시하지 않으므로 다음 요청에서 다시 시도할 수 있다.
+        _publishers = topics.ToDictionary(entry => entry.Key,
+            entry => new Lazy<Action<object>>(() => entry.Value.BindPublisher(client), LazyThreadSafetyMode.PublicationOnly),
+            StringComparer.Ordinal);
+        Module = module;
         _logger = logger;
+        // 이전 생성자 호출과 설정 파일의 호환 인수다. 발행을 구독자 수나 발견 완료에 종속시키지 않는다.
     }
 
-    public DomainParticipant Participant => _participant;
-    public QosProvider QosProvider => _qosProvider;
-
-    /// <summary>
-    /// 토픽에 대한 typed Topic<DynamicData>를 가져오거나 새로 만든다.
-    /// </summary>
-    public Topic<DynamicData> GetOrCreateTopic(string topicName, string typeName)
+    public event Action<DdsSubscriptionError>? SubscriptionError
     {
-        return _topics.GetOrAdd(topicName, _ =>
+        add => _client.SubscriptionError += value;
+        remove => _client.SubscriptionError -= value;
+    }
+
+    public DdsTypedSample CreateSample(string typeName)
+    {
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        return Module.CreateSample(typeName);
+    }
+
+    public void Publish(string topicName, string typeName, string qosProfile, DdsTypedSample sample)
+        => Publish(topicName, typeName, qosProfile, sample, null);
+
+    internal void Publish(string topicName, string typeName, string qosProfile, DdsTypedSample sample, Action? writeStarting)
+    {
+        _ = Resolve(topicName, typeName, qosProfile);
+        var write = _publishers[topicName].Value;
+        writeStarting?.Invoke();
+        write(sample.Value);
+    }
+
+    public void PreparePublisher(string topicName, string typeName, string qosProfile)
+    {
+        // Writer만 미리 만든다. 구독자의 존재나 Discovery 완료를 기다리지 않는다.
+        _ = Resolve(topicName, typeName, qosProfile);
+        _ = _publishers[topicName].Value;
+    }
+
+    public void WaitForSubscribers(string topicName, string typeName, string qosProfile, int count, TimeSpan timeout)
+    {
+        Resolve(topicName, typeName, qosProfile).WaitForSubscribers(_client, count, timeout);
+    }
+
+    public void WaitForAcknowledgments(string topicName, string typeName, string qosProfile, TimeSpan timeout) =>
+        Resolve(topicName, typeName, qosProfile).WaitForAcknowledgments(_client, timeout);
+
+    public IDisposable Subscribe(string topicName, string typeName, string qosProfile, Action<DdsReceivedSample> handler,
+        Action<DdsSubscriptionError>? onError = null)
+    {
+        var topic = Resolve(topicName, typeName, qosProfile);
+        // JSON은 대여 콜백 안에서 완성한다. 원본 샘플은 외부로 넘기지 않고 소유된 문자열만 전달한다.
+        return topic.SubscribeWithInfoBorrowed(_client, (value, info) => handler(new DdsReceivedSample(
+            DdsJsonConverter.ToJson(value), info.ReceivedAtUtc, info.SourceTimestampNs)), onError);
+    }
+
+    private BuiltTopic Resolve(string topicName, string typeName, string qosProfile)
+    {
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_topics.TryGetValue(topicName, out var topic) || topic.TypeName != typeName)
+            throw new InvalidOperationException($"Topic/type is not registered in this session: {topicName} / {typeName}.");
+        var library = topic.Definition.QualifiedQosProfile.Split("::")[0];
+        var qualified = qosProfile.Contains("::", StringComparison.Ordinal) ? qosProfile : library + "::" + qosProfile;
+        if (qualified != topic.Definition.QualifiedQosProfile)
+            throw new InvalidOperationException($"Topic '{topicName}' uses the session snapshot QoS '{topic.Definition.QualifiedQosProfile}'. Create a new session to change it.");
+        return topic;
+    }
+
+    public ValueTask DisposeAsync()
+        => new(BeginShutdown().WaitAsync(TimeSpan.FromSeconds(10)));
+
+    // Only the session owner awaits the full lifetime; public callers have a finite wait.
+    internal Task BeginShutdown()
+    {
+        lock (_disposeGate)
         {
-            var dynType = _typeCache.GetOrAdd(typeName, n =>
-            {
-                var t = _qosProvider.GetType(n)
-                    ?? throw new InvalidOperationException($"DDS 타입을 찾을 수 없음: {n}");
-                return t;
-            });
-            return _participant.CreateTopic(topicName, dynType);
-        });
-    }
-
-    /// <summary>
-    /// DataReader 생성. 동일 토픽에 이미 있으면 기존 것 반환.
-    /// </summary>
-    public DataReader<DynamicData> GetOrCreateReader(string topicName, string typeName, string qosProfileFullName)
-    {
-        return _readers.GetOrAdd(topicName, _ =>
-        {
-            var topic = GetOrCreateTopic(topicName, typeName);
-            var readerQos = _qosProvider.GetDataReaderQos(qosProfileFullName);
-            return _subscriber.CreateDataReader(topic, readerQos);
-        });
-    }
-
-    /// <summary>
-    /// DataWriter 생성. 동일 토픽에 이미 있으면 기존 것 반환.
-    /// </summary>
-    public DataWriter<DynamicData> GetOrCreateWriter(string topicName, string typeName, string qosProfileFullName)
-    {
-        return _writers.GetOrAdd(topicName, _ =>
-        {
-            var topic = GetOrCreateTopic(topicName, typeName);
-            var writerQos = _qosProvider.GetDataWriterQos(qosProfileFullName);
-            return _publisher.CreateDataWriter(topic, writerQos);
-        });
-    }
-
-    public DynamicData CreateSample(string typeName)
-    {
-        var dynType = _typeCache.GetOrAdd(typeName, n =>
-            _qosProvider.GetType(n)
-                ?? throw new InvalidOperationException($"DDS 타입을 찾을 수 없음: {n}"));
-        return new DynamicData(dynType);
-    }
-
-    public void ValidateQosProfile(string fullProfileName)
-    {
-        _ = _qosProvider.GetDataReaderQos(fullProfileName);
-        _ = _qosProvider.GetDataWriterQos(fullProfileName);
-    }
-
-    public void RemoveReader(string topicName)
-    {
-        if (_readers.TryRemove(topicName, out var r))
-        {
-            try { r.Dispose(); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Reader Dispose 실패: {Topic}", topicName); }
+            if (_disposeTask is not null) return _disposeTask;
+            Volatile.Write(ref _disposed, 1);
+            _disposeTask = Task.Run(CompleteDisposeAsync);
+            return _disposeTask;
         }
     }
 
-    public void RemoveWriter(string topicName)
+    private async Task CompleteDisposeAsync()
     {
-        if (_writers.TryRemove(topicName, out var w))
-        {
-            try { w.Dispose(); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Writer Dispose 실패: {Topic}", topicName); }
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
-
-        foreach (var r in _readers.Values) try { r.Dispose(); } catch { /* swallow */ }
-        foreach (var w in _writers.Values) try { w.Dispose(); } catch { /* swallow */ }
-        foreach (var t in _topics.Values) try { t.Dispose(); } catch { /* swallow */ }
-        _readers.Clear();
-        _writers.Clear();
-        _topics.Clear();
-        _typeCache.Clear();
-
-        try { _qosProvider.Dispose(); } catch { /* swallow */ }
-        try { _participant.Dispose(); } catch { /* swallow */ }
         try
         {
-            if (Directory.Exists(_temporaryDirectory))
-                Directory.Delete(_temporaryDirectory, recursive: true);
+            _client.Close();
+            // The library's timeout limits caller waiting, not native resource lifetime.
+            while (_client.ShutdownState == DdsShutdownState.Closing)
+                await Task.Delay(25).ConfigureAwait(false);
+            if (_client.ShutdownError is { } failure)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
-        catch (Exception ex) { _logger.LogWarning(ex, "DDS 임시 디렉터리 삭제 실패: {Path}", _temporaryDirectory); }
-
-        await Task.CompletedTask;
+        finally
+        {
+            // 정리 실패 시 네이티브 객체와 QoS 스냅샷을 함께 유지한다. 아직 쓰일 수 있는 파일을 지우지 않는다.
+            if (_client.ShutdownState == DdsShutdownState.Closed)
+            {
+                try { Directory.Delete(_directory, recursive: true); }
+                catch (Exception ex) { _logger.LogWarning(ex, "DDS 세션 스냅샷 삭제 실패: {Directory}", _directory); }
+            }
+        }
     }
 }
 
-/// <summary>
-/// DdsParticipantHost 생성 팩토리. 세션 단위로 호출된다.
-/// QosProvider 입력 XML을 임시 파일에 쓰고, DomainParticipant를 생성한 뒤 반환.
-/// </summary>
+public sealed record DdsReceivedSample(string Json, DateTime ReceivedAtUtc, long? SourceTimestampNs);
+
 public sealed class DdsParticipantHostFactory
 {
     private readonly ILoggerFactory _loggerFactory;
+    public DdsParticipantHostFactory(ILoggerFactory loggerFactory) => _loggerFactory = loggerFactory;
 
-    public DdsParticipantHostFactory(ILoggerFactory loggerFactory)
+    public DdsParticipantHost Create(DdsTransportSettings transport, string ddsSimXmlContent,
+        string topicSettingsJsonContent, string qosProfilesXmlContent, string? moduleName = null, string? qosLibraryName = null)
     {
-        _loggerFactory = loggerFactory;
-    }
-
-    public DdsParticipantHost Create(
-        DdsTransportSettings transport,
-        string ddsSimXmlContent,
-        string topicsXmlContent,
-        string qosProfilesXmlContent)
-    {
-        // 세션도 DDSClient와 동일한 세 파일 스냅샷을 사용한다.
-        // RTI QosProvider에는 이 중 DDSSim.xml과 qos_profiles.xml을 전달한다.
-        var sessionTempDir = Path.Combine(Path.GetTempPath(), "asap-dds", System.Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(sessionTempDir);
+        // All contract checks precede connection creation (and temporary files).
+        var module = BuiltMessageRegistry.Select(ddsSimXmlContent, moduleName);
+        var topics = BuiltMessageRegistry.ValidateAndBind(ddsSimXmlContent, topicSettingsJsonContent, qosProfilesXmlContent, module.Module.Name, qosLibraryName);
+        var effectiveQos = DdsSessionQos.Create(qosProfilesXmlContent, transport, qosLibraryName);
+        var directory = Path.Combine(Path.GetTempPath(), "signal-forge-ddsclient", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        DdsClient? client = null;
         try
         {
-            var ddsSimPath = Path.Combine(sessionTempDir, "DDSSim.xml");
-            var topicsPath = Path.Combine(sessionTempDir, "topics.xml");
-            var qosPath = Path.Combine(sessionTempDir, "qos_profiles.xml");
-            File.WriteAllText(ddsSimPath, ddsSimXmlContent);
-            File.WriteAllText(topicsPath, topicsXmlContent);
-            File.WriteAllText(qosPath, qosProfilesXmlContent);
-
-            var profile = Profile.Default.With(builder =>
+            var qosPath = Path.Combine(directory, "qos_profiles.xml");
+            File.WriteAllText(qosPath, effectiveQos.Xml);
+            client = DdsClient.Connect(new DdsClientOptions
             {
-                builder.UrlProfile.Clear();
-                builder.UrlProfile.Add(ddsSimPath);
-                builder.UrlProfile.Add(qosPath);
+                MessageModules = [module.Module],
+                DomainId = transport.DomainId,
+                ParticipantName = $"SignalForge-{Path.GetFileName(directory)}",
+                ParticipantQosProfile = effectiveQos.ParticipantProfile,
+                QosProfilesXmlPath = qosPath,
+                Topics = topics.Values.Select(topic => topic.Definition).ToArray(),
             });
-            var qosProvider = new QosProvider(profile);
-
-            var participantQos = ApplyTransport(qosProvider.GetDomainParticipantQos(), transport);
-            var participant = DomainParticipantFactory.Instance.CreateParticipant(
-                transport.DomainId, participantQos);
-
-            var hostLogger = _loggerFactory.CreateLogger<DdsParticipantHost>();
-            return new DdsParticipantHost(participant, qosProvider, sessionTempDir, hostLogger);
+            var logger = _loggerFactory.CreateLogger<DdsParticipantHost>();
+            client.SubscriptionError += error => logger.LogError(error.Exception,
+                "DDSClient subscription failure: {Topic}; fatal={Fatal}", error.TopicName, error.IsFatal);
+            return new DdsParticipantHost(client, directory, topics, module, logger,
+                transport.RequiredSubscribers, transport.DiscoveryTimeoutMs);
         }
         catch
         {
-            try { Directory.Delete(sessionTempDir, recursive: true); } catch { }
+            client?.Close();
+            // 연결 직후 어댑터 생성이 실패해도 연결 종료를 요청한다. 정리 중인 네이티브 자원의 파일은 유지한다.
+            if (client is null || client.ShutdownState == DdsShutdownState.Closed)
+            {
+                try { Directory.Delete(directory, recursive: true); }
+                catch { /* 정리 로그 제공자도 실패할 수 있으므로 최초 연결 예외를 보존한다. */ }
+            }
             throw;
         }
-    }
-
-    private static DomainParticipantQos ApplyTransport(
-        DomainParticipantQos baseQos,
-        DdsTransportSettings transport)
-    {
-        var props = new Dictionary<string, string>();
-
-        if (transport.AllowInterfaces.Count > 0)
-            props["dds.transport.UDPv4.builtin.parent.allow_interfaces"] =
-                string.Join(",", transport.AllowInterfaces);
-        if (transport.DenyInterfaces.Count > 0)
-            props["dds.transport.UDPv4.builtin.parent.deny_interfaces"] =
-                string.Join(",", transport.DenyInterfaces);
-        if (transport.SendBufferSize is int sb)
-            props["dds.transport.UDPv4.builtin.send_socket_buffer_size"] = sb.ToString();
-        if (transport.ReceiveBufferSize is int rb)
-            props["dds.transport.UDPv4.builtin.recv_socket_buffer_size"] = rb.ToString();
-
-        var qos = baseQos;
-        if (props.Count > 0)
-            qos = qos.WithProperty(Property.FromDictionary(props));
-
-        qos = qos.WithDiscovery(d =>
-        {
-            d.InitialPeers.Add("udpv4://127.0.0.1");
-            d.InitialPeers.Add("udpv4://localhost");
-
-            if (transport.DiscoveryMode == DdsDiscoveryMode.Unicast)
-            {
-                d.MulticastReceiveAddresses.Clear();
-            }
-            else if (!string.IsNullOrWhiteSpace(transport.MulticastAddress))
-            {
-                d.MulticastReceiveAddresses.Add(transport.MulticastAddress!);
-            }
-        });
-
-        return qos;
     }
 }

@@ -69,7 +69,7 @@ kubectl -n signal-forge logs deployment/signal-forge --tail=200
 curl http://192.168.0.11:5226/health
 ```
 
-정상 응답은 `{"status":"connected"}`입니다. DDS 검색이 되지 않으면 노드 방화벽, 멀티캐스트 라우팅, Domain ID, `topics.xml`, `qos_profiles.xml` 순서로 확인하십시오.
+정상 응답은 `{"status":"ready","messageModules":5}`와 같은 준비 상태 및 모듈 개수입니다. DDS 검색이 되지 않으면 노드 방화벽, 멀티캐스트 라우팅, Domain ID, 토픽 선택 목록, `qos_profiles.xml` 순서로 확인하십시오.
 
 ## 데이터와 업데이트
 

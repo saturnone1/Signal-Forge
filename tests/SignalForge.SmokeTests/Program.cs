@@ -25,15 +25,6 @@ Check(DdsJsonConverter.NormalizeJson("{\"Value\":1}") == "{\"Value\":1}",
       "valid JSON preserved");
 Check(types["M::Ids"].AliasIsSequence && types["M::Ids"].AliasSequenceMaxLength == 8, "typedef collection metadata");
 Check(types["M::Choice"].UnionCases.Single().Labels.Single() == "0", "union case metadata");
-Check(DdsTypeProfileEditor.IsValidIdentifier("Messages_2"), "IDL module identifier accepted");
-Check(!DdsTypeProfileEditor.IsValidIdentifier("2Messages"), "IDL module identifier start rejected");
-Check(!DdsTypeProfileEditor.IsValidIdentifier("Company::Messages"), "IDL module input is one segment");
-
-var editor = DdsTypeProfileEditor.Parse(xml);
-DdsTypeProfileEditor.ValidateState(editor);
-editor.Declarations.Single(item => item.Name == "Root").Members[0].TypeName = "M::Missing";
-ExpectFailure(() => DdsTypeProfileEditor.ValidateState(editor), "missing type reference");
-
 var topicsXml = """
 <topics><topic custom="legacy" name="T" qos_profile="P" direction="Both"><custom>kept</custom></topic></topics>
 """;
@@ -42,10 +33,9 @@ var qosProfilesXml = """
 """;
 var config = DdsConfigProfileEditor.Parse(topicsXml, qosProfilesXml);
 var applied = DdsConfigProfileEditor.Apply(topicsXml, qosProfilesXml, config);
-var topic = XDocument.Parse(applied.TopicsXml).Descendants("topic").Single();
-Check(topic.Attribute("name")?.Value == "T" && topic.Attribute("custom") == null &&
-      !topic.HasElements, "DDSClient topic normalization");
-var parsedConfig = DdsConfigParser.Parse(applied.TopicsXml, applied.QosProfilesXml);
+var topic = DdsTopicSettings.Read(applied.TopicSettingsJson).Single();
+Check(topic.TopicName == "T", "코드 등록용 토픽 JSON 정규화");
+var parsedConfig = DdsConfigParser.Parse(applied.TopicSettingsJson, applied.QosProfilesXml);
 Check(parsedConfig.Topics.Single().TypeName == "MSG::T", "DDSClient topic type mapping");
 ExpectFailure(
     () => DdsConfigParser.Parse("<topics><topic name=\"T\" qos_profile=\"P\" direction=\"1\"/></topics>", qosProfilesXml),
@@ -69,38 +59,39 @@ sessions.RaiseDeleting("s");
 Check(state.SnapshotOutbound("s", 100).Count == 0, "session history cleanup");
 Check(state.GetOutboundCount("s") == 0, "session counters cleanup");
 
-var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+var repositoryDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+while (repositoryDirectory is not null && !File.Exists(Path.Combine(repositoryDirectory.FullName, "ASAP.csproj")))
+    repositoryDirectory = repositoryDirectory.Parent;
+var repositoryRoot = repositoryDirectory?.FullName ?? throw new InvalidOperationException("Signal-Forge repository root not found.");
 var sampleTypes = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "DDSSim.xml"));
-DdsTypeProfileEditor.ValidateState(DdsTypeProfileEditor.Parse(sampleTypes));
 var qosXml = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "qos_profiles.xml"));
-var sampleTopics = File.ReadAllText(Path.Combine(repositoryRoot, "samples", "dds", "topics.xml"));
+var sampleTopics = DdsTopicSettings.Write([new DdsTopicConfig { TopicName = "TimeTickInformation",
+    TypeName = "MSG::TimeTickInformation", QosProfileName = "ReliableRealtime", Direction = DdsTopicDirection.Both }]);
 DdsProfileService.Validate(new DdsXmlProfile
 {
     Name = "DDSClient contract",
     DdsSimXml = sampleTypes,
-    TopicsXml = sampleTopics,
+    TopicSettingsJson = sampleTopics,
     QosProfilesXml = qosXml,
 });
 Check(DdsProfileFiles.RequiredFileNames.SequenceEqual(
-          new[] { "DDSSim.xml", "topics.xml", "qos_profiles.xml" }),
-      "DDSClient exact three file names");
+          new[] { "connection.json", "qos_profiles.xml" }),
+      "연결 JSON과 QoS XML 파일 이름");
 var importedFiles = DdsProfileFiles.CreateProfile("imported contract", new Dictionary<string, string>
 {
-    ["DDSSim.xml"] = sampleTypes,
-    ["topics.xml"] = sampleTopics,
+    ["connection.json"] = DdsProfileFiles.ExportConnection(new DdsXmlProfile { ModuleName = "DDSSim", TopicSettingsJson = sampleTopics }),
     ["qos_profiles.xml"] = qosXml,
 });
-Check(importedFiles.DdsSimXml == sampleTypes && importedFiles.TopicsXml == sampleTopics &&
+Check(importedFiles.DdsSimXml == sampleTypes && importedFiles.TopicSettingsJson == sampleTopics &&
       importedFiles.QosProfilesXml == qosXml,
-      "three XML file import");
+      "JSON 연결 설정과 QoS 가져오기");
 ExpectFailure(
     () => DdsProfileFiles.CreateProfile("missing file", new Dictionary<string, string>
     {
-        ["DDSSim.xml"] = sampleTypes,
-        ["topics.xml"] = sampleTopics,
+        ["connection.json"] = "{}",
     }),
-    "all three DDSClient files are required");
-var sampleTopicsDocument = XDocument.Parse(sampleTopics);
+    "두 설정 파일이 필요함");
+var sampleTopicsDocument = XDocument.Parse("""<topics><topic name="TimeTickInformation" qos_profile="ReliableRealtime" direction="Both"/></topics>""");
 var sampleQosDocument = XDocument.Parse(qosXml);
 var legacyConfig = new XDocument(new XElement("dds-ambassador-config",
     new XElement("dds", sampleQosDocument.Root!.Elements().Select(element => new XElement(element))),
@@ -116,14 +107,16 @@ var legacyProfile = new DdsXmlProfile
     LegacyConfigXml = legacyConfig,
 };
 DdsProfileService.Validate(legacyProfile);
-Check(legacyProfile.DdsSimXml.Length > 0 && legacyProfile.TopicsXml.Length > 0 &&
+Check(legacyProfile.DdsSimXml.Length > 0 && legacyProfile.TopicSettingsJson.Length > 0 &&
       legacyProfile.QosProfilesXml.Length > 0 && legacyProfile.LegacyConfigXml == null,
-      "legacy profile migrated to three files");
+      "구형 프로필 JSON 마이그레이션");
 using var loggerFactory = LoggerFactory.Create(_ => { });
-var host = new DdsParticipantHostFactory(loggerFactory).Create(
-    new DdsTransportSettings { DomainId = 0 }, sampleTypes, sampleTopics, qosXml);
-host.ValidateQosProfile("AmbassadorProfiles::ReliableRealtime");
-await host.DisposeAsync();
+// DDS participants are opt-in; ordinary smoke tests never join a production domain.
+if (args.Contains("--rti", StringComparer.Ordinal))
+{
+    await using var host = new DdsParticipantHostFactory(loggerFactory).Create(
+        new DdsTransportSettings { DomainId = 191 }, sampleTypes, sampleTopics, qosXml);
+}
 
 var storeDirectory = Path.Combine(Path.GetTempPath(), "signal-forge-tests", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(storeDirectory);
@@ -157,18 +150,18 @@ try
           !migratedJson.Contains("\"qosProfilesXml\"") && !migratedJson.Contains("\"typesXml\"") &&
           !migratedJson.Contains("\"configXml\""),
           "profile manifest stores metadata only");
-    var profileDirectory = Path.Combine(storeDirectory, "profiles", catalog.Profiles[0].Id);
+    var profileDirectory = Path.Combine(storeDirectory, "profiles", catalog.Profiles[0].Id, "versions", catalog.Profiles[0].StorageRevision!);
     Check(File.ReadAllText(Path.Combine(profileDirectory, "DDSSim.xml")) == catalog.Profiles[0].DdsSimXml,
           "DDSSim.xml persisted as a physical profile file");
-    Check(File.ReadAllText(Path.Combine(profileDirectory, "topics.xml")) == catalog.Profiles[0].TopicsXml,
-          "topics.xml persisted as a physical profile file");
+    Check(File.Exists(Path.Combine(profileDirectory, "connection.json")) &&
+          !File.Exists(Path.Combine(profileDirectory, "topics.xml")), "토픽 JSON 연결 설정 저장");
     Check(File.ReadAllText(Path.Combine(profileDirectory, "qos_profiles.xml")) == catalog.Profiles[0].QosProfilesXml,
           "qos_profiles.xml persisted as a physical profile file");
     var reloaded = await profileService.LoadAsync();
     Check(reloaded.Profiles[0].DdsSimXml == catalog.Profiles[0].DdsSimXml &&
-          reloaded.Profiles[0].TopicsXml == catalog.Profiles[0].TopicsXml &&
+          reloaded.Profiles[0].TopicSettingsJson == catalog.Profiles[0].TopicSettingsJson &&
           reloaded.Profiles[0].QosProfilesXml == catalog.Profiles[0].QosProfilesXml,
-          "metadata manifest reloads the three physical files");
+          "프로필 버전 다시 읽기");
     var ddsSimProfilePath = Path.Combine(profileDirectory, "DDSSim.xml");
     var unchangedFileTimestamp = DateTime.UtcNow.AddDays(-1);
     File.SetLastWriteTimeUtc(ddsSimProfilePath, unchangedFileTimestamp);
@@ -214,7 +207,7 @@ sealed class FakeSessions : IDdsSessionService
     public event Action<string>? SessionDeleting;
     public void RaiseDeleting(string id) => SessionDeleting?.Invoke(id);
     public DdsSession Create(DdsSessionCreateRequest request) => throw new NotSupportedException();
-    public DdsSession? Get(string sessionId) => null;
+    public DdsSession? Get(string sessionId) => new DdsSession { SessionId = sessionId, State = DdsSessionState.Active };
     public DdsParticipantHost? GetHost(string sessionId) => null;
     public IReadOnlyList<DdsSession> GetByProfileId(string profileId) => [];
     public Task DeleteAsync(string sessionId) => Task.CompletedTask;

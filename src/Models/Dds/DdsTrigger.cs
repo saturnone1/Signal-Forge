@@ -27,6 +27,7 @@ public sealed class DdsTrigger
 
     // Periodic
     public int IntervalMs { get; set; } = 1000;
+    // Maximum admitted attempts (including returned failures and exceptions).
     public int? MaxFires { get; set; }
 
     // Bulk
@@ -40,7 +41,7 @@ public sealed class DdsTrigger
     public int MaxFiresPerMinute { get; set; } = 0;
 
     // 통계
-    public long TotalFires;
+    public long TotalFires; // Admitted attempts, not successful delivery acknowledgments.
     public long Errors;
     public DateTime? LastFiredAt { get; set; }
     public string? LastError { get; set; }

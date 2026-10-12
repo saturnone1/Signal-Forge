@@ -6,12 +6,14 @@
 @inject DdsProfileService ProfileStore
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject ILogger<DdsSessionCreateForm> Logger
 
 <div class="wb-panel wb-panel--contain pa-3">
     <div class="wb-panel-kicker">1단계</div>
     <div class="wb-panel-heading">DDS XML 프로필 선택</div>
     <div class="wb-inline-note mt-2">
-        프로필은 Signal Forge 서비스에 저장되어 모든 접속 화면에서 공유됩니다. DDSSim.xml, topics.xml, qos_profiles.xml 세 파일을 한 묶음으로 관리할 수 있어요.
+        프로필은 Signal Forge 서비스에 저장되어 모든 접속 화면에서 공유됩니다. 모듈은 서버의 modules 폴더에서 불러오며, 연결 설정과 QoS XML은 빌드 후에도 편집할 수 있습니다.
+        메시지 타입은 앱 빌드에 포함된 메시지 모듈과 일치해야 합니다. XML 타입을 변경하려면 해당 모듈을 다시 생성·빌드해야 합니다.
     </div>
 
     <div class="wb-subpanel mt-3 pa-3">
@@ -40,7 +42,7 @@
                     }
                 </MudSelect>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Edit"
-                           OnClick="BeginEditProfile" Disabled="@(SelectedProfile == null || SelectedProfileActiveSessionCount > 0)">편집</MudButton>
+                           OnClick="BeginEditProfile" Disabled="@(SelectedProfile == null)">편집</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.CreateNewFolder"
                            OnClick="BeginNewDefaultProfile">새 프로필</MudButton>
             </div>
@@ -56,18 +58,18 @@
             <details class="wb-disclosure wb-disclosure--subtle mt-2">
                 <summary>
                     <span>프로필 가져오기·내보내기 및 기타 관리</span>
-                    <span class="wb-disclosure-hint">복제 · 세 XML · 새로고침</span>
+                    <span class="wb-disclosure-hint">복제 · 연결 설정·QoS · 새로고침</span>
                 </summary>
                 <div class="d-flex align-center flex-wrap mt-3" style="gap:10px;">
                     <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy"
                                OnClick="BeginNewProfile" Disabled="@(SelectedProfile == null)">복제</MudButton>
                     <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Download"
-                               OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">세 XML 내보내기</MudButton>
+                               OnClick="ExportSelectedProfile" Disabled="@(SelectedProfile == null)">연결 설정·QoS 내보내기</MudButton>
                     <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="ImportProfileFiles"
-                                   Accept=".xml,text/xml,application/xml" MaximumFileCount="3">
+                                   Accept=".json,.xml,application/json,text/xml,application/xml" MaximumFileCount="2">
                         <ActivatorContent>
                             <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.Upload">세 XML 가져오기</MudButton>
+                                       StartIcon="@Icons.Material.Filled.Upload">연결 설정·QoS 가져오기</MudButton>
                         </ActivatorContent>
                     </MudFileUpload>
                     <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh"
@@ -78,7 +80,7 @@
             {
                 <div class="wb-inline-note mt-2" style="color:var(--mud-palette-warning);">
                     이 프로필의 고정 스냅샷으로 DDS 세션 @SelectedProfileActiveSessionCount 개가 통신 중입니다.
-                    활성 세션을 보호하기 위해 원본 편집·삭제는 잠기며, 변경이 필요하면 복제하세요.
+                    편집·저장은 가능하며 변경본은 새 세션에 적용됩니다. 기존 세션 설정은 유지됩니다.
                 </div>
             }
 
@@ -96,37 +98,47 @@
 
                     <MudTextField @bind-Value="_editingProfile.Name" Label="프로필 이름" Immediate="true"
                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3" />
+                    <MudSelect T="string" Value="_editingProfile.ModuleName" ValueChanged="SelectBuiltModule"
+                               Label="빌드된 메시지 모듈" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var module in ASAP.Dds.BuiltMessageRegistry.Modules)
+                        {
+                            <MudSelectItem T="string" Value="@module.Module.Name">@module.Module.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="string" Value="_editingProfile.QosLibraryName" ValueChanged="SelectQosLibrary" Label="사용할 QoS 라이브러리"
+                               Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var library in AvailableQosLibraries)
+                        {
+                            <MudSelectItem T="string" Value="@library">@library</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField @bind-Value="_editingProfile.ParticipantQosProfile" Label="Participant QoS 프로파일 (라이브러리::프로파일)"
+                                  HelperText="비워두면 이전 프로필과 호환되는 기본 프로파일을 사용합니다. 망별로 명시하는 것을 권장합니다."
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
 
+                    @if (ProfileBindingError is { } bindingError)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mt-2">@bindingError 기존 토픽은 보존했습니다. 토픽 탭에서 연결을 수정하세요.</MudAlert>
+                        <MudButton OnClick="ResetModuleTopics" Variant="Variant.Outlined" Size="Size.Small" Class="mt-2">선택한 모듈의 기본 토픽으로 초안 재설정</MudButton>
+                    }
                     <MudTabs Rounded="true" Border="true" Class="mt-3">
                         <MudTabPanel Text="메시지 타입" Icon="@Icons.Material.Filled.DataObject">
-                            <div class="d-flex align-center mb-2" style="gap:8px;">
-                                <MudFileUpload T="IBrowserFile" FilesChanged="LoadTypesIntoEditor" Accept=".xml,text/xml,application/xml">
-                                    <ActivatorContent>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">DDSSim.xml 불러오기</MudButton>
-                                    </ActivatorContent>
-                                </MudFileUpload>
-                                <span class="wb-inline-note">XML 전체를 직접 수정하지 않고 IDL 타입 구조를 편집합니다.</span>
-                            </div>
-                            @if (_typeEditor == null)
+                            <div class="wb-inline-note">타입은 빌드된 모듈의 계약입니다. 타입을 바꾸려면 라이브러리를 다시 빌드하고 배포하세요.</div>
+                            @foreach (var typeName in _availableTypes)
                             {
-                                <div class="wb-inline-note">타입 XML을 구조 편집기로 불러오지 못했습니다. 고급 타입 XML 탭에서 확인하세요.</div>
-                            }
-                            else
-                            {
-                                <DdsTypeEditor State="_typeEditor" OnChanged="MarkTypesDirty" OnTypeRenamed="OnTypeRenamed" />
+                                <div class="wb-mono pa-2">@typeName</div>
                             }
                         </MudTabPanel>
                         <MudTabPanel Text="토픽" Icon="@Icons.Material.Filled.Hub">
                             <div class="d-flex align-center mb-2" style="gap:8px;">
-                                <span class="wb-inline-note">DDSClient 계약에 따라 MSG struct와 같은 이름의 토픽, 방향, QoS를 관리합니다.</span>
+                                <span class="wb-inline-note">Signal Forge 프로필의 토픽, 방향, QoS를 관리합니다. 별칭 토픽도 선택한 모듈의 메시지 타입에 연결할 수 있습니다.</span>
                                 <MudSpacer />
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
                                            OnClick="AddTopic">토픽 추가</MudButton>
                             </div>
                             @if (_configEditor == null)
                             {
-                                <div class="wb-inline-note">토픽/QoS XML을 구조 편집기로 불러오세요.</div>
+                                <div class="wb-inline-note">토픽 설정/QoS XML을 구조 편집기로 불러오세요.</div>
                             }
                             else
                             {
@@ -134,9 +146,12 @@
                                 {
                                     <div @key="topic.Id" class="wb-subpanel pa-2 mb-2">
                                         <div class="d-flex align-center flex-wrap" style="gap:8px;">
-                                            <MudSelect T="string" Value="topic.Name"
-                                                       ValueChanged="@((string value) => UpdateTopic(topic, item => item.Name = value))"
-                                                       Label="MSG 타입 / 토픽 이름" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                            <MudTextField T="string" Value="topic.Name"
+                                                          ValueChanged="@((string value) => UpdateTopic(topic, item => item.Name = value))"
+                                                          Label="토픽 이름" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                            <MudSelect T="string" Value="topic.TypeName"
+                                                       ValueChanged="@((string value) => UpdateTopic(topic, item => item.TypeName = value))"
+                                                       Label="빌드된 메시지 타입" Variant="Variant.Outlined" Margin="Margin.Dense"
                                                        Style="flex:1 1 300px;">
                                                 @foreach (var typeName in _availableTypes)
                                                 {
@@ -172,7 +187,7 @@
                                 @if (_configEditor != null)
                                 {
                                     <span class="wb-inline-note">
-                                        DDSClient 고정 QoS 라이브러리: AmbassadorProfiles. 이름은 자동 유지됩니다.
+                                        선택한 QoS 라이브러리의 프로파일을 편집합니다. Participant 선택은 위 설정에서 지정합니다.
                                     </span>
                                 }
                                 <MudSpacer />
@@ -194,6 +209,10 @@
                                         </div>
                                         <div class="wb-inline-note mt-1 mb-1">
                                             토픽에서 이 QoS 설정을 선택할 때 표시되는 이름입니다.
+                                            @if (!string.IsNullOrWhiteSpace(qos.BaseName))
+                                            {
+                                                <span>상속: @qos.BaseName · 수정한 정책만 반영합니다. 외부·다중 상속의 실제 값은 원문 XML을 확인하세요.</span>
+                                            }
                                         </div>
                                         <MudGrid Spacing="2" Class="mt-1">
                                             <MudItem xs="12" md="6">
@@ -259,54 +278,9 @@
                                 }
                             }
                         </MudTabPanel>
-                        <MudTabPanel Text="DDSSim.xml" Icon="@Icons.Material.Filled.Code">
-                            <div class="d-flex align-center mb-2" style="gap:8px;">
-                                <MudFileUpload T="IBrowserFile" FilesChanged="LoadTypesIntoEditor" Accept=".xml,text/xml,application/xml">
-                                    <ActivatorContent>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">DDSSim.xml 불러오기</MudButton>
-                                    </ActivatorContent>
-                                </MudFileUpload>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ApplyStructuredTypesToXml"
-                                           Disabled="@(!_structuredTypesDirty)"
-                                           StartIcon="@Icons.Material.Filled.Code">구조 변경을 XML에 반영</MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ReloadStructuredTypes"
-                                           Disabled="@_structuredTypesDirty"
-                                           StartIcon="@Icons.Material.Filled.Sync">XML을 구조 편집기에 반영</MudButton>
-                                <span class="wb-inline-note">include, annotation 및 RTI 전용 요소는 이 탭에서 보존·편집할 수 있습니다.</span>
-                            </div>
-                            @if (_structuredTypesDirty)
-                            {
-                                <div class="wb-inline-note mb-2">메시지 타입 변경사항을 먼저 XML에 반영하면 원문 XML을 편집할 수 있습니다.</div>
-                            }
-                            <MudTextField T="string" Value="_editingProfile.DdsSimXml" ValueChanged="OnRawDdsSimXmlChanged" Lines="18" Immediate="true"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense"
-                                          Disabled="@_structuredTypesDirty" Class="wb-mono" />
-                        </MudTabPanel>
-                        <MudTabPanel Text="topics.xml" Icon="@Icons.Material.Filled.Code">
-                            <div class="d-flex align-center mb-2" style="gap:8px;">
-                                <MudFileUpload T="IBrowserFile" FilesChanged="LoadTopicsIntoEditor" Accept=".xml,text/xml,application/xml">
-                                    <ActivatorContent>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.UploadFile">topics.xml 불러오기</MudButton>
-                                    </ActivatorContent>
-                                </MudFileUpload>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ApplyStructuredConfigToXml"
-                                           Disabled="@(!_structuredConfigDirty)"
-                                           StartIcon="@Icons.Material.Filled.Code">구조 변경을 XML에 반영</MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ReloadStructuredConfig"
-                                           Disabled="@_structuredConfigDirty"
-                                           StartIcon="@Icons.Material.Filled.Sync">XML을 구조 편집기에 반영</MudButton>
-                                <span class="wb-inline-note">DDSClient 형식: &lt;topic name="..." qos_profile="..." direction="..." /&gt;</span>
-                            </div>
-                            @if (_structuredConfigDirty)
-                            {
-                                <div class="wb-inline-note mb-2">토픽/QoS 변경사항을 먼저 두 XML에 반영하면 원문을 편집할 수 있습니다.</div>
-                            }
-                            <MudTextField T="string" Value="_editingProfile.TopicsXml" ValueChanged="OnRawTopicsXmlChanged" Lines="18" Immediate="true"
-                                           Variant="Variant.Outlined" Margin="Margin.Dense"
-                                           Disabled="@_structuredConfigDirty"
-                                           Class="wb-mono" />
+                        <MudTabPanel Text="모듈 XML (읽기 전용)" Icon="@Icons.Material.Filled.Code">
+                            <MudTextField T="string" Value="_editingProfile.DdsSimXml" Lines="18" ReadOnly="true"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="wb-mono" />
                         </MudTabPanel>
                         <MudTabPanel Text="qos_profiles.xml" Icon="@Icons.Material.Filled.Code">
                             <div class="d-flex align-center mb-2" style="gap:8px;">
@@ -326,7 +300,7 @@
                             </div>
                             @if (_structuredConfigDirty)
                             {
-                                <div class="wb-inline-note mb-2">토픽/QoS 변경사항을 먼저 두 XML에 반영하면 원문을 편집할 수 있습니다.</div>
+                                <div class="wb-inline-note mb-2">토픽/QoS 변경사항을 먼저 토픽 설정과 QoS XML에 반영하면 원문을 편집할 수 있습니다.</div>
                             }
                             <MudTextField T="string" Value="_editingProfile.QosProfilesXml" ValueChanged="OnRawQosProfilesXmlChanged" Lines="18" Immediate="true"
                                           Variant="Variant.Outlined" Margin="Margin.Dense"
@@ -343,7 +317,7 @@
                     <div class="d-flex align-center flex-wrap mt-3" style="gap:8px;">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
                                    StartIcon="@Icons.Material.Filled.Save" OnClick="SaveProfile"
-                                   Disabled="@(IsEditingProfileInUse || _profileSaving)">
+                                   Disabled="@(_profileSaving || _configEditor is null || ProfileBindingError is not null)">
                             @(_profileSaving ? "저장 중..." : "검증 후 저장")
                         </MudButton>
                         <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="CancelProfileEdit" Disabled="@_profileSaving">취소</MudButton>
@@ -378,9 +352,13 @@
                          Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudSelect T="DdsDiscoveryMode" @bind-Value="_discoveryMode" Label="검색 방식"
                    Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem Value="DdsDiscoveryMode.Unicast">유니캐스트 (로컬 피어)</MudSelectItem>
+            <MudSelectItem Value="DdsDiscoveryMode.FromQos">QoS XML 설정 유지</MudSelectItem>
+            <MudSelectItem Value="DdsDiscoveryMode.Unicast">유니캐스트 (명시된 피어)</MudSelectItem>
             <MudSelectItem Value="DdsDiscoveryMode.Multicast">멀티캐스트</MudSelectItem>
         </MudSelect>
+        <MudTextField @bind-Value="_discoveryPeers" Label="Discovery 피어 (쉼표로 구분)"
+                      HelperText="비워두면 QoS XML의 피어 목록을 유지합니다. localhost는 자동으로 추가하지 않습니다."
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
         @if (_discoveryMode == DdsDiscoveryMode.Multicast)
         {
             <MudTextField @bind-Value="_multicast" Label="멀티캐스트 주소 (선택)" Placeholder="RTI 기본 주소 사용"
@@ -420,10 +398,30 @@
     private DdsXmlProfile? _editingProfile;
     private string? _editingOriginalId;
     private DdsConfigEditorState? _configEditor;
-    private DdsTypeEditorState? _typeEditor;
     private List<string> _availableTypes = [];
     private bool _structuredConfigDirty;
-    private bool _structuredTypesDirty;
+    private IReadOnlyList<string> AvailableQosLibraries
+    {
+        get
+        {
+            if (_editingProfile is null) return [];
+            try { return System.Xml.Linq.XDocument.Parse(_editingProfile.QosProfilesXml).Descendants("qos_library")
+                .Select(library => (string?)library.Attribute("name")).OfType<string>().Distinct(StringComparer.Ordinal).ToArray(); }
+            catch (System.Xml.XmlException) { return []; }
+        }
+    }
+    private string? ProfileBindingError
+    {
+        get
+        {
+            if (_configEditor is null) return null;
+            var types = _availableTypes.ToHashSet(StringComparer.Ordinal);
+            var profiles = _configEditor.QosProfiles.Select(p => p.Name.Trim()).ToHashSet(StringComparer.Ordinal);
+            var invalidTypes = _configEditor.Topics.Count(t => !types.Contains(t.TypeName));
+            var invalidQos = _configEditor.Topics.Count(t => !profiles.Contains(t.QosProfileName.Trim()));
+            return invalidTypes + invalidQos == 0 ? null : $"현재 모듈에 없는 타입 {invalidTypes}개, 선택한 라이브러리에 없는 토픽 QoS {invalidQos}개가 있습니다.";
+        }
+    }
     private DdsProfileValidationResult? _selectedValidation;
     private bool _profilesLoading = true;
     private bool _profileSaving;
@@ -432,7 +430,8 @@
 
     private string _name = string.Empty;
     private int _domainId;
-    private DdsDiscoveryMode _discoveryMode = DdsDiscoveryMode.Unicast;
+    private DdsDiscoveryMode _discoveryMode = DdsDiscoveryMode.FromQos;
+    private string _discoveryPeers = "";
     private string _multicast = string.Empty;
     private bool _creating;
     private string? _error;
@@ -466,7 +465,8 @@
         }
         catch (Exception ex)
         {
-            _profileError = $"서비스 프로필을 불러오지 못했습니다: {ex.Message}";
+            Logger.LogError(ex, "DDS 프로필 초기 로드 실패");
+            _profileError = $"서비스 프로필을 불러오지 못했습니다: {ex.GetBaseException().Message}";
         }
         finally
         {
@@ -500,7 +500,8 @@
         }
         catch (Exception ex)
         {
-            _profileError = $"서비스 프로필을 불러오지 못했습니다: {ex.Message}";
+            Logger.LogError(ex, "DDS 프로필 새로고침 실패");
+            _profileError = $"서비스 프로필을 불러오지 못했습니다: {ex.GetBaseException().Message}";
         }
         finally
         {
@@ -511,11 +512,6 @@
     private void BeginEditProfile()
     {
         if (SelectedProfile == null) return;
-        if (SelectedProfileActiveSessionCount > 0)
-        {
-            _profileError = "통신 중인 DDS 세션이 사용하는 프로필은 편집할 수 없습니다. 프로필을 복제해 변경하세요.";
-            return;
-        }
         _editingProfile = CloneForEdit(SelectedProfile);
         _editingOriginalId = SelectedProfile.Id;
         _profileError = null;
@@ -546,7 +542,7 @@
         }
         catch (Exception ex)
         {
-            _profileError = $"기본 DDS 세 파일을 불러오지 못했습니다: {ex.Message}";
+            _profileError = $"기본 DDS 설정을 불러오지 못했습니다: {ex.Message}";
         }
     }
 
@@ -557,10 +553,8 @@
         _profileError = null;
         _deleteArmed = false;
         _configEditor = null;
-        _typeEditor = null;
         _availableTypes = [];
         _structuredConfigDirty = false;
-        _structuredTypesDirty = false;
     }
 
     private async Task SaveProfile()
@@ -571,15 +565,12 @@
         _profileError = null;
         try
         {
-            if (_structuredTypesDirty && _typeEditor != null)
-            {
-                _editingProfile.DdsSimXml = DdsTypeProfileEditor.Apply(_editingProfile.DdsSimXml, _typeEditor);
-                _structuredTypesDirty = false;
-            }
+            if (_configEditor is null) throw new InvalidOperationException("토픽/QoS XML의 오류를 먼저 수정하세요.");
+            if (ProfileBindingError is { } bindingError) throw new InvalidOperationException(bindingError);
             if (_structuredConfigDirty && _configEditor != null)
             {
-                var files = DdsConfigProfileEditor.Apply(_editingProfile.TopicsXml, _editingProfile.QosProfilesXml, _configEditor);
-                _editingProfile.TopicsXml = files.TopicsXml;
+                var files = DdsConfigProfileEditor.Apply(_editingProfile.TopicSettingsJson, _editingProfile.QosProfilesXml, _configEditor);
+                _editingProfile.TopicSettingsJson = files.TopicSettingsJson;
                 _editingProfile.QosProfilesXml = files.QosProfilesXml;
                 _structuredConfigDirty = false;
             }
@@ -650,17 +641,15 @@
         if (SelectedProfile == null) return;
         try
         {
-            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.DdsSimFileName,
-                SelectedProfile.DdsSimXml, "application/xml;charset=utf-8");
-            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.TopicsFileName,
-                SelectedProfile.TopicsXml, "application/xml;charset=utf-8");
+            await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.ConnectionFileName,
+                DdsProfileFiles.ExportConnection(SelectedProfile), "application/json;charset=utf-8");
             await JS.InvokeVoidAsync("workbench.downloadText", DdsProfileFiles.QosProfilesFileName,
                 SelectedProfile.QosProfilesXml, "application/xml;charset=utf-8");
-            Snackbar.Add("DDSSim.xml, topics.xml, qos_profiles.xml 내보내기 완료", Severity.Success);
+            Snackbar.Add("연결 설정 JSON·QoS XML 내보내기 완료", Severity.Success);
         }
         catch (Exception ex)
         {
-            _profileError = $"DDS 세 파일 내보내기 실패: {ex.Message}";
+            _profileError = $"DDS 연결 설정 내보내기 실패: {ex.Message}";
         }
     }
 
@@ -670,8 +659,8 @@
 
         try
         {
-            if (files.Count != 3)
-                throw new InvalidOperationException("DDSSim.xml, topics.xml, qos_profiles.xml 세 파일을 동시에 선택하세요.");
+            if (files.Count != 2)
+                throw new InvalidOperationException("connection.json과 qos_profiles.xml 두 파일을 선택하세요.");
             var duplicates = files.GroupBy(file => file.Name, StringComparer.Ordinal)
                 .FirstOrDefault(group => group.Count() > 1);
             if (duplicates != null)
@@ -682,10 +671,10 @@
             {
                 var maxSize = file.Name switch
                 {
-                    DdsProfileFiles.DdsSimFileName => 16 * 1024 * 1024,
-                    DdsProfileFiles.TopicsFileName => 4 * 1024 * 1024,
+                    DdsProfileFiles.ConnectionFileName => 4 * 1024 * 1024,
                     DdsProfileFiles.QosProfilesFileName => 8 * 1024 * 1024,
-                    _ => throw new InvalidOperationException($"허용되지 않은 파일명입니다: {file.Name}"),
+                    _ when file.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) => 16 * 1024 * 1024,
+                    _ => throw new InvalidOperationException($"XML 파일이 아닙니다: {file.Name}"),
                 };
                 contents.Add(file.Name, await ReadBrowserFile(file, maxSize));
             }
@@ -704,30 +693,6 @@
         }
     }
 
-    private async Task LoadTypesIntoEditor(IBrowserFile? file)
-    {
-        if (file == null || _editingProfile == null) return;
-        try
-        {
-            RequireFileName(file, DdsProfileFiles.DdsSimFileName);
-            OnRawDdsSimXmlChanged(await ReadBrowserFile(file, 16 * 1024 * 1024));
-            ReloadStructuredTypes();
-        }
-        catch (Exception ex) { _profileError = ex.Message; }
-    }
-
-    private async Task LoadTopicsIntoEditor(IBrowserFile? file)
-    {
-        if (file == null || _editingProfile == null) return;
-        try
-        {
-            RequireFileName(file, DdsProfileFiles.TopicsFileName);
-            OnRawTopicsXmlChanged(await ReadBrowserFile(file, 4 * 1024 * 1024));
-            ReloadStructuredConfig();
-        }
-        catch (Exception ex) { _profileError = ex.Message; }
-    }
-
     private async Task LoadQosProfilesIntoEditor(IBrowserFile? file)
     {
         if (file == null || _editingProfile == null) return;
@@ -742,70 +707,8 @@
 
     private void LoadProfileEditors()
     {
-        ReloadStructuredTypes();
         RefreshAvailableTypes();
         ReloadStructuredConfig();
-    }
-
-    private void OnRawDdsSimXmlChanged(string xml)
-    {
-        if (_editingProfile == null) return;
-        _editingProfile.DdsSimXml = xml;
-        _structuredTypesDirty = false;
-        RefreshAvailableTypes();
-    }
-
-    private void ReloadStructuredTypes()
-    {
-        if (_editingProfile == null) return;
-        try
-        {
-            _typeEditor = DdsTypeProfileEditor.Parse(_editingProfile.DdsSimXml);
-            _structuredTypesDirty = false;
-            _profileError = null;
-            RefreshAvailableTypes();
-        }
-        catch (Exception ex)
-        {
-            _typeEditor = null;
-            _profileError = $"메시지 타입 구조를 불러오지 못했습니다: {ex.Message}";
-        }
-    }
-
-    private void MarkTypesDirty()
-    {
-        _structuredTypesDirty = true;
-        RefreshAvailableTypes();
-    }
-
-    private void OnTypeRenamed(DdsTypeRename rename)
-    {
-        if (_configEditor == null) return;
-        if (rename.OldName.StartsWith("MSG::", StringComparison.Ordinal) && rename.NewName.StartsWith("MSG::", StringComparison.Ordinal))
-        {
-            var oldTopicName = rename.OldName["MSG::".Length..];
-            var newTopicName = rename.NewName["MSG::".Length..];
-            foreach (var topic in _configEditor.Topics.Where(topic => string.Equals(topic.Name, oldTopicName, StringComparison.Ordinal)))
-                topic.Name = newTopicName;
-        }
-        _structuredConfigDirty = true;
-        RefreshAvailableTypes();
-    }
-
-    private void ApplyStructuredTypesToXml()
-    {
-        if (_editingProfile == null || _typeEditor == null) return;
-        try
-        {
-            _editingProfile.DdsSimXml = DdsTypeProfileEditor.Apply(_editingProfile.DdsSimXml, _typeEditor);
-            _structuredTypesDirty = false;
-            _profileError = null;
-            RefreshAvailableTypes();
-        }
-        catch (Exception ex)
-        {
-            _profileError = ex.Message;
-        }
     }
 
     private void RefreshAvailableTypes()
@@ -813,27 +716,10 @@
         _availableTypes = [];
         if (_editingProfile == null) return;
 
-        if (_typeEditor != null)
-        {
-            _availableTypes = _typeEditor.Declarations
-                .Where(type => type.Kind == DdsTypeProfileEditor.StructKind &&
-                               string.Equals(type.ModulePath, "MSG", StringComparison.Ordinal))
-                .Select(type => type.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            return;
-        }
-
         try
         {
-            _availableTypes = ASAP.Dds.DdsTypeParser.Parse(_editingProfile.DdsSimXml)
-                .Values
-                .Where(type => type.Kind == DdsTypeKind.Struct &&
-                               type.QualifiedName?.StartsWith("MSG::", StringComparison.Ordinal) == true)
-                .Select(type => type.QualifiedName!["MSG::".Length..])
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            _availableTypes = ASAP.Dds.BuiltMessageRegistry.Select(_editingProfile.DdsSimXml, _editingProfile.ModuleName)
+                .Types.Keys.OrderBy(name => name, StringComparer.Ordinal)
                 .ToList();
         }
         catch
@@ -842,18 +728,11 @@
         }
     }
 
-    private void OnRawTopicsXmlChanged(string xml)
-    {
-        if (_editingProfile == null) return;
-        _editingProfile.TopicsXml = xml;
-        _structuredConfigDirty = false;
-    }
-
     private void OnRawQosProfilesXmlChanged(string xml)
     {
         if (_editingProfile == null) return;
         _editingProfile.QosProfilesXml = xml;
-        _structuredConfigDirty = false;
+        ReloadStructuredConfig();
     }
 
     private void ReloadStructuredConfig()
@@ -861,7 +740,8 @@
         if (_editingProfile == null) return;
         try
         {
-            _configEditor = DdsConfigProfileEditor.Parse(_editingProfile.TopicsXml, _editingProfile.QosProfilesXml);
+            var module = ASAP.Dds.BuiltMessageRegistry.Select(_editingProfile.DdsSimXml, _editingProfile.ModuleName);
+            _configEditor = DdsConfigProfileEditor.Parse(_editingProfile.TopicSettingsJson, _editingProfile.QosProfilesXml, _editingProfile.QosLibraryName, module);
             _structuredConfigDirty = false;
             _profileError = null;
         }
@@ -872,21 +752,26 @@
         }
     }
 
-    private void ApplyStructuredConfigToXml()
+    private void ApplyStructuredConfigToXml() => TryApplyStructuredConfigToXml();
+
+    private bool TryApplyStructuredConfigToXml()
     {
-        if (_editingProfile == null || _configEditor == null) return;
+        if (_editingProfile == null || _configEditor == null) return false;
 
         try
         {
-            var files = DdsConfigProfileEditor.Apply(_editingProfile.TopicsXml, _editingProfile.QosProfilesXml, _configEditor);
-            _editingProfile.TopicsXml = files.TopicsXml;
+            var files = DdsConfigProfileEditor.Apply(_editingProfile.TopicSettingsJson, _editingProfile.QosProfilesXml, _configEditor);
+            _editingProfile.TopicSettingsJson = files.TopicSettingsJson;
             _editingProfile.QosProfilesXml = files.QosProfilesXml;
             _structuredConfigDirty = false;
             _profileError = null;
+            ReloadStructuredConfig(); // 게시된 이름과 정책을 다음 편집의 기준값으로 다시 읽는다.
+            return _configEditor is not null;
         }
         catch (Exception ex)
         {
             _profileError = ex.Message;
+            return false;
         }
     }
 
@@ -900,6 +785,7 @@
                        _configEditor.Topics.All(topic => !string.Equals(topic.Name, typeName, StringComparison.Ordinal)))
                    ?? $"Message{index}",
             QosProfileName = _configEditor.QosProfiles.FirstOrDefault()?.Name ?? string.Empty,
+            ExplicitTypeName = _availableTypes.FirstOrDefault(),
         });
         _structuredConfigDirty = true;
     }
@@ -920,7 +806,7 @@
     private void AddQosProfile()
     {
         if (_configEditor == null) return;
-        var existing = _configEditor.QosProfiles.Select(profile => profile.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existing = _configEditor.QosProfiles.Select(profile => profile.Name).ToHashSet(StringComparer.Ordinal);
         var index = 1;
         while (existing.Contains($"QosProfile{index}")) index++;
         _configEditor.QosProfiles.Add(new DdsQosEditorItem { Name = $"QosProfile{index}" });
@@ -933,20 +819,29 @@
         var previousName = qos.Name;
         qos.Name = value;
         foreach (var topic in _configEditor.Topics.Where(topic =>
-                     string.Equals(topic.QosProfileName, previousName, StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(topic.QosProfileName, previousName, StringComparison.Ordinal)))
         {
             topic.QosProfileName = value;
         }
+        if (_editingProfile is not null && (_editingProfile.ParticipantQosProfile == previousName ||
+            _editingProfile.ParticipantQosProfile == _configEditor.QosLibraryName + "::" + previousName))
+            _editingProfile.ParticipantQosProfile = _configEditor.QosLibraryName + "::" + value;
         _structuredConfigDirty = true;
     }
 
     private void RemoveQosProfile(DdsQosEditorItem qos)
     {
         if (_configEditor == null || _configEditor.QosProfiles.Count <= 1) return;
+        if (_editingProfile?.ParticipantQosProfile == qos.Name ||
+            _editingProfile?.ParticipantQosProfile == _configEditor.QosLibraryName + "::" + qos.Name)
+        {
+            _profileError = "Participant가 사용하는 QoS입니다. Participant 프로파일을 먼저 변경하세요.";
+            return;
+        }
         _configEditor.QosProfiles.Remove(qos);
         var fallback = _configEditor.QosProfiles[0].Name;
         foreach (var topic in _configEditor.Topics.Where(topic =>
-                     string.Equals(topic.QosProfileName, qos.Name, StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(topic.QosProfileName, qos.Name, StringComparison.Ordinal)))
         {
             topic.QosProfileName = fallback;
         }
@@ -976,6 +871,8 @@
             {
                 DomainId = _domainId,
                 DiscoveryMode = _discoveryMode,
+                ParticipantQosProfile = selectedProfile.ParticipantQosProfile,
+                DiscoveryPeers = _discoveryPeers.Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
                 MulticastAddress = string.IsNullOrWhiteSpace(_multicast) ? null : _multicast.Trim(),
             };
             var session = await Task.Run(() => ProfileStore.CreateSessionAsync(
@@ -984,10 +881,12 @@
                     Name = string.IsNullOrWhiteSpace(_name) ? $"{profile.Name} domain {_domainId}" : _name.Trim(),
                     ProfileId = profile.Id,
                     ProfileName = profile.Name,
+                    ModuleName = profile.ModuleName,
+                    QosLibraryName = profile.QosLibraryName,
                     ProfileUpdatedAtUtc = profile.UpdatedAtUtc,
                     Transport = transport,
                     DdsSimXmlContent = profile.DdsSimXml,
-                    TopicsXmlContent = profile.TopicsXml,
+                    TopicSettingsJsonContent = profile.TopicSettingsJson,
                     QosProfilesXmlContent = profile.QosProfilesXml,
                 })));
             Snackbar.Add($"DDS 세션 생성: {session.Name}", Severity.Success);
@@ -1001,6 +900,40 @@
         {
             _creating = false;
         }
+    }
+
+    private void SelectBuiltModule(string moduleName)
+    {
+        if (_editingProfile == null) return;
+        if (_structuredConfigDirty && !TryApplyStructuredConfigToXml()) return;
+        _editingProfile.ModuleName = moduleName;
+        _editingProfile.DdsSimXml = ASAP.Dds.BuiltMessageRegistry.Get(moduleName).ContractXml;
+        RefreshAvailableTypes();
+        ReloadStructuredConfig();
+    }
+
+    private void SelectQosLibrary(string libraryName)
+    {
+        if (_editingProfile is null || _editingProfile.QosLibraryName == libraryName) return;
+        if (_structuredConfigDirty && !TryApplyStructuredConfigToXml()) return;
+        var participant = _editingProfile.ParticipantQosProfile;
+        _editingProfile.QosLibraryName = libraryName;
+        if (!string.IsNullOrWhiteSpace(participant))
+            _editingProfile.ParticipantQosProfile = libraryName + "::" + participant.Split("::", StringSplitOptions.None)[^1];
+        ReloadStructuredConfig();
+    }
+
+    private void ResetModuleTopics()
+    {
+        if (_editingProfile is null || _configEditor is null) return;
+        var module = ASAP.Dds.BuiltMessageRegistry.Get(_editingProfile.ModuleName!);
+        var qos = _configEditor.QosProfiles.FirstOrDefault()?.Name ?? "";
+        _configEditor.Topics = module.Module.Types.Select(type => new DdsTopicEditorItem
+        {
+            Name = type.Key, ExplicitTypeName = ASAP.Dds.BuiltMessageRegistry.WireTypeName(type.Value), QosProfileName = qos,
+        }).ToList();
+        _structuredConfigDirty = true;
+        _profileError = null;
     }
 
     private void RefreshSelectedValidation()
@@ -1023,8 +956,12 @@
     {
         Id = source.Id,
         Name = source.Name,
+        StorageRevision = source.StorageRevision,
+        ModuleName = source.ModuleName,
+        QosLibraryName = source.QosLibraryName,
+        ParticipantQosProfile = source.ParticipantQosProfile,
         DdsSimXml = source.DdsSimXml,
-        TopicsXml = source.TopicsXml,
+        TopicSettingsJson = source.TopicSettingsJson,
         QosProfilesXml = source.QosProfilesXml,
         UpdatedAtUtc = source.UpdatedAtUtc,
     };

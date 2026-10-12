@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <DdsUseDefaultModules>false</DdsUseDefaultModules>
+    <DDSClientRoot>$(MSBuildThisFileDirectory)../../DDSClient/DDS_Nuget</DDSClientRoot>
+    <IntermediateOutputPath>$(MSBuildThisFileDirectory)../artifacts/catalog-tests/</IntermediateOutputPath>
+    <ModuleContract>$(DDSClientRoot)/../definitions/DDSSim.xml</ModuleContract>
+    <ModuleContract Condition="'$(InjectMismatch)' == 'true'">$(DDSClientRoot)/../definitions/Telemetry.xml</ModuleContract>
+  </PropertyGroup>
+  <ItemGroup>
+    <DdsBuiltModule Include="DDSSim" ProjectPath="$(DDSClientRoot)/generated/DDSSim/DdsAmbassador.Messages.DDSSim.csproj"
+      Accessor="DdsAmbassador.Messages.DDSSimMessages.Module" Contract="$(ModuleContract)" />
+  </ItemGroup>
+  <Import Project="BuiltModules.targets" />
+</Project>

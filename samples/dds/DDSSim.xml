@@ -124,65 +124,65 @@
   </enum> 
 </module>
 <module name="STRUCT">
-  <struct name= "MessageHeader8">
+  <struct name= "MessageHeader8" topLevel="false">
     <member name="TimeTick" type="uint64"/>
     <member name="TimeStamp" type="uint64"/>
     <member name="MsgID" type="nonBasic"  nonBasicTypeName= "ENUM::MessageID"/>
     <member name="SrcSimID" type="nonBasic"  nonBasicTypeName= "ENUM::SimulatorID"/>
     <member name="DstSimID" type="nonBasic"  nonBasicTypeName= "ENUM::SimulatorID"/>
   </struct>
-  <struct name= "StandardDeviation2">
+  <struct name= "StandardDeviation2" topLevel="false">
     <member name="X" type="uint16"/>
     <member name="Y" type="uint16"/>
     <member name="Z" type="uint16"/>
   </struct>
-  <struct name= "Position8">
+  <struct name= "Position8" topLevel="false">
     <member name="LocationX" type="float64"/>
     <member name="LocationY" type="float64"/>
     <member name="LocationZ" type="float64"/>
   </struct>
-  <struct name= "RelativePosition8">
+  <struct name= "RelativePosition8" topLevel="false">
     <member name="DistanceX" type="float64"/>
     <member name="DistanceY" type="float64"/>
     <member name="DistanceZ" type="float64"/>
   </struct>
-  <struct name= "LLA8">
+  <struct name= "LLA8" topLevel="false">
     <member name="Latitude" type="float64"/>
     <member name="Longitude" type="float64"/>
     <member name="Altitude" type="float64"/>
   </struct>
-  <struct name= "Velocity8">
+  <struct name= "Velocity8" topLevel="false">
     <member name="VelocityX" type="float64"/>
     <member name="VelocityY" type="float64"/>
     <member name="VelocityZ" type="float64"/>
   </struct>
-  <struct name= "Acceleration8">
+  <struct name= "Acceleration8" topLevel="false">
     <member name="AccelerationX" type="float64"/>
     <member name="AccelerationY" type="float64"/>
     <member name="AccelerationZ" type="float64"/>
   </struct>
-  <struct name= "Orientation8">
+  <struct name= "Orientation8" topLevel="false">
     <member name="Roll" type="float64"/>
     <member name="Pitch" type="float64"/>
     <member name="Yaw" type="float64"/>
   </struct>
-  <struct name= "AER8">
+  <struct name= "AER8" topLevel="false">
     <member name="Azimuth" type="float64"/>
     <member name="Elevation" type="float64"/>
     <member name="Roll" type="float64"/>
   </struct>
-  <struct name= "ObjectInfo4">
+  <struct name= "ObjectInfo4" topLevel="false">
     <member name="IFF" type="nonBasic"  nonBasicTypeName= "ENUM::ForceIdentifier"/>
     <member name="ModelKind" type="uint16"/>
     <member name="ObjectNumber" type="uint16"/>
     <member name="IsFrozen" type="boolean"/>
   </struct>
-  <struct name= "Jamming4">
+  <struct name= "Jamming4" topLevel="false">
     <member name="Type" type="nonBasic"  nonBasicTypeName= "ENUM::JammingType"/>
     <member name="JammingPower" type="uint16"/>
     <member name="JammingPullOff" type="uint16"/>
   </struct>
-  <struct name= "LCHRStatus2">
+  <struct name= "LCHRStatus2" topLevel="false">
     <member name="LaunchReadyStatus" type="uint16"/>
     <member name="LCUStatus" type="uint16"/>
     <member name="HotInventory" type="uint16"/>
@@ -190,7 +190,7 @@
     <member name="LSSNumber" type="byte"/>
     <member name="ConnectionStatus" type="byte"/>
   </struct>
-  <struct name= "MFRStatus8">
+  <struct name= "MFRStatus8" topLevel="false">
     <member name="BeamAzimuth" type="float64"/>
     <member name="BeamAzimuthOffset" type="float64"/>
     <member name="BeamElevation" type="float64"/>
@@ -200,12 +200,12 @@
     <member name="BeamRange" type="uint32"/>
     <member name="BeamOnOffState" type="byte"/>
   </struct>
-  <struct name= "Config8">
+  <struct name= "Config8" topLevel="false">
     <member name="ConfigName" stringMaxLength="255" type="string"/>
     <member name="ConfigVersion" stringMaxLength="255" type="string"/>
     <member name="SimID" type="nonBasic"  nonBasicTypeName= "ENUM::SimulatorID"/>
   </struct>
-  <struct name= "AirThreat8">
+  <struct name= "AirThreat8" topLevel="false">
     <member name="Position" type="nonBasic"  nonBasicTypeName= "STRUCT::Position8"/>
     <member name="Velocity" type="nonBasic"  nonBasicTypeName= "STRUCT::Velocity8"/>
     <member name="Acceleration" type="nonBasic"  nonBasicTypeName= "STRUCT::Acceleration8"/>
@@ -215,7 +215,7 @@
     <member name="Status" type="nonBasic"  nonBasicTypeName= "ENUM::ATSStatus"/>
     <member name="MeanRCS" type="uint16"/>
   </struct>
-  <struct name= "Munition8">
+  <struct name= "Munition8" topLevel="false">
     <member name="Position" type="nonBasic"  nonBasicTypeName= "STRUCT::Position8"/>
     <member name="Velocity" type="nonBasic"  nonBasicTypeName= "STRUCT::Velocity8"/>
     <member name="Acceleration" type="nonBasic"  nonBasicTypeName= "STRUCT::Acceleration8"/>
@@ -229,7 +229,7 @@
     <member name="SignalPower" type="uint16"/>
     <member name="AddressKey" type="uint16"/>
   </struct>
-  <struct name= "GroundVehicle8">
+  <struct name= "GroundVehicle8" topLevel="false">
     <member name="Position" type="nonBasic"  nonBasicTypeName= "STRUCT::Position8"/>
     <member name="Velocity" type="nonBasic"  nonBasicTypeName= "STRUCT::Velocity8"/>
     <member name="Acceleration" type="nonBasic"  nonBasicTypeName= "STRUCT::Acceleration8"/>
@@ -238,17 +238,17 @@
     <member name="Information" type="nonBasic"  nonBasicTypeName= "STRUCT::ObjectInfo4"/>
     <member name="LauncherStatus" type="nonBasic"  nonBasicTypeName= "STRUCT::LCHRStatus2"/>
   </struct>
-  <struct name= "Uplink2">
+  <struct name= "Uplink2" topLevel="false">
     <member name="AddressKey" type="uint16"/>
     <member name="MissileType" type="uint16"/>
     <member name="Data" type="uint16" arrayDimensions="26"/>
   </struct>
-  <struct name= "Downlink2">
+  <struct name= "Downlink2" topLevel="false">
     <member name="AddressKey" type="uint16"/>
     <member name="CRC" type="uint16"/>
     <member name="Data" type="uint16" arrayDimensions="24"/>
   </struct>
-  <struct name= "TimeTick8">
+  <struct name= "TimeTick8" topLevel="false">
     <member name="TimeTick" type="uint64"/>
     <member name="SyncCycle" type="uint32"/>
   </struct>

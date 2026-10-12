@@ -1,9 +1,11 @@
 @page "/"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using ASAP.Models.Session
 @using ASAP.Services
 @inject IDdsSessionService DdsSessions
 @inject UiStateService Ui
+@inject ISnackbar Snackbar
 
 <PageTitle>Signal Forge DDS</PageTitle>
 
@@ -52,7 +54,15 @@
     {
         var isVisible = !_showCreateForm && string.Equals(_activeSession?.SessionId, session.SessionId, StringComparison.Ordinal);
         <div @key="session.SessionId" style="@(isVisible ? null : "display:none;")" aria-hidden="@(!isVisible)">
-            <DdsSessionPanel @key="session.SessionId" Session="session" IsVisible="isVisible" />
+            @if (session.State == DdsSessionState.Active)
+            {
+                <DdsSessionPanel @key="session.SessionId" Session="session" IsVisible="isVisible" />
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Warning">@session.State — @(session.CleanupError ?? "네이티브 자원 정리 중입니다. 대기 시간 초과는 정리를 취소하지 않습니다.")</MudAlert>
+                <MudButton OnClick="RefreshSessions">상태 새로고침</MudButton>
+            }
         </div>
     }
 </div>
@@ -61,9 +71,14 @@
     private List<DdsSession> _sessions = [];
     private DdsSession? _activeSession;
     private bool _showCreateForm;
+    // 공유 세션 객체는 백그라운드에서 바뀐다. 마지막으로 표시한 값은 객체 참조가 아닌 불변 값으로 보관한다.
+    private (string Id, DdsSessionState State, string? Error)[] _renderedSessionStates = [];
+    private readonly CancellationTokenSource _healthCancellation = new();
+    private Task? _healthPolling;
 
     protected override void OnInitialized()
     {
+        _healthPolling = PollConnectionHealthAsync();
         RefreshSessions();
         if (_sessions.Count > 0)
         {
@@ -75,11 +90,37 @@
         }
     }
 
+    // 외부에서 발생한 네이티브 연결 오류도 표시한다. 송수신 데이터 자체를 폴링하지 않는다.
+    private async Task PollConnectionHealthAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_healthCancellation.Token))
+                await InvokeAsync(() =>
+                {
+                    if (_healthCancellation.IsCancellationRequested) return;
+                    var previous = _renderedSessionStates;
+                    RefreshSessions();
+                    if (!previous.SequenceEqual(_renderedSessionStates)) StateHasChanged();
+                });
+        }
+        catch (OperationCanceledException) when (_healthCancellation.IsCancellationRequested) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _healthCancellation.Cancel();
+        if (_healthPolling is not null) await _healthPolling;
+        _healthCancellation.Dispose();
+    }
+
     private void RefreshSessions()
     {
         _sessions = DdsSessions.GetAll()
             .OrderBy(session => session.CreatedAt)
             .ToList();
+        _renderedSessionStates = _sessions.Select(s => (s.SessionId, s.State, s.CleanupError)).ToArray();
     }
 
     private bool IsActive(string sessionId)
@@ -112,7 +153,7 @@
 
     private void ActivateSession(string sessionId)
     {
-        var session = DdsSessions.Get(sessionId);
+        var session = DdsSessions.GetAll().FirstOrDefault(s => s.SessionId == sessionId);
         if (session == null)
         {
             RefreshSessions();
@@ -126,7 +167,19 @@
 
     private async Task CloseSession(string sessionId)
     {
-        await DdsSessions.DeleteAsync(sessionId);
+        try { await DdsSessions.DeleteAsync(sessionId); }
+        catch (TimeoutException)
+        {
+            Snackbar.Add("종료 대기 시간이 초과되었습니다. 세션은 백그라운드에서 계속 정리됩니다.", Severity.Warning);
+            RefreshSessions();
+            return;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"세션 정리 실패: {ex.Message}", Severity.Error);
+            RefreshSessions();
+            return;
+        }
         RefreshSessions();
 
         if (_activeSession?.SessionId == sessionId)
@@ -152,5 +205,5 @@
             : session.Name;
 
     private static string SessionDetail(DdsSession session)
-        => $"Domain {session.Transport.DomainId} · {session.Topics.Count}개 토픽";
+        => $"Domain {session.Transport.DomainId} · {session.Topics.Count}개 토픽 · {session.State}";
 }

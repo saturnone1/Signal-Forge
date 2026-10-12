@@ -10,7 +10,7 @@ public sealed class DdsProfileService
 {
     private const int MaxProfiles = 100;
     private const int MaxDdsSimXmlChars = 16 * 1024 * 1024;
-    private const int MaxTopicsXmlChars = 4 * 1024 * 1024;
+    private const int MaxTopicSettingsJsonChars = 4 * 1024 * 1024;
     private const int MaxQosProfilesXmlChars = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -81,6 +81,9 @@ public sealed class DdsProfileService
     {
         ArgumentNullException.ThrowIfNull(catalog);
 
+        var originalRevision = catalog.Revision;
+        var originalStorage = catalog.Profiles.Select(profile => (Profile: profile, profile.StorageRevision)).ToArray();
+
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -117,6 +120,12 @@ public sealed class DdsProfileService
                 "Saved {ProfileCount} DDS profiles at revision {Revision}",
                 catalog.Profiles.Count,
                 catalog.Revision);
+        }
+        catch
+        {
+            catalog.Revision = originalRevision;
+            foreach (var previous in originalStorage) previous.Profile.StorageRevision = previous.StorageRevision;
+            throw;
         }
         finally
         {
@@ -177,18 +186,26 @@ public sealed class DdsProfileService
 
     public async Task<DdsProfileCatalog> CreateDefaultCatalogAsync(CancellationToken cancellationToken = default)
     {
-        var profile = new DdsXmlProfile
+        var qosXml = await LoadSampleXmlAsync(DdsProfileFiles.QosProfilesFileName, cancellationToken);
+        var library = DdsConfigParser.SelectLibrary(XDocument.Parse(qosXml));
+        var libraryName = (string)library.Attribute("name")!;
+        var qosName = (string?)library.Elements("qos_profile").FirstOrDefault()?.Attribute("name")
+            ?? throw new InvalidOperationException("기본 QoS 프로파일이 없습니다.");
+        // 기본 프로필도 현재 빌드에 포함된 모듈로 만든다. DDSSim이 없는 배포도 초기화할 수 있다.
+        return new DdsProfileCatalog { Profiles = BuiltMessageRegistry.Modules.Select(module => new DdsXmlProfile
         {
-            Name = "기본 DDSSim",
-            DdsSimXml = await LoadSampleXmlAsync(DdsProfileFiles.DdsSimFileName, cancellationToken),
-            TopicsXml = await LoadSampleXmlAsync(DdsProfileFiles.TopicsFileName, cancellationToken),
-            QosProfilesXml = await LoadSampleXmlAsync(DdsProfileFiles.QosProfilesFileName, cancellationToken),
-        };
-
-        return new DdsProfileCatalog
-        {
-            Profiles = [profile],
-        };
+            Name = "기본 " + module.Module.Name,
+            ModuleName = module.Module.Name,
+            DdsSimXml = module.ContractXml,
+            QosLibraryName = libraryName,
+            ParticipantQosProfile = libraryName + "::" + qosName,
+            QosProfilesXml = qosXml,
+            TopicSettingsJson = DdsTopicSettings.Write(module.Module.Types.Select(type => new DdsTopicConfig
+            {
+                TopicName = type.Key, TypeName = BuiltMessageRegistry.WireTypeName(type.Value),
+                QosProfileName = qosName, Direction = DdsTopicDirection.Both,
+            })),
+        }).ToList() };
     }
 
     public static DdsProfileValidationResult Validate(DdsXmlProfile profile)
@@ -198,53 +215,49 @@ public sealed class DdsProfileService
             throw new InvalidOperationException("프로필 이름을 입력하세요.");
         if (profile.DdsSimXml.Length > MaxDdsSimXmlChars)
             throw new InvalidOperationException($"DDSSim.xml은 {MaxDdsSimXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
-        if (profile.TopicsXml.Length > MaxTopicsXmlChars)
-            throw new InvalidOperationException($"topics.xml은 {MaxTopicsXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
+        if (profile.TopicSettingsJson.Length > MaxTopicSettingsJsonChars)
+            throw new InvalidOperationException($"토픽 설정은 {MaxTopicSettingsJsonChars / 1024 / 1024}MB를 초과할 수 없습니다.");
         if (profile.QosProfilesXml.Length > MaxQosProfilesXmlChars)
             throw new InvalidOperationException($"qos_profiles.xml은 {MaxQosProfilesXmlChars / 1024 / 1024}MB를 초과할 수 없습니다.");
 
+        var builtModule = BuiltMessageRegistry.Select(profile.DdsSimXml, profile.ModuleName);
+        profile.ModuleName = builtModule.Module.Name;
         var ddsSimDocument = XDocument.Parse(profile.DdsSimXml);
-        XDocument.Parse(profile.TopicsXml);
+        DdsTopicSettings.Read(profile.TopicSettingsJson);
         XDocument.Parse(profile.QosProfilesXml);
         if (ddsSimDocument.Root?.Name.LocalName != "dds")
             throw new InvalidOperationException("DDSSim.xml root는 <dds>여야 합니다.");
-        var msgModule = ddsSimDocument.Descendants("module")
-            .FirstOrDefault(element => string.Equals(element.Attribute("name")?.Value, "MSG", StringComparison.Ordinal))
-            ?? throw new InvalidOperationException("DDSSim.xml에 <module name=\"MSG\">가 필요합니다.");
-        var msgStructNames = msgModule.Elements("struct")
-            .Select(element => element.Attribute("name")?.Value?.Trim())
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name!)
-            .ToHashSet(StringComparer.Ordinal);
-        if (msgStructNames.Count == 0)
-            throw new InvalidOperationException("DDSSim.xml의 MSG 모듈에 struct를 하나 이상 정의하세요.");
-        DdsTypeProfileEditor.ValidateState(DdsTypeProfileEditor.Parse(profile.DdsSimXml));
+        // 컴파일된 계약과 일치함을 위에서 확인했다. 구형 구조 편집기의 제약을 다시 적용하지 않는다.
 
         var types = DdsTypeParser.Parse(profile.DdsSimXml);
         var distinctTypes = types.Values
-            .DistinctBy(type => type.QualifiedName, StringComparer.OrdinalIgnoreCase)
+            .DistinctBy(type => type.QualifiedName, StringComparer.Ordinal)
             .ToList();
         if (distinctTypes.Count == 0)
             throw new InvalidOperationException("타입 XML에서 enum 또는 struct 정의를 찾지 못했습니다.");
 
-        var config = DdsConfigParser.Parse(profile.TopicsXml, profile.QosProfilesXml);
+        var config = DdsConfigParser.Parse(profile.TopicSettingsJson, profile.QosProfilesXml, builtModule, profile.QosLibraryName);
+        profile.QosLibraryName = config.QosLibraryName;
+        if (!string.IsNullOrWhiteSpace(profile.ParticipantQosProfile))
+        {
+            var selected = profile.ParticipantQosProfile.Contains("::", StringComparison.Ordinal)
+                ? profile.ParticipantQosProfile : config.QosLibraryName + "::" + profile.ParticipantQosProfile;
+            if (!config.QosProfileNames.Any(name => selected == config.QosLibraryName + "::" + name))
+                throw new InvalidOperationException("선택한 Participant QoS 프로파일이 없습니다: " + selected);
+            profile.ParticipantQosProfile = selected;
+        }
         if (config.Topics.Count == 0)
-            throw new InvalidOperationException("토픽/QoS XML에서 사용할 토픽을 찾지 못했습니다.");
+            throw new InvalidOperationException("토픽 설정에서 사용할 토픽을 찾지 못했습니다.");
 
         var missingTypes = config.Topics
             .Where(topic => !types.ContainsKey(topic.TypeName))
             .Select(topic => topic.TypeName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.Ordinal)
             .ToList();
         if (missingTypes.Count > 0)
             throw new InvalidOperationException($"타입 XML에 없는 토픽 타입: {string.Join(", ", missingTypes)}");
 
-        var topicNames = config.Topics.Select(topic => topic.TopicName).ToHashSet(StringComparer.Ordinal);
-        var missingTopics = msgStructNames.Where(name => !topicNames.Contains(name)).OrderBy(name => name).ToList();
-        if (missingTopics.Count > 0)
-            throw new InvalidOperationException($"topics.xml에 없는 MSG struct: {string.Join(", ", missingTopics)}");
-
-        var qosNames = config.QosProfileNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var qosNames = config.QosProfileNames.ToHashSet(StringComparer.Ordinal);
         var missingQos = config.Topics
             .Where(topic => !qosNames.Contains(topic.QosProfileName))
             .Select(topic => topic.QosProfileName)
@@ -289,6 +302,7 @@ public sealed class DdsProfileService
         if (catalog.Profiles.Count == 0)
             throw new InvalidOperationException("DDS 프로필 저장 파일에 프로필이 없습니다.");
         await LoadProfileFilesAsync(catalog, cancellationToken);
+        Normalize(catalog);
         return Clone(catalog);
     }
 
@@ -305,12 +319,13 @@ public sealed class DdsProfileService
                                ?? new Dictionary<string, DdsXmlProfile>(StringComparer.Ordinal);
         foreach (var profile in catalog.Profiles)
         {
-            var filesExist = ProfileFilesExist(profile.Id);
+            var filesExist = ProfileFilesExist(profile);
             if (!filesExist || !previousProfiles.TryGetValue(profile.Id, out var previous) ||
-                !ProfileXmlContentEquals(previous, profile))
+                !ProfileXmlContentEquals(previous, profile) || profile.StorageRevision is null)
             {
                 await WriteProfileFilesAsync(profile, cancellationToken);
             }
+            else profile.StorageRevision = previous.StorageRevision;
         }
 
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(_storagePath)}.{Guid.NewGuid():N}.tmp");
@@ -332,6 +347,10 @@ public sealed class DdsProfileService
                     {
                         profile.Id,
                         profile.Name,
+                        profile.ModuleName,
+                        profile.QosLibraryName,
+                        profile.ParticipantQosProfile,
+                        profile.StorageRevision,
                         profile.UpdatedAtUtc,
                     }),
                 };
@@ -355,36 +374,48 @@ public sealed class DdsProfileService
         foreach (var profile in catalog.Profiles)
         {
             if (!string.IsNullOrWhiteSpace(profile.DdsSimXml) &&
-                !string.IsNullOrWhiteSpace(profile.TopicsXml) &&
+                !string.IsNullOrWhiteSpace(profile.TopicSettingsJson) &&
                 !string.IsNullOrWhiteSpace(profile.QosProfilesXml))
                 continue;
 
-            var profileDirectory = ProfileDirectory(profile.Id);
+            var profileDirectory = ProfileDirectory(profile.Id, profile.StorageRevision);
             var ddsSimPath = Path.Combine(profileDirectory, DdsProfileFiles.DdsSimFileName);
-            var topicsPath = Path.Combine(profileDirectory, DdsProfileFiles.TopicsFileName);
+            var topicsPath = Path.Combine(profileDirectory, DdsProfileFiles.ConnectionFileName);
+            var legacyTopicsPath = Path.Combine(profileDirectory, "topics.xml");
             var qosPath = Path.Combine(profileDirectory, DdsProfileFiles.QosProfilesFileName);
-            if (!File.Exists(ddsSimPath) || !File.Exists(topicsPath) || !File.Exists(qosPath))
+            if (!File.Exists(ddsSimPath) || (!File.Exists(topicsPath) && !File.Exists(legacyTopicsPath)) || !File.Exists(qosPath))
                 throw new InvalidOperationException($"프로필 '{profile.Name}'의 DDS 정의 3파일이 없습니다: {profileDirectory}");
             profile.DdsSimXml = await File.ReadAllTextAsync(ddsSimPath, cancellationToken);
-            profile.TopicsXml = await File.ReadAllTextAsync(topicsPath, cancellationToken);
+            if (File.Exists(topicsPath))
+                DdsProfileFiles.ApplyConnection(profile, await File.ReadAllTextAsync(topicsPath, cancellationToken));
+            else
+            {
+                profile.TopicSettingsJson = DdsTopicSettings.Migrate(await File.ReadAllTextAsync(legacyTopicsPath, cancellationToken));
+            }
             profile.QosProfilesXml = await File.ReadAllTextAsync(qosPath, cancellationToken);
         }
     }
 
     private async Task WriteProfileFilesAsync(DdsXmlProfile profile, CancellationToken cancellationToken)
     {
-        var profileDirectory = ProfileDirectory(profile.Id);
-        Directory.CreateDirectory(profileDirectory);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.DdsSimFileName), profile.DdsSimXml, cancellationToken);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.TopicsFileName), profile.TopicsXml, cancellationToken);
-        await WriteTextAtomicAsync(Path.Combine(profileDirectory, DdsProfileFiles.QosProfilesFileName), profile.QosProfilesXml, cancellationToken);
+        var revision = Guid.NewGuid().ToString("N");
+        var versionDirectory = ProfileDirectory(profile.Id, revision);
+        // 기존 목록과 백업이 참조하는 파일은 절대 덮어쓰지 않는다. 세 파일이 완성된 버전만 새 목록에 게시한다.
+        var staging = versionDirectory + ".pending";
+        Directory.CreateDirectory(staging);
+        await WriteTextAtomicAsync(Path.Combine(staging, DdsProfileFiles.DdsSimFileName), profile.DdsSimXml, cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(staging, DdsProfileFiles.ConnectionFileName), DdsProfileFiles.ExportConnection(profile), cancellationToken);
+        await WriteTextAtomicAsync(Path.Combine(staging, DdsProfileFiles.QosProfilesFileName), profile.QosProfilesXml, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.Move(staging, versionDirectory);
+        profile.StorageRevision = revision;
     }
 
-    private bool ProfileFilesExist(string profileId)
+    private bool ProfileFilesExist(DdsXmlProfile profile)
     {
-        var directory = ProfileDirectory(profileId);
+        var directory = ProfileDirectory(profile.Id, profile.StorageRevision);
         return File.Exists(Path.Combine(directory, DdsProfileFiles.DdsSimFileName))
-               && File.Exists(Path.Combine(directory, DdsProfileFiles.TopicsFileName))
+               && (File.Exists(Path.Combine(directory, DdsProfileFiles.ConnectionFileName)) || File.Exists(Path.Combine(directory, "topics.xml")))
                && File.Exists(Path.Combine(directory, DdsProfileFiles.QosProfilesFileName));
     }
 
@@ -404,12 +435,16 @@ public sealed class DdsProfileService
         }
     }
 
-    private string ProfileDirectory(string profileId)
+    private string ProfileDirectory(string profileId, string? revision = null)
     {
         if (string.IsNullOrWhiteSpace(profileId) ||
             profileId.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_'))
             throw new InvalidOperationException($"DDS 프로필 ID가 파일 경로에 안전하지 않습니다: {profileId}");
-        return Path.Combine(_profilesRoot, profileId);
+        var directory = Path.Combine(_profilesRoot, profileId);
+        if (revision is null) return directory;
+        if (revision.Length != 32 || !revision.All(char.IsAsciiHexDigit))
+            throw new InvalidOperationException("잘못된 DDS 프로필 저장 버전입니다.");
+        return Path.Combine(directory, "versions", revision);
     }
 
     private async Task<bool> StorageNeedsMigrationAsync(CancellationToken cancellationToken)
@@ -425,7 +460,7 @@ public sealed class DdsProfileService
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var root = document.RootElement;
-            if (!root.TryGetProperty("version", out var version) || version.GetInt32() < 2)
+            if (!root.TryGetProperty("version", out var version) || version.GetInt32() < 4)
                 return true;
             if (!root.TryGetProperty("profiles", out var profiles) || profiles.ValueKind != JsonValueKind.Array)
                 return false;
@@ -474,7 +509,7 @@ public sealed class DdsProfileService
 
     private static void Normalize(DdsProfileCatalog catalog)
     {
-        catalog.Version = 2;
+        catalog.Version = 4;
         catalog.Profiles ??= [];
         catalog.Profiles.RemoveAll(profile => profile is null);
 
@@ -495,10 +530,17 @@ public sealed class DdsProfileService
 
     private static void MigrateLegacyProfile(DdsXmlProfile profile)
     {
+        if (string.IsNullOrWhiteSpace(profile.TopicSettingsJson) && profile.LegacyTopicsXml is not null)
+            profile.TopicSettingsJson = profile.LegacyTopicsXml;
+        if (!string.IsNullOrWhiteSpace(profile.TopicSettingsJson))
+            profile.TopicSettingsJson = DdsTopicSettings.Migrate(profile.TopicSettingsJson);
+        profile.LegacyTopicsXml = null;
+        if (profile.ModuleName is not null && BuiltMessageRegistry.Modules.Any(module => module.Module.Name == profile.ModuleName))
+            profile.DdsSimXml = BuiltMessageRegistry.Get(profile.ModuleName).ContractXml;
         if (string.IsNullOrWhiteSpace(profile.DdsSimXml) && !string.IsNullOrWhiteSpace(profile.LegacyTypesXml))
             profile.DdsSimXml = profile.LegacyTypesXml;
 
-        if ((!string.IsNullOrWhiteSpace(profile.TopicsXml) && !string.IsNullOrWhiteSpace(profile.QosProfilesXml)) ||
+        if ((!string.IsNullOrWhiteSpace(profile.TopicSettingsJson) && !string.IsNullOrWhiteSpace(profile.QosProfilesXml)) ||
             string.IsNullOrWhiteSpace(profile.LegacyConfigXml))
         {
             profile.LegacyTypesXml = null;
@@ -516,16 +558,14 @@ public sealed class DdsProfileService
             : root.Elements().FirstOrDefault(element => element.Name.LocalName == "dds");
         var library = dds?.Elements().FirstOrDefault(element => element.Name.LocalName == "qos_library");
 
-        if (topics != null && string.IsNullOrWhiteSpace(profile.TopicsXml))
+        if (topics != null && string.IsNullOrWhiteSpace(profile.TopicSettingsJson))
         {
-            profile.TopicsXml = new XDocument(
-                new XDeclaration("1.0", "UTF-8", null),
-                new XElement("topics", topics.Elements().Where(element => element.Name.LocalName == "topic").Select(ToDdsClientTopic)))
-                .ToString();
+            profile.TopicSettingsJson = DdsTopicSettings.Migrate(new XElement("topics",
+                topics.Elements().Where(element => element.Name.LocalName == "topic").Select(ToDdsClientTopic)).ToString());
         }
         if (library != null && string.IsNullOrWhiteSpace(profile.QosProfilesXml))
         {
-            library.SetAttributeValue("name", DdsConfigParser.RequiredQosLibraryName);
+            // 라이브러리 이름을 바꾸면 base_name 참조가 깨진다. 이전 파일의 원래 이름을 유지한다.
             profile.QosProfilesXml = new XDocument(
                 new XDeclaration("1.0", "UTF-8", null),
                 new XElement("dds", new XElement(library))).ToString();
@@ -561,31 +601,41 @@ public sealed class DdsProfileService
                 continue;
 
             var proposedProfile = proposed.Profiles.FirstOrDefault(profile => profile.Id == currentProfile.Id);
-            if (proposedProfile == null || !ProfileContentEquals(currentProfile, proposedProfile))
+            if (proposedProfile == null)
             {
                 throw new InvalidOperationException(
-                    $"프로필 '{currentProfile.Name}'은(는) 활성 DDS 세션 {activeSessions.Count}개에서 사용 중이라 수정하거나 삭제할 수 없습니다. 세션을 닫거나 프로필을 복제해 편집하세요.");
+                    $"프로필 '{currentProfile.Name}'은(는) 활성 DDS 세션 {activeSessions.Count}개에서 사용 중이라 삭제할 수 없습니다. 설정 변경은 새 세션에 적용됩니다.");
             }
         }
     }
 
     private static bool ProfileContentEquals(DdsXmlProfile left, DdsXmlProfile right)
         => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
+           && ProfileSelectionEquals(left, right)
            && string.Equals(left.DdsSimXml, right.DdsSimXml, StringComparison.Ordinal)
-           && string.Equals(left.TopicsXml, right.TopicsXml, StringComparison.Ordinal)
+           && string.Equals(left.TopicSettingsJson, right.TopicSettingsJson, StringComparison.Ordinal)
            && string.Equals(left.QosProfilesXml, right.QosProfilesXml, StringComparison.Ordinal);
 
     private static bool ProfileXmlContentEquals(DdsXmlProfile left, DdsXmlProfile right)
         => string.Equals(left.DdsSimXml, right.DdsSimXml, StringComparison.Ordinal)
-           && string.Equals(left.TopicsXml, right.TopicsXml, StringComparison.Ordinal)
+           && ProfileSelectionEquals(left, right)
+           && string.Equals(left.TopicSettingsJson, right.TopicSettingsJson, StringComparison.Ordinal)
            && string.Equals(left.QosProfilesXml, right.QosProfilesXml, StringComparison.Ordinal);
+
+    // XML이 같아도 모듈 또는 Participant 선택이 다르면 별개의 망 설정이다.
+    private static bool ProfileSelectionEquals(DdsXmlProfile left, DdsXmlProfile right)
+        => left.ModuleName == right.ModuleName
+           && left.QosLibraryName == right.QosLibraryName
+           && left.ParticipantQosProfile == right.ParticipantQosProfile;
 
     private static DdsXmlProfile CloneProfile(DdsXmlProfile profile) => new()
     {
         Id = profile.Id,
         Name = profile.Name,
+        StorageRevision = profile.StorageRevision,
+        ModuleName = profile.ModuleName, QosLibraryName = profile.QosLibraryName, ParticipantQosProfile = profile.ParticipantQosProfile,
         DdsSimXml = profile.DdsSimXml,
-        TopicsXml = profile.TopicsXml,
+        TopicSettingsJson = profile.TopicSettingsJson,
         QosProfilesXml = profile.QosProfilesXml,
         UpdatedAtUtc = profile.UpdatedAtUtc,
     };

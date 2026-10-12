@@ -1,0 +1,12 @@
+<Project>
+  <!-- Pass as DirectoryBuildPropsPath to every project in the integration graph. -->
+  <PropertyGroup>
+    <OriginalDirectoryProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildProjectDirectory)'))</OriginalDirectoryProps>
+  </PropertyGroup>
+  <Import Project="$(OriginalDirectoryProps)" Condition="'$(OriginalDirectoryProps)' != ''" />
+  <PropertyGroup>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)../artifacts/integration/$(MSBuildProjectName)/bin/</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)../artifacts/integration/$(MSBuildProjectName)/obj/</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/bin/**;**/obj/**;artifacts/**;build/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

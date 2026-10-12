@@ -1,7 +1,7 @@
 param(
     [string]$ProjectPath = ".\ASAP.csproj",
-    [string]$AssetsPath = ".\obj\project.assets.json",
-    [string]$DockerIgnorePath = ".\.dockerignore",
+    [string]$AssetsPath = ".\artifacts\integration\ASAP\obj\project.assets.json",
+    [string]$DockerIgnorePath = ".\Dockerfile.dockerignore",
     [string]$PackagesPath = ".\packages",
     [switch]$SkipRestore
 )
@@ -10,7 +10,8 @@ $ErrorActionPreference = "Stop"
 
 if (-not $SkipRestore) {
     Write-Host "[Validate] Restoring assets graph..." -ForegroundColor Cyan
-    dotnet restore $ProjectPath | Out-Null
+    $props = Join-Path $PSScriptRoot 'eng/Integration.Build.props'
+    dotnet restore $ProjectPath "-p:DirectoryBuildPropsPath=$props" --configfile (Join-Path $PSScriptRoot 'nuget.config') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 }
 
@@ -28,8 +29,9 @@ if (-not (Test-Path $PackagesPath)) {
 
 $assets = Get-Content $AssetsPath -Raw | ConvertFrom-Json
 $requiredPackages = @(
-    $assets.libraries.PSObject.Properties.Name |
-        Where-Object { $_ -match '/' } |
+    $assets.libraries.PSObject.Properties |
+        Where-Object { $_.Value.type -eq 'package' } |
+        ForEach-Object { $_.Name } |
         ForEach-Object {
             $name, $version = $_ -split '/'
             '{0}.{1}.nupkg' -f $name.ToLowerInvariant(), $version.ToLowerInvariant()
@@ -39,8 +41,8 @@ $requiredPackages = @(
 
 $allowlistedPackages = @(
     Get-Content $DockerIgnorePath |
-        Where-Object { $_ -like '!packages/*.nupkg' } |
-        ForEach-Object { ($_ -replace '^!packages/', '').Trim().ToLowerInvariant() } |
+        Where-Object { $_ -like '!Signal-Forge/packages/*.nupkg' } |
+        ForEach-Object { ($_ -replace '^!Signal-Forge/packages/', '').Trim().ToLowerInvariant() } |
         Sort-Object -Unique
 )
 

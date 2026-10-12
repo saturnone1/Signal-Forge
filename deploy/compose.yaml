@@ -1,0 +1,18 @@
+services:
+  app:
+    image: ${SIGNAL_FORGE_IMAGE:-signal-forge:bundle-20261001}
+    pull_policy: never
+    ports:
+      - "127.0.0.1:${SIGNAL_FORGE_PORT:-5237}:5226"
+    environment:
+      SignalForge__InstanceId: ${COMPOSE_PROJECT_NAME}
+      SIGNAL_FORGE_MODULE_DIRECTORY: /app/data/modules
+      RTI_LICENSE_FILE: /run/rti-license.dat
+    volumes:
+      - data:/app/data
+      - type: bind
+        source: ${RTI_LICENSE_FILE:?Set RTI_LICENSE_FILE to your licensed RTI file}
+        target: /run/rti-license.dat
+        read_only: true
+volumes:
+  data:
